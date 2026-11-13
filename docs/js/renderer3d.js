@@ -32,6 +32,7 @@
     let targetCamX = 0;
     let targetCamZ = 0;
     let targetCamYaw = 0;
+    let ambientLight = null;
     let playerLight = null;
     let stepBob = 0;
     let shakeMag = 0;
@@ -157,7 +158,8 @@
         worldPickups.clear();
         combatSprites.clear();
 
-        scene.add(new THREE.AmbientLight(fc.amb, 2.1));
+        ambientLight = new THREE.AmbientLight(fc.amb, 2.1);
+        scene.add(ambientLight);
         scene.add(new THREE.HemisphereLight(fc.hemiSky, fc.hemiGnd, 1.15));
 
         playerLight = new THREE.PointLight(fc.player, 3.6, 7.5, 1.1);
@@ -182,7 +184,7 @@
         ceiling.position.set((mapCols - 1) / 2, WALL_HEIGHT, (mapRows - 1) / 2);
         scene.add(ceiling);
 
-        const wallMats = [0, 1, 2].map(v =>
+        const wallMats = [0, 1, 2, 3, 4, 5].map(v =>
             new THREE.MeshLambertMaterial({ map: makeTexture(window.GameSprites.makeWallTexture(v, floorNum)) })
         );
         const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
@@ -757,6 +759,23 @@
         mctx.closePath();
         mctx.fill();
         mctx.stroke();
+
+        // Carimbo / Cabeçalho discreto de Planta de Emergência / Memorando
+        mctx.save();
+        mctx.fillStyle = 'rgba(54, 35, 18, 0.75)';
+        mctx.font = 'bold 10px monospace';
+        mctx.fillText('PLANTA #25', 7, 13);
+        mctx.translate(mw - 34, mh - 14);
+        mctx.rotate(-0.14);
+        mctx.strokeStyle = 'rgba(155, 28, 28, 0.65)';
+        mctx.lineWidth = 1.5;
+        mctx.strokeRect(-26, -7, 52, 12);
+        mctx.fillStyle = 'rgba(155, 28, 28, 0.75)';
+        mctx.font = 'bold 8px monospace';
+        mctx.textAlign = 'center';
+        mctx.textBaseline = 'middle';
+        mctx.fillText('EMERGÊNCIA', 0, -0.5);
+        mctx.restore();
     }
 
     function loop(now) {
@@ -794,8 +813,14 @@
             camera.rotation.y = camYaw;
             camera.updateMatrixWorld();
 
+            const stutter = Math.sin(now * 0.0017) > 0.86 ? (Math.sin(now * 0.09) < -0.25 ? 0.78 : 1.04) : 1;
+            const fluoFlick = stutter * (1 + Math.sin(now * 0.045) * 0.015);
+            if (ambientLight) {
+                ambientLight.intensity = 2.1 * fluoFlick;
+            }
             if (playerLight) {
                 playerLight.position.set(camX, 0.95, camZ);
+                playerLight.intensity = 3.6 * fluoFlick;
             }
 
             for (const t of torches) {

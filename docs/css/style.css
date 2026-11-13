@@ -100,17 +100,37 @@ img, canvas, svg {
     gap: 1.2vh;
 }
 
-/* ---------- JANELA 2.5D CENTRAL SUPERIOR ---------- */
+/* ---------- JANELA 2.5D CENTRAL SUPERIOR (MONITOR DE BAIA SOMBRIA) ---------- */
 
 .viewport-frame {
     position: relative;
     width: min(74vw, 1080px);
     height: 67vh;
     background: #0d0a14;
-    border: 2px solid var(--silver);
-    box-shadow: 0 0 0 2px #07050c, 0 14px 36px rgba(0, 0, 0, 0.85);
+    border: 3px solid #8c9aad;
+    box-shadow:
+        inset 0 0 0 2px #1c2432,
+        0 0 0 2px #090b10,
+        0 0 0 5px #222938,
+        0 14px 36px rgba(0, 0, 0, 0.88);
     overflow: hidden;
     flex: 0 0 auto;
+    transition: filter 0.14s ease-out;
+}
+
+.viewport-frame.reality-flash {
+    filter: grayscale(0.92) brightness(1.38) contrast(1.25) hue-rotate(175deg);
+    box-shadow: 0 0 0 3px #d8f6ff, 0 0 28px rgba(210, 244, 255, 0.85);
+}
+
+body.daydream-transition .viewport-frame {
+    animation: daydream-shift 0.68s ease-out forwards;
+}
+
+@keyframes daydream-shift {
+    0% { filter: grayscale(0.95) brightness(1.22) contrast(1.12); transform: scale(0.985); }
+    45% { filter: saturate(1.35) brightness(1.12); transform: scale(1.008); }
+    100% { filter: none; transform: scale(1); }
 }
 
 #gl-canvas,
@@ -315,11 +335,58 @@ img, canvas, svg {
     z-index: 20;
 }
 
-.left-top-strips {
+.left-top-stack {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    width: 100%;
+    pointer-events: auto;
+}
+
+.timeclock-visor {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 4px 5px;
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    border: 2px solid #475569;
+    box-shadow: inset 0 0 0 1px #090d16, 0 3px 0 var(--ink);
+}
+
+.clock-px-ico {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.clock-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 0.9;
+}
+
+.clock-lbl {
+    font-size: 10px;
+    color: #94a3b8;
+    letter-spacing: 0.06em;
+}
+
+.clock-digits {
+    font-weight: 400;
+    font-size: 18px;
+    color: #4ade80;
+    text-shadow: 0 0 6px rgba(74, 222, 128, 0.55);
+}
+
+.left-top-strips {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     width: 100%;
     pointer-events: auto;
 }
@@ -590,10 +657,26 @@ img, canvas, svg {
 }
 
 .parchment-wrap {
+    position: relative;
     padding: 6px;
     background: linear-gradient(180deg, #d8bf8c 0%, #b3925b 100%);
     border: 3px solid #2b1d0e;
     box-shadow: inset 0 0 0 2px #f5e6c4, 0 5px 0 #08050a;
+}
+
+.memo-stamp {
+    position: absolute;
+    top: -9px;
+    right: 6px;
+    padding: 0 6px;
+    background: #7f1d1d;
+    border: 2px solid #2b1d0e;
+    color: #fef3c7;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    line-height: 1.25;
+    box-shadow: 0 2px 0 #08050a;
+    pointer-events: none;
 }
 
 #minimap-canvas {
@@ -1089,6 +1172,382 @@ img, canvas, svg {
     color: #cbbfe0;
 }
 
+/* ---------- POST-ITS PIXEL ART DECORATIVOS (SOMEM EM TELAS MENORES) ---------- */
+
+.postit-note {
+    position: fixed;
+    bottom: 4.5vh;
+    width: 108px;
+    padding: 10px 7px 7px;
+    background: linear-gradient(180deg, #fef08a 0%, #eab308 100%);
+    border: 2px solid #1e1608;
+    box-shadow: inset 0 0 0 1px #fef9c3, 4px 4px 0 #07050a;
+    color: #1f1706;
+    text-align: center;
+    line-height: 1.05;
+    pointer-events: none;
+    z-index: 18;
+}
+
+.postit-left {
+    left: 1.2vw;
+    transform: rotate(-3deg);
+}
+
+.postit-right {
+    right: 1.2vw;
+    background: linear-gradient(180deg, #fde047 0%, #ca8a04 100%);
+    transform: rotate(3deg);
+}
+
+.postit-pin {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 10px;
+    height: 7px;
+    background: #dc2626;
+    border: 2px solid #09060c;
+}
+
+.postit-line {
+    font-size: 13px;
+}
+
+.postit-line.strong {
+    font-size: 14px;
+    color: #7f1d1d;
+    border-bottom: 1px dashed rgba(31, 23, 6, 0.35);
+    margin-bottom: 3px;
+    padding-bottom: 2px;
+}
+
+/* ---------- TELA INICIAL CORPORATIVA (HELTON CORP INTRANET) ---------- */
+
+.intranet-box {
+    width: min(820px, 100%);
+    max-height: 95vh;
+    overflow: hidden;
+    background: #1e293b;
+    border: 3px solid #0f172a;
+    border-top: 6px solid #38bdf8;
+    box-shadow: inset 0 0 0 2px #475569, 0 14px 36px rgba(0, 0, 0, 0.9);
+    padding: 12px 16px 14px;
+    color: #f1f5f9;
+}
+
+.intranet-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: #0f172a;
+    border: 2px solid #334155;
+    padding: 4px 10px;
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 8px;
+}
+
+.intranet-clock {
+    color: #4ade80;
+    white-space: nowrap;
+}
+
+.intranet-title {
+    margin: 0 0 8px;
+    font-size: 32px;
+    line-height: 0.95;
+    color: #f8fafc;
+    text-shadow: 0 3px 0 #090e17;
+}
+
+.ceo-email-box {
+    background: #0f172a;
+    border: 2px solid #64748b;
+    border-left: 5px solid #ef4444;
+    padding: 7px 10px;
+    text-align: left;
+    margin-bottom: 7px;
+}
+
+.email-hdr {
+    font-size: 13px;
+    color: #fca5a5;
+}
+
+.email-msg {
+    font-size: 18px;
+    color: #f8fafc;
+    line-height: 1.05;
+}
+
+.mitty-motto {
+    margin: 0 0 8px !important;
+    font-size: 16px !important;
+    color: #bae6fd !important;
+    font-style: italic;
+}
+
+.badge-pick-lbl {
+    font-size: 14px;
+    color: #f5cb5c;
+    margin-bottom: 6px;
+}
+
+.badge-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.badge-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 3px;
+    padding: 8px 6px;
+    background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+    border: 2px solid #0f172a;
+    box-shadow: inset 0 0 0 1px #64748b, 0 4px 0 #090d16;
+    color: #f1f5f9;
+}
+
+.badge-card:hover {
+    transform: translateY(-2px);
+    box-shadow: inset 0 0 0 2px #93c5fd, 0 6px 0 #090d16;
+}
+
+.badge-card.selected {
+    background: linear-gradient(180deg, #1d4ed8 0%, #172554 100%);
+    border-color: #f5cb5c;
+    box-shadow: inset 0 0 0 2px #fde047, 0 0 14px rgba(245, 203, 92, 0.45), 0 4px 0 #090d16;
+}
+
+.badge-code {
+    width: 100%;
+    font-size: 11px;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.65);
+    padding: 1px 4px;
+}
+
+.badge-card img {
+    width: 38px;
+    height: 38px;
+    background: #0f172a;
+    border: 1px solid #64748b;
+    padding: 2px;
+}
+
+.badge-name {
+    font-size: 18px;
+    color: #fef08a;
+    line-height: 0.95;
+}
+
+.badge-role {
+    font-size: 13px;
+    color: #7dd3fc;
+}
+
+.badge-desc {
+    font-size: 13px;
+    color: #e2e8f0;
+    line-height: 1.05;
+}
+
+.start-daydream-btn {
+    padding: 8px 24px;
+    background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+    color: #082f49;
+    border: 3px solid #090d16;
+    box-shadow: inset 0 2px 0 #e0f2fe, 0 4px 0 #090d16;
+    font-size: 22px;
+    letter-spacing: 0.03em;
+}
+
+.start-daydream-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+/* ---------- BOSS KEY: MODO PLANILHA (HELTON CORP XLSX) ---------- */
+
+.spreadsheet-overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #e2e8f0;
+    color: #0f172a;
+    display: flex;
+    flex-direction: column;
+    z-index: 200;
+}
+
+.xlsx-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: #1d6f42;
+    color: #ffffff;
+    border-bottom: 2px solid #0d3d22;
+    font-size: 17px;
+}
+
+.xlsx-close-btn {
+    padding: 2px 10px;
+    background: #f8fafc;
+    color: #0f172a;
+    border: 2px solid #0d3d22;
+    font-size: 15px;
+}
+
+.xlsx-ribbon {
+    display: flex;
+    gap: 14px;
+    padding: 4px 12px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #cbd5e1;
+    color: #334155;
+    font-size: 14px;
+}
+
+.xlsx-formula {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: #ffffff;
+    border-bottom: 2px solid #94a3b8;
+    font-size: 15px;
+}
+
+.fx-tag {
+    padding: 0 6px;
+    background: #cbd5e1;
+    color: #1e293b;
+}
+
+.fx-val {
+    color: #15803d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.xlsx-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 240px;
+    gap: 12px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.xlsx-table-wrap {
+    background: #ffffff;
+    border: 2px solid #94a3b8;
+    overflow: hidden;
+}
+
+.xlsx-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+}
+
+.xlsx-table th,
+.xlsx-table td {
+    border: 1px solid #cbd5e1;
+    padding: 5px 8px;
+    text-align: left;
+}
+
+.xlsx-table th {
+    background: #cbd5e1;
+    color: #0f172a;
+}
+
+.xlsx-table tbody tr:nth-child(even) {
+    background: #f8fafc;
+}
+
+.xlsx-charts {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.xlsx-chart-card {
+    flex: 1;
+    background: #ffffff;
+    border: 2px solid #94a3b8;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+}
+
+.xlsx-chart-title {
+    font-size: 14px;
+    color: #1e293b;
+    border-bottom: 1px solid #cbd5e1;
+    margin-bottom: 8px;
+}
+
+.xlsx-bars {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    gap: 8px;
+    padding-top: 6px;
+}
+
+.xlsx-bar-col {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+}
+
+.xlsx-bar-col span {
+    display: block;
+    width: 100%;
+    background: #2563eb;
+    border: 1px solid #1e3a8a;
+}
+
+.xlsx-bar-col.accent span {
+    background: #16a34a;
+    border-color: #14532d;
+}
+
+.xlsx-bar-col.warn span {
+    background: #d97706;
+    border-color: #78350f;
+}
+
+.xlsx-bar-col b {
+    font-weight: 400;
+    font-size: 12px;
+}
+
+@media (max-width: 1100px), (max-height: 680px) {
+    .postit-note {
+        display: none !important;
+    }
+}
+
 @media (max-width: 900px) {
     .viewport-frame {
         width: calc(100vw - 168px);
@@ -1098,6 +1557,16 @@ img, canvas, svg {
         width: 72px;
         bottom: 32vh;
     }
+    .timeclock-visor {
+        padding: 3px;
+        gap: 3px;
+    }
+    .clock-lbl {
+        display: none;
+    }
+    .clock-digits {
+        font-size: 15px;
+    }
     .action-side-btn {
         width: 68px;
         height: 88px;
@@ -1105,5 +1574,155 @@ img, canvas, svg {
     }
     .cards-fan {
         gap: 6px;
+    }
+    .xlsx-body {
+        grid-template-columns: 1fr;
+    }
+    .xlsx-charts {
+        display: none;
+    }
+}
+
+@media (max-width: 680px) {
+    .intranet-topbar {
+        font-size: 11px;
+        padding: 3px 6px;
+    }
+    .intranet-title {
+        font-size: 24px;
+        margin-bottom: 5px;
+    }
+    .ceo-email-box {
+        padding: 5px 7px;
+        margin-bottom: 5px;
+    }
+    .email-hdr {
+        font-size: 11px;
+    }
+    .email-msg {
+        font-size: 14px;
+    }
+    .mitty-motto {
+        font-size: 13px !important;
+        margin-bottom: 5px !important;
+    }
+    .badge-pick-lbl {
+        font-size: 12px;
+        margin-bottom: 5px;
+    }
+    .badge-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+    .badge-card {
+        padding: 5px 4px;
+    }
+    .badge-card img {
+        width: 28px;
+        height: 28px;
+    }
+    .badge-name {
+        font-size: 15px;
+    }
+    .badge-desc {
+        font-size: 11px;
+    }
+    .start-daydream-btn {
+        font-size: 17px;
+        padding: 6px 14px;
+    }
+    .xlsx-table {
+        font-size: 11px;
+    }
+    .xlsx-table th:nth-child(3),
+    .xlsx-table td:nth-child(3),
+    .xlsx-table th:nth-child(5),
+    .xlsx-table td:nth-child(5) {
+        display: none;
+    }
+    .vp-top-lv {
+        font-size: 11px;
+        padding: 1px 5px;
+        top: 10px;
+        left: 4px;
+    }
+    .vp-top-stats {
+        font-size: 11px;
+        padding: 1px 5px;
+        top: 28px;
+        right: 4px;
+    }
+    .vp-toast {
+        top: 50px;
+        font-size: 12px;
+        max-width: 92%;
+    }
+    .top-right-tools {
+        top: 6px;
+        right: 6px;
+        gap: 4px;
+    }
+    .tool-btn {
+        width: 26px;
+        height: 26px;
+        padding: 3px;
+    }
+    .viewport-frame {
+        width: calc(100vw - 144px);
+        height: 58vh;
+    }
+    .side-left, .side-right {
+        width: 62px;
+        bottom: 34vh;
+    }
+    .heart-wrap {
+        width: 58px;
+        height: 54px;
+    }
+    .heart-val {
+        font-size: 15px;
+    }
+    .mana-wrap {
+        width: 56px;
+        height: 56px;
+    }
+    .orb-val {
+        font-size: 21px;
+    }
+    .explore-dock {
+        gap: 10px;
+    }
+    .dpad-grid {
+        grid-template-columns: repeat(3, 46px);
+        grid-template-rows: repeat(2, 44px);
+        gap: 5px;
+    }
+    #minimap-canvas {
+        width: 122px;
+        height: 122px;
+    }
+    .combat-dock {
+        gap: 4px;
+    }
+    .action-side-btn {
+        width: 50px;
+        height: 76px;
+        font-size: 11px;
+    }
+    .cards-fan {
+        gap: 4px;
+        margin-top: -2.5vh;
+    }
+    .card-btn {
+        width: 56px;
+        height: 126px;
+        padding: 3px;
+    }
+    .card-name {
+        font-size: 10px;
+    }
+    .card-desc {
+        font-size: 9px;
     }
 }
