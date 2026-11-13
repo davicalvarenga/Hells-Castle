@@ -214,6 +214,32 @@ namespace HellsCastle.Core
             return OnTheEdge ? Math.Max(1, cost - 1) : cost;
         }
 
+        /// <summary>
+        /// Casas atingidas pelas cartas de área fixa (Estocada e Varredura), a partir da posição
+        /// atual do jogador. Vazio para as demais cartas. Serve também para a interface destacar a área.
+        /// </summary>
+        public IReadOnlyList<Pos> CardArea(CardId card)
+        {
+            var tiles = new List<Pos>();
+            Pos front = PlayerPos.Step(Direction.Forward);
+            switch (card)
+            {
+                case CardId.Estocada:
+                    tiles.Add(front);
+                    tiles.Add(front.Step(Direction.Forward));
+                    break;
+
+                case CardId.Varredura:
+                    tiles.Add(front.Step(Direction.Left));
+                    tiles.Add(front);
+                    tiles.Add(front.Step(Direction.Right));
+                    break;
+            }
+
+            tiles.RemoveAll(tile => !IsInside(tile));
+            return tiles;
+        }
+
         public void AddLog(string message) => _log.Add(message);
 
         // ------------------------------------------------------------------
@@ -326,22 +352,23 @@ namespace HellsCastle.Core
                     break;
 
                 case CardId.Estocada:
-                {
-                    Pos first = PlayerPos.Step(Direction.Forward);
-                    DamageEnemyAt(first, CardLibrary.EstocadaDamage);
-                    DamageEnemyAt(first.Step(Direction.Forward), CardLibrary.EstocadaDamage);
+                    foreach (Pos tile in CardArea(cardId))
+                    {
+                        DamageEnemyAt(tile, CardLibrary.EstocadaDamage);
+                    }
+
                     break;
-                }
 
                 case CardId.Varredura:
                 {
                     int damage = chainBefore >= CardLibrary.ChainBonusThreshold
                         ? CardLibrary.VarreduraChainDamage
                         : CardLibrary.VarreduraDamage;
-                    Pos front = PlayerPos.Step(Direction.Forward);
-                    DamageEnemyAt(front.Step(Direction.Left), damage);
-                    DamageEnemyAt(front, damage);
-                    DamageEnemyAt(front.Step(Direction.Right), damage);
+                    foreach (Pos tile in CardArea(cardId))
+                    {
+                        DamageEnemyAt(tile, damage);
+                    }
+
                     break;
                 }
 

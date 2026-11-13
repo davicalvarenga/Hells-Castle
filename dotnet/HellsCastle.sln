@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HellsCastle.Console", "Hell
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HellsCastle.Core.Tests", "HellsCastle.Core.Tests\HellsCastle.Core.Tests.csproj", "{214A16D6-FA3A-4514-86EF-42B8C36403A5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HellsCastle.Web", "HellsCastle.Web\HellsCastle.Web.csproj", "{51FDCFB5-8F1B-477A-A51C-747558AEC605}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{214A16D6-FA3A-4514-86EF-42B8C36403A5}.Release|x64.Build.0 = Release|Any CPU
 		{214A16D6-FA3A-4514-86EF-42B8C36403A5}.Release|x86.ActiveCfg = Release|Any CPU
 		{214A16D6-FA3A-4514-86EF-42B8C36403A5}.Release|x86.Build.0 = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|x64.Build.0 = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Debug|x86.Build.0 = Debug|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|Any CPU.Build.0 = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|x64.ActiveCfg = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|x64.Build.0 = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|x86.ActiveCfg = Release|Any CPU
+		{51FDCFB5-8F1B-477A-A51C-747558AEC605}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

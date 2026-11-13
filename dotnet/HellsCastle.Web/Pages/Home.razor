@@ -1,0 +1,566 @@
+﻿@page "/"
+@using HellsCastle.Core
+
+<PageTitle>Hell's Castle — combate de teste</PageTitle>
+
+<div class="game" tabindex="0" @onkeydown="OnKey">
+    <header class="top">
+        <h1>Hell's Castle <small>combate de teste</small></h1>
+        <div class="controls">
+            <div class="mode" role="group" aria-label="Modo de mão">
+                <button type="button" class="@(_mode == HandMode.Recompose ? "on" : "")"
+                        @onclick="() => SetMode(HandMode.Recompose)">Recompor</button>
+                <button type="button" class="@(_mode == HandMode.AutoDraw ? "on" : "")"
+                        @onclick="() => SetMode(HandMode.AutoDraw)">Compra automática</button>
+            </div>
+            <button type="button" class="plain" @onclick="NewCombat">Novo combate</button>
+        </div>
+    </header>
+
+    <section class="status" aria-label="Estado do jogador">
+        <div class="stat life">
+            <span class="label">Vida</span>
+            <span class="bar"><i style="width:@Percent(_combat.PlayerHp, _combat.PlayerMaxHp)%"></i></span>
+            <span class="value">@_combat.PlayerHp/@_combat.PlayerMaxHp</span>
+        </div>
+        <div class="stat"><span class="label">Bloqueio</span><span class="value block">@_combat.Block</span></div>
+        <div class="stat"><span class="label">Cadeia</span><span class="value chain">@_combat.Chain</span></div>
+        <div class="stat"><span class="label">Tique</span><span class="value">@_combat.Tick</span></div>
+        @if (_combat.OnTheEdge)
+        {
+            <div class="edge-badge">Por um fio: próxima carta −1 tique</div>
+        }
+    </section>
+
+    <section class="timeline" aria-label="Linha do tempo">
+        <div class="tl-label">Tiques até cada inimigo agir</div>
+        <div class="tl-track">
+            @for (int t = 1; t <= TimelineSlots; t++)
+            {
+                int slot = t;
+                <div class="tl-slot @(SelectedCost >= slot ? "spent" : "")">
+                    <span class="tl-num">@slot@(slot == TimelineSlots ? "+" : "")</span>
+                    <span class="tl-tokens">
+                        @foreach (Enemy enemy in _combat.Enemies)
+                        {
+                            if (enemy.IsAlive && Math.Min(enemy.Counter, TimelineSlots) == slot)
+                            {
+                                <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
+                            }
+                        }
+                    </span>
+                </div>
+            }
+        </div>
+    </section>
+
+    <main class="layout">
+        <section class="board" aria-label="Sala">
+            <div class="door @(_combat.Status == CombatStatus.Victory ? "open" : "")">
+                @(_combat.Status == CombatStatus.Victory ? "saída aberta" : "saída trancada")
+            </div>
+            <div class="tiles" style="grid-template-columns: repeat(@_combat.Width, var(--tile));">
+                @for (int y = _combat.Height - 1; y >= 0; y--)
+                {
+                    @for (int x = 0; x < _combat.Width; x++)
+                    {
+                        Pos pos = new Pos(x, y);
+                        Enemy? enemy = _combat.EnemyAt(pos);
+                        int? ticks = _combat.TicksUntilHit(pos);
+                        <button type="button" class="@TileClass(pos, ticks)" @onclick="() => ClickTile(pos)"
+                                aria-label="@TileLabel(pos, enemy, ticks)">
+                            @if (ticks != null)
+                            {
+                                <span class="danger-num">@ticks</span>
+                            }
+                            @if (pos == _combat.PlayerPos)
+                            {
+                                <span class="token tk-player">Eu</span>
+                            }
+                            else if (enemy != null)
+                            {
+                                <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
+                                <span class="hp-mini"><i style="width:@Percent(enemy.Hp, enemy.MaxHp)%"></i></span>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+            <div class="door entry">entrada</div>
+        </section>
+
+        <section class="side">
+            <div class="enemies" aria-label="Inimigos">
+                @foreach (Enemy enemy in _combat.Enemies)
+                {
+                    <div class="enemy @(enemy.IsAlive ? "" : "dead")">
+                        <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
+                        <div class="enemy-body">
+                            <div class="enemy-head">
+                                <strong>@enemy.Name</strong>
+                                <span>@(enemy.IsAlive ? enemy.Hp + "/" + enemy.MaxHp : "morto")</span>
+                            </div>
+                            @if (enemy.IsAlive)
+                            {
+                                <div class="intent"><b>em @enemy.Counter</b> @enemy.IntentText</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="log" aria-live="polite">
+                @foreach ((string text, bool fresh) in VisibleLog())
+                {
+                    <div class="@(fresh ? "fresh" : "")">@text</div>
+                }
+            </div>
+        </section>
+    </main>
+
+    <p class="hint @(_error != null ? "error" : "")">@(_error ?? Hint())</p>
+
+    <section class="hand" aria-label="Mão">
+        @for (int i = 0; i < _combat.HandSize; i++)
+        {
+            int index = i;
+            if (index < _combat.Hand.Count)
+            {
+                CardDefinition card = CardLibrary.Get(_combat.Hand[index]);
+                int cost = _combat.EffectiveCost(card.Id);
+                <button type="button" class="card @(_selected == index ? "selected" : "")"
+                        @onclick="() => ClickCard(index)">
+                    <span class="cost @(cost < card.Cost ? "discount" : "")">@cost</span>
+                    <span class="name">@card.Name</span>
+                    <span class="text">@card.Text</span>
+                    <span class="key">@(index + 1)</span>
+                </button>
+            }
+            else
+            {
+                <div class="card empty" aria-hidden="true"></div>
+            }
+        }
+    </section>
+
+    <section class="actions">
+        <button type="button" @onclick="DoGuard">Guardar <small>2 tiques · bloqueia 2 · tecla G</small></button>
+        @if (_mode == HandMode.Recompose)
+        {
+            <button type="button" disabled="@(_combat.Hand.Count >= _combat.HandSize)" @onclick="DoRecompose">
+                Recompor <small>2 tiques · completa a mão · tecla R</small>
+            </button>
+        }
+        <span class="piles">monte @_combat.DrawPileCount · descarte @_combat.DiscardCount · semente @_seed</span>
+    </section>
+
+    <details class="help">
+        <summary>Como jogar</summary>
+        <ul>
+            <li><b>Não há turnos.</b> Cada ação tem efeito na hora e depois gasta tiques. A cada tique, a contagem dos inimigos cai 1; em zero, o inimigo age.</li>
+            <li><b>Andar:</b> toque numa casa vizinha destacada (1 tique). Você nunca recua. Teclas W, A, D.</li>
+            <li><b>Cartas:</b> toque na carta e depois na casa destacada. Aparar é jogada direto. Teclas 1 a 4.</li>
+            <li><b>Números nas casas:</b> tiques até aquela casa ser atingida. A marca não segue você.</li>
+            <li><b>Por um fio:</b> sair de uma casa marcada ou bloquear com a contagem em 1 dá −1 tique na próxima carta.</li>
+            <li><b>Cadeia:</b> cartas jogadas desde a última ação de um inimigo. Com 2 ou mais, Varredura e Golpe Pesado ficam mais fortes.</li>
+            <li><b>Vitória:</b> a saída só abre com todos os inimigos mortos.</li>
+        </ul>
+    </details>
+
+    @if (_combat.Status != CombatStatus.InProgress)
+    {
+        <div class="overlay">
+            <div class="result @(_combat.Status == CombatStatus.Victory ? "win" : "loss")">
+                <h2>@(_combat.Status == CombatStatus.Victory ? "Vitória" : "Derrota")</h2>
+                <p>@(_combat.Status == CombatStatus.Victory ? "Todos os inimigos caíram. A porta se abre." : "Você caiu antes de abrir a porta.")</p>
+                <dl>
+                    <dt>Modo de mão</dt><dd>@(_mode == HandMode.Recompose ? "Recompor" : "Compra automática")</dd>
+                    <dt>Duração real</dt><dd>@_duration.ToString(@"mm\:ss")</dd>
+                    <dt>Tiques</dt><dd>@_combat.Tick</dd>
+                    <dt>Vida restante</dt><dd>@_combat.PlayerHp/@_combat.PlayerMaxHp</dd>
+                    <dt>Cartas jogadas</dt><dd>@_combat.CardsPlayed</dd>
+                    <dt>Maior cadeia</dt><dd>@_combat.BestChain</dd>
+                    <dt>Por um fio</dt><dd>@_combat.EdgeCount</dd>
+                    <dt>Recompor</dt><dd>@_combat.RecomposeCount</dd>
+                    <dt>Guardar</dt><dd>@_combat.GuardCount</dd>
+                </dl>
+                <div class="result-buttons">
+                    <button type="button" @onclick="NewCombat">Novo combate</button>
+                    <button type="button" class="plain" @onclick="Replay">Repetir esta semente</button>
+                    <button type="button" class="plain" @onclick="ReplayOtherMode">Mesma semente no outro modo</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const int TimelineSlots = 6;
+    private const int LogLines = 7;
+
+    private static readonly Direction[] WalkDirections = { Direction.Forward, Direction.Left, Direction.Right };
+    private static readonly Direction[] AllDirections = { Direction.Forward, Direction.Left, Direction.Right, Direction.Back };
+    private static readonly Direction[] NoDirections = Array.Empty<Direction>();
+
+    private Combat _combat = default!;
+    private HandMode _mode = HandMode.Recompose;
+    private int _seed;
+
+    /// <summary>Posição na mão da carta selecionada, aguardando o alvo.</summary>
+    private int? _selected;
+
+    /// <summary>Casas clicáveis da carta selecionada e as direções que cada uma representa.</summary>
+    private Dictionary<Pos, Direction[]> _targets = new();
+
+    private string? _error;
+    private int _logMark;
+    private DateTime? _startedAt;
+    private TimeSpan _duration;
+
+    protected override void OnInitialized() => Start(NewSeed(), _mode);
+
+    private static int NewSeed() => Random.Shared.Next(1, 100000);
+
+    private void Start(int seed, HandMode mode)
+    {
+        _seed = seed;
+        _mode = mode;
+        _combat = TestRoom.Create(mode, seed);
+        _selected = null;
+        _targets.Clear();
+        _error = null;
+        _logMark = 0;
+        _startedAt = null;
+        _duration = TimeSpan.Zero;
+    }
+
+    private void NewCombat() => Start(NewSeed(), _mode);
+    private void Replay() => Start(_seed, _mode);
+    private void ReplayOtherMode() =>
+        Start(_seed, _mode == HandMode.Recompose ? HandMode.AutoDraw : HandMode.Recompose);
+
+    private void SetMode(HandMode mode)
+    {
+        if (mode != _mode)
+        {
+            Start(_seed, mode);
+        }
+    }
+
+    private bool Playing => _combat.Status == CombatStatus.InProgress;
+
+    private int SelectedCost =>
+        _selected is int index && index < _combat.Hand.Count ? _combat.EffectiveCost(_combat.Hand[index]) : 0;
+
+    // ---------------------------------------------------------------- ações
+
+    private void Run(Func<ActionResult> action)
+    {
+        if (!Playing)
+        {
+            return;
+        }
+
+        int logBefore = _combat.Log.Count;
+        ActionResult result = action();
+        _selected = null;
+        _targets.Clear();
+
+        if (!result.Success)
+        {
+            _error = result.Error;
+            return;
+        }
+
+        _error = null;
+        _logMark = logBefore;
+        _startedAt ??= DateTime.UtcNow;
+        if (!Playing)
+        {
+            _duration = DateTime.UtcNow - _startedAt.Value;
+        }
+    }
+
+    private void DoGuard() => Run(() => _combat.Guard());
+    private void DoRecompose() => Run(() => _combat.Recompose());
+
+    private void ClickTile(Pos pos)
+    {
+        if (!Playing)
+        {
+            return;
+        }
+
+        if (_selected is int index)
+        {
+            if (_targets.TryGetValue(pos, out Direction[]? directions))
+            {
+                Run(() => _combat.PlayCard(index, directions));
+            }
+            else
+            {
+                Cancel();
+            }
+
+            return;
+        }
+
+        foreach (Direction direction in WalkDirections)
+        {
+            if (_combat.PlayerPos.Step(direction) == pos && _combat.IsFree(pos))
+            {
+                Run(() => _combat.Move(direction));
+                return;
+            }
+        }
+    }
+
+    private void ClickCard(int index)
+    {
+        if (!Playing || index >= _combat.Hand.Count)
+        {
+            return;
+        }
+
+        CardDefinition card = CardLibrary.Get(_combat.Hand[index]);
+
+        if (_selected == index)
+        {
+            // Segundo toque: confirma as cartas de área fixa; cancela as que pedem alvo.
+            if (card.Targeting == CardTargeting.None)
+            {
+                Run(() => _combat.PlayCard(index));
+            }
+            else
+            {
+                Cancel();
+            }
+
+            return;
+        }
+
+        // Aparar não toca o mapa: é jogada direto, sem confirmação.
+        if (card.Id == CardId.Aparar)
+        {
+            Run(() => _combat.PlayCard(index));
+            return;
+        }
+
+        _error = null;
+        _selected = index;
+        _targets = BuildTargets(card);
+    }
+
+    private void Cancel()
+    {
+        _selected = null;
+        _targets.Clear();
+        _error = null;
+    }
+
+    private Dictionary<Pos, Direction[]> BuildTargets(CardDefinition card)
+    {
+        var targets = new Dictionary<Pos, Direction[]>();
+        Pos player = _combat.PlayerPos;
+
+        switch (card.Targeting)
+        {
+            case CardTargeting.OneDirection:
+                foreach (Direction direction in AllDirections)
+                {
+                    Pos tile = player.Step(direction);
+                    if (_combat.IsInside(tile))
+                    {
+                        targets[tile] = new[] { direction };
+                    }
+                }
+
+                break;
+
+            case CardTargeting.Path:
+                foreach (Direction first in WalkDirections)
+                {
+                    Pos middle = player.Step(first);
+                    if (!_combat.IsFree(middle))
+                    {
+                        continue;
+                    }
+
+                    targets[middle] = new[] { first };
+                    foreach (Direction second in WalkDirections)
+                    {
+                        Pos end = middle.Step(second);
+                        if (_combat.IsFree(end))
+                        {
+                            targets.TryAdd(end, new[] { first, second });
+                        }
+                    }
+                }
+
+                // Um passo direto vale mais que um caminho de dois passos até a mesma casa.
+                foreach (Direction direction in WalkDirections)
+                {
+                    Pos tile = player.Step(direction);
+                    if (_combat.IsFree(tile))
+                    {
+                        targets[tile] = new[] { direction };
+                    }
+                }
+
+                break;
+
+            default:
+                foreach (Pos tile in _combat.CardArea(card.Id))
+                {
+                    targets[tile] = NoDirections;
+                }
+
+                break;
+        }
+
+        return targets;
+    }
+
+    private void OnKey(KeyboardEventArgs e)
+    {
+        if (!Playing || e.CtrlKey || e.AltKey || e.MetaKey)
+        {
+            return;
+        }
+
+        string key = e.Key.ToLowerInvariant();
+        Direction? direction = key switch
+        {
+            "w" => Direction.Forward,
+            "a" => Direction.Left,
+            "d" => Direction.Right,
+            "s" => Direction.Back,
+            _ => null
+        };
+
+        if (direction is Direction dir)
+        {
+            if (_selected is int index)
+            {
+                if (index < _combat.Hand.Count
+                    && CardLibrary.Get(_combat.Hand[index]).Targeting == CardTargeting.OneDirection)
+                {
+                    Run(() => _combat.PlayCard(index, dir));
+                }
+            }
+            else if (dir == Direction.Back)
+            {
+                _error = "Não é possível recuar.";
+            }
+            else
+            {
+                Run(() => _combat.Move(dir));
+            }
+
+            return;
+        }
+
+        switch (key)
+        {
+            case "1":
+            case "2":
+            case "3":
+            case "4":
+                ClickCard(key[0] - '1');
+                break;
+            case "g":
+                DoGuard();
+                break;
+            case "r":
+                if (_mode == HandMode.Recompose)
+                {
+                    DoRecompose();
+                }
+
+                break;
+            case "escape":
+                Cancel();
+                break;
+        }
+    }
+
+    // ---------------------------------------------------------------- apresentação
+
+    private static int Percent(int value, int max) => max <= 0 ? 0 : Math.Clamp(value * 100 / max, 0, 100);
+
+    private bool IsWalkTarget(Pos pos)
+    {
+        if (!Playing || _selected != null || !_combat.IsFree(pos))
+        {
+            return false;
+        }
+
+        foreach (Direction direction in WalkDirections)
+        {
+            if (_combat.PlayerPos.Step(direction) == pos)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private string TileClass(Pos pos, int? ticks)
+    {
+        string css = "tile";
+        if (ticks != null)
+        {
+            css += ticks.Value <= 1 ? " danger now" : ticks.Value <= 3 ? " danger soon" : " danger later";
+        }
+
+        if (_selected != null && _targets.ContainsKey(pos))
+        {
+            css += " target";
+        }
+        else if (IsWalkTarget(pos))
+        {
+            css += " walk";
+        }
+
+        return css;
+    }
+
+    private string TileLabel(Pos pos, Enemy? enemy, int? ticks)
+    {
+        string what = pos == _combat.PlayerPos ? "você" : enemy != null ? enemy.Name : "casa vazia";
+        string danger = ticks != null ? ", atingida em " + ticks + " tiques" : "";
+        return "Coluna " + pos.X + ", fileira " + pos.Y + ": " + what + danger;
+    }
+
+    private string Hint()
+    {
+        if (!Playing)
+        {
+            return "";
+        }
+
+        if (_selected is int index && index < _combat.Hand.Count)
+        {
+            CardDefinition card = CardLibrary.Get(_combat.Hand[index]);
+            return card.Targeting switch
+            {
+                CardTargeting.OneDirection => card.Name + ": toque na casa vizinha que quer atingir. Esc cancela.",
+                CardTargeting.Path => card.Name + ": toque na casa de destino. Esc cancela.",
+                _ => card.Name + ": toque de novo na carta, ou na área destacada, para confirmar. Esc cancela."
+            };
+        }
+
+        return "Toque numa casa vizinha destacada para andar, ou escolha uma carta.";
+    }
+
+    private IEnumerable<(string text, bool fresh)> VisibleLog()
+    {
+        IReadOnlyList<string> log = _combat.Log;
+        int from = Math.Max(0, log.Count - LogLines);
+        for (int i = from; i < log.Count; i++)
+        {
+            yield return (log[i], i >= _logMark);
+        }
+    }
+}

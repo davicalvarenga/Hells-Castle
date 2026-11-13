@@ -2,7 +2,7 @@
 
 Roguelike de dark fantasy com cartas, grid e linha do tempo. Projeto pessoal, para um jogador, em pixel art 2D, feito em C# para a Unity.
 
-**Estado atual:** protótipo das regras de combate, jogável no terminal e coberto por testes. A parte visual na Unity ainda não existe.
+**Estado atual:** protótipo das regras de combate, jogável no navegador e no terminal e coberto por testes. A parte visual na Unity ainda não existe.
 
 ## Regras do combate (protótipo)
 
@@ -47,9 +47,25 @@ dotnet/                Projetos .NET que usam a mesma fonte, fora do editor:
   HellsCastle.Core/        compila Assets/Scripts/Core
   HellsCastle.Core.Tests/  testes automáticos (xUnit)
   HellsCastle.Console/     protótipo jogável no terminal
+  HellsCastle.Web/         protótipo jogável no navegador (Blazor WebAssembly)
+.github/workflows/     publicação da versão de navegador no GitHub Pages
 ```
 
 As regras ficam separadas da parte visual: dá para testar e balancear o combate sem abrir a Unity.
+
+## Versão de navegador (GitHub Pages)
+
+A cada push na `main`, o workflow `Publicar versão web` roda os testes, compila `dotnet/HellsCastle.Web` e publica o resultado no GitHub Pages. O endereço fica em `https://<usuário>.github.io/<repositório>/`.
+
+Para ativar, uma única vez: no repositório, **Settings > Pages > Build and deployment > Source: GitHub Actions**. Em contas gratuitas, o GitHub Pages só funciona em repositório público.
+
+Na tela: toque numa casa vizinha destacada para andar; toque numa carta e depois na casa destacada para jogá-la. No teclado: `W` `A` `D` andam, `1` a `4` escolhem a carta, `G` guarda, `R` recompõe, `Esc` cancela. O botão de modo de mão no topo reinicia o combate com a mesma semente no outro modo.
+
+Para rodar localmente (requer o .NET SDK 10):
+
+```
+dotnet run --project dotnet/HellsCastle.Web
+```
 
 ## Como rodar no terminal
 
