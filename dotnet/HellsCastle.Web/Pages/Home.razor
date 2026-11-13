@@ -15,6 +15,14 @@
                 <button type="button" class="@(_mode == HandMode.AutoDraw ? "on" : "")"
                         @onclick="() => SetMode(HandMode.AutoDraw)">Compra automática</button>
             </div>
+            <div class="mode" role="group" aria-label="Visão">
+                @if (_webgl)
+                {
+                    <button type="button" class="@(_view == "fp" ? "on" : "")" @onclick='() => SetView("fp")'>1ª pessoa</button>
+                    <button type="button" class="@(_view == "tp" ? "on" : "")" @onclick='() => SetView("tp")'>Por trás</button>
+                }
+                <button type="button" class="@(_view == "2d" ? "on" : "")" @onclick='() => SetView("2d")'>De cima</button>
+            </div>
             <button type="button" class="plain" @onclick="NewCombat">Novo combate</button>
             <button type="button" class="plain" @onclick="ToggleSound" aria-pressed="@(!_muted)">
                 Som: @(_muted ? "não" : "sim")
@@ -24,7 +32,13 @@
 
     <main class="layout">
         <section class="board" aria-label="Sala">
-            <canvas class="room" @ref="_canvas" aria-label="Sala de combate"></canvas>
+            <div class="viewport view-@_view">
+                <canvas class="gl" @ref="_glCanvas"></canvas>
+                <canvas class="hud" @ref="_hudCanvas" aria-label="Sala em 3D"></canvas>
+                <div class="minimap">
+                    <canvas class="room" @ref="_canvas" aria-label="Sala vista de cima"></canvas>
+                </div>
+            </div>
         </section>
 
         <section class="side">
@@ -144,6 +158,7 @@
         <summary>Como jogar</summary>
         <ul>
             <li><b>Não há turnos.</b> Cada ação tem efeito na hora e depois gasta tiques. A cada tique, a contagem dos inimigos cai 1; em zero, o inimigo age.</li>
+            <li><b>Visão:</b> 1ª pessoa e Por trás mostram a sala em 3D, com a vista de cima no canto como minimapa. Dá para tocar nas casas tanto na cena 3D quanto no minimapa.</li>
             <li><b>Andar:</b> toque numa casa vizinha destacada em verde (1 tique). Você nunca recua. Teclas W, A, D.</li>
             <li><b>Cartas:</b> toque na carta e depois na casa destacada em dourado. Aparar é jogada direto. Teclas 1 a 4.</li>
             <li><b>Casas vermelhas:</b> o número é quantos tiques faltam para aquela casa ser atingida. A marca não segue você.</li>
@@ -209,6 +224,12 @@
 
     // Ligação com o desenho em canvas (wwwroot/js/game.js).
     private ElementReference _canvas;
+    private ElementReference _glCanvas;
+    private ElementReference _hudCanvas;
+
+    /// <summary>"fp" (3D em primeira pessoa), "tp" (3D por trás) ou "2d" (de cima).</summary>
+    private string _view = "fp";
+    private bool _webgl = true;
     private DotNetObjectReference<Home>? _self;
     private Dictionary<string, string> _icons = new();
     private bool _jsReady;
@@ -219,6 +240,8 @@
     {
         public Dictionary<string, string>? Icons { get; set; }
         public bool Muted { get; set; }
+        public string? View { get; set; }
+        public bool Webgl { get; set; }
     }
 
     protected override void OnInitialized() => Start(NewSeed(), _mode);
@@ -231,9 +254,11 @@
         }
 
         _self = DotNetObjectReference.Create(this);
-        InitResult result = await JS.InvokeAsync<InitResult>("hellsCastle.init", _canvas, _self);
+        InitResult result = await JS.InvokeAsync<InitResult>("hellsCastle.init", _canvas, _self, _glCanvas, _hudCanvas);
         _icons = result.Icons ?? new Dictionary<string, string>();
         _muted = result.Muted;
+        _webgl = result.Webgl;
+        _view = result.Webgl ? result.View ?? "fp" : "2d";
         _jsReady = true;
         await SyncAsync(reset: true);
         StateHasChanged();
@@ -285,6 +310,20 @@
         Restart(_seed, _mode == HandMode.Recompose ? HandMode.AutoDraw : HandMode.Recompose);
 
     private Task SetMode(HandMode mode) => mode == _mode ? Task.CompletedTask : Restart(_seed, mode);
+
+    private async Task SetView(string view)
+    {
+        if (view != "2d" && !_webgl)
+        {
+            return;
+        }
+
+        _view = view;
+        if (_jsReady)
+        {
+            await JS.InvokeVoidAsync("hellsCastle.setView", view);
+        }
+    }
 
     private async Task ToggleSound()
     {

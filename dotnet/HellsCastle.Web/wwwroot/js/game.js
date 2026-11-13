@@ -38,6 +38,10 @@
     let particles = [], texts = [], effects = [], ghosts = [];
     let shakeFx = null, overlayFx = null;
 
+    // Vista: 'fp' (3D em primeira pessoa), 'tp' (3D por trás do protagonista) ou '2d' (de cima).
+    let view = 'fp';
+    let view3d = null;       // módulo game3d.js, se o navegador tiver WebGL
+
     // ------------------------------------------------------------------ utilidades
 
     function mulberry32(seed) {
@@ -358,7 +362,7 @@
     function makeEntity(id, kind, x, y, hp, maxHp, alive) {
         return {
             id: id, kind: kind, x: x, y: y, hp: hp, maxHp: maxHp, alive: alive,
-            alpha: alive ? 1 : 0, flash: 0, hurt: 0, ox: 0, oy: 0, sy: 1,
+            alpha: alive ? 1 : 0, flash: 0, hurt: 0, ox: 0, oy: 0, hop: 0, sy: 1,
             counter: 0, phase: Math.random() * 6.28
         };
     }
@@ -408,6 +412,7 @@
         P.y = snap.player.y;
         P.ox = 0;
         P.oy = 0;
+        P.hop = 0;
         P.hurt = 0;
         if (status !== 'defeat') {
             P.alpha = 1;
@@ -424,6 +429,7 @@
             E.sy = 1;
             E.ox = 0;
             E.oy = 0;
+            E.hop = 0;
             E.flash = 0;
             E.counter = e.counter;
         }
@@ -537,12 +543,12 @@
                     const e = easeOut(p);
                     P.x = fx + (tx - fx) * e;
                     P.y = fy + (ty - fy) * e;
-                    P.oy = -Math.sin(Math.PI * p) * (dash ? 1 : 3);
+                    P.hop = Math.sin(Math.PI * p) * (dash ? 1 : 3);
                     if (dash && !flushing && Math.random() < 0.6) ghosts.push({ x: P.x, y: P.y, age: 0, dur: 220 });
                 }, () => {
                     P.x = tx;
                     P.y = ty;
-                    P.oy = 0;
+                    P.hop = 0;
                 });
                 cursor += dur;
                 break;
@@ -636,11 +642,11 @@
                     const e = ev.pushed ? easeOut(p) : easeInOut(p);
                     E.x = fx + (tx - fx) * e;
                     E.y = fy + (ty - fy) * e;
-                    E.oy = ev.pushed ? 0 : -Math.sin(Math.PI * p) * 2;
+                    E.hop = ev.pushed ? 0 : Math.sin(Math.PI * p) * 2;
                 }, () => {
                     E.x = tx;
                     E.y = ty;
-                    E.oy = 0;
+                    E.hop = 0;
                 });
                 cursor += dur;
                 break;
@@ -657,7 +663,7 @@
                         effect('ring', { x: E.x, y: E.y }, 520);
                         shake(3, 420);
                     });
-                    at(0, 320, p => { E.oy = -Math.sin(p * Math.PI) * 3; }, () => { E.oy = 0; });
+                    at(0, 320, p => { E.hop = Math.sin(p * Math.PI) * 3; }, () => { E.hop = 0; });
                 } else if (E.kind === 'A') {
                     impact = 150;
                     call(0, () => {
@@ -870,7 +876,7 @@
             ? (Math.sin(now / 520 + e.phase) > 0.4 ? 1 : 0)
             : (Math.sin(now / 380 + e.phase) > 0.2 ? 1 : 0);
         const cx = Math.round(centerX(e.x) + e.ox);
-        const cy = Math.round(centerY(e.y) + e.oy);
+        const cy = Math.round(centerY(e.y) + e.oy - e.hop);
 
         lctx.globalAlpha = 0.38 * e.alpha;
         lctx.fillStyle = '#000000';
@@ -1207,10 +1213,61 @@
         hover = null;
     }
 
+    // ------------------------------------------------------------------ ponte com a vista 3D
+
+    function floorCanvas() {
+        const c = makeCanvas(cols * T, rows * T);
+        const g = c.getContext('2d');
+        const rnd = mulberry32(90210);
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                drawFloorTile(g, x * T, (rows - 1 - y) * T, rnd, (x + y) % 2);
+            }
+        }
+        return c;
+    }
+
+    function brickCanvas(w, h, seed) {
+        const c = makeCanvas(w, h);
+        drawBricks(c.getContext('2d'), 0, 0, w, h, mulberry32(seed), 1);
+        return c;
+    }
+
+    // A vista 3D não tem regras nem animação próprias: ela só desenha este mesmo estado.
+    const shared = {
+        T: T, WALL_SIDE: WALL_SIDE, WALL_TOP: WALL_TOP, FONT: FONT,
+        sheet: sheet,
+        get ready() { return ready; },
+        get cols() { return cols; },
+        get rows() { return rows; },
+        get ents() { return ents; },
+        get danger() { return danger; },
+        get walk() { return walk; },
+        get targets() { return targets; },
+        get effects() { return effects; },
+        get texts() { return texts; },
+        get particles() { return particles; },
+        get shake() { return shakeFx; },
+        get overlay() { return overlayFx; },
+        get doorOpen() { return doorOpen; },
+        get status() { return status; },
+        get busy() { return anims.length > 0; },
+        get view() { return view; },
+        get hover() { return hover; },
+        set hover(value) { hover = value; },
+        isIn: isIn,
+        floorCanvas: floorCanvas,
+        brickCanvas: brickCanvas,
+        click: function (x, y) {
+            audio();
+            if (dotnet) dotnet.invokeMethodAsync('OnTileClick', x, y);
+        }
+    };
+
     // ------------------------------------------------------------------ API usada pelo C#
 
     window.hellsCastle = {
-        init: function (canvasElement, dotnetRef) {
+        init: function (canvasElement, dotnetRef, glCanvas, hudCanvas) {
             canvas = canvasElement;
             ctx = canvas.getContext('2d');
             dotnet = dotnetRef;
@@ -1229,7 +1286,43 @@
             canvas.addEventListener('pointerleave', onLeave);
             cancelAnimationFrame(raf);
             raf = requestAnimationFrame(frame);
-            return { icons: dataUrls(), muted: muted };
+
+            try {
+                const saved = window.localStorage.getItem('hc-view');
+                if (saved === 'fp' || saved === 'tp' || saved === '2d') view = saved;
+            } catch (e) {
+                // sem armazenamento local: usa a vista padrão
+            }
+
+            const result = function (webgl) {
+                if (!webgl) view = '2d';
+                return { icons: dataUrls(), muted: muted, view: view, webgl: webgl };
+            };
+
+            // A vista 3D é opcional: sem WebGL, o jogo segue na vista de cima.
+            if (!glCanvas || !hudCanvas) return result(false);
+            return import(new URL('js/game3d.js', document.baseURI).href)
+                .then(function (module) {
+                    module.attach(shared, glCanvas, hudCanvas);
+                    view3d = module;
+                    return result(true);
+                })
+                .catch(function (error) {
+                    console.warn('Vista 3D indisponível:', error && error.message ? error.message : error);
+                    view3d = null;
+                    return result(false);
+                });
+        },
+
+        setView: function (value) {
+            if (value !== 'fp' && value !== 'tp' && value !== '2d') return;
+            if (!view3d && value !== '2d') return;
+            view = value;
+            try {
+                window.localStorage.setItem('hc-view', view);
+            } catch (e) {
+                // a preferência vale só para esta visita
+            }
         },
 
         sync: function (snap, events, reset) {
@@ -1270,6 +1363,10 @@
 
         dispose: function () {
             cancelAnimationFrame(raf);
+            if (view3d) {
+                view3d.detach();
+                view3d = null;
+            }
             if (canvas) {
                 canvas.removeEventListener('click', onClick);
                 canvas.removeEventListener('pointermove', onMove);

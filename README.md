@@ -59,9 +59,11 @@ A cada push na `main`, o workflow `Publicar versão web` roda os testes, compila
 
 Para ativar, uma única vez: no repositório, **Settings > Pages > Build and deployment > Source: GitHub Actions**. Em contas gratuitas, o GitHub Pages só funciona em repositório público.
 
-A sala é desenhada em canvas por `wwwroot/js/game.js` (sprites, animações, partículas, iluminação e som sintetizado). As regras continuam no C#: a cada ação, a página envia ao desenho um retrato do estado e a lista de eventos (`Combat.Events`) para animar. A arte fica em `wwwroot/js/sprites.js`, como grades de 16×16 caracteres com uma paleta; para trocar um sprite, basta editar a grade.
+A sala tem três vistas, escolhidas no topo da tela: 3D em primeira pessoa, 3D por trás do protagonista e 2D de cima. Nas vistas 3D, a de cima fica no canto como minimapa. A cena 3D é desenhada por `wwwroot/js/game3d.js` com three.js, em resolução interna baixa e sem suavização, com os personagens como sprites em pixel art voltados para a câmera. Sem WebGL, o jogo usa só a vista de cima.
 
-Na tela: toque numa casa vizinha destacada para andar; toque numa carta e depois na casa destacada para jogá-la. No teclado: `W` `A` `D` andam, `1` a `4` escolhem a carta, `G` guarda, `R` recompõe, `Esc` cancela. O botão de modo de mão no topo reinicia o combate com a mesma semente no outro modo.
+A vista de cima é desenhada em canvas por `wwwroot/js/game.js` (sprites, animações, partículas, iluminação e som sintetizado), que também guarda o estado exibido e as animações usados pela cena 3D. As regras continuam no C#: a cada ação, a página envia ao desenho um retrato do estado e a lista de eventos (`Combat.Events`) para animar. A arte fica em `wwwroot/js/sprites.js`, como grades de 16×16 caracteres com uma paleta; para trocar um sprite, basta editar a grade.
+
+Na tela: toque numa casa vizinha destacada para andar; toque numa carta e depois na casa destacada para jogá-la. As casas podem ser tocadas tanto na cena 3D quanto no minimapa. No teclado: `W` `A` `D` andam, `1` a `4` escolhem a carta, `G` guarda, `R` recompõe, `Esc` cancela. O botão de modo de mão no topo reinicia o combate com a mesma semente no outro modo.
 
 Para rodar localmente (requer o .NET SDK 10):
 
@@ -69,7 +71,7 @@ Para rodar localmente (requer o .NET SDK 10):
 dotnet run --project dotnet/HellsCastle.Web
 ```
 
-Créditos: a fonte é a [Jersey 15](https://github.com/scfried/soft-type-jersey), sob a SIL Open Font License 1.1 (texto em `dotnet/HellsCastle.Web/wwwroot/fonts/Jersey15-OFL.txt`). Os sprites e os sons são originais deste projeto.
+Créditos: a fonte é a [Jersey 15](https://github.com/scfried/soft-type-jersey), sob a SIL Open Font License 1.1 (texto em `dotnet/HellsCastle.Web/wwwroot/fonts/Jersey15-OFL.txt`). A cena 3D usa a biblioteca [three.js](https://threejs.org/) r170, sob licença MIT (texto em `dotnet/HellsCastle.Web/wwwroot/js/three.LICENSE.txt`). Os sprites, as texturas e os sons são originais deste projeto.
 
 ## Como rodar no terminal
 
