@@ -5,7 +5,7 @@ name: Publicar versão web
 
 on:
   push:
-    branches: [main, v2-web-crawler]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
