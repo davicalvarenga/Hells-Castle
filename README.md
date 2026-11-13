@@ -1,0 +1,94 @@
+# Hell's Castle
+
+Roguelike de dark fantasy com cartas, grid e linha do tempo. Projeto pessoal, para um jogador, em pixel art 2D, feito em C# para a Unity.
+
+**Estado atual:** protótipo das regras de combate, jogável no terminal e coberto por testes. A parte visual na Unity ainda não existe.
+
+## Regras do combate (protótipo)
+
+- **Sem turnos.** Cada ação tem efeito imediato e depois avança o relógio pelo seu custo em tiques. A cada tique, a contagem de todos os inimigos cai 1; quem chega a zero age e anuncia a próxima ação.
+- **Nunca recuar.** O jogador anda só para frente ou para os lados (1 tique por casa). Inimigos se movem livremente.
+- **Ataques anunciados.** O inimigo marca as casas que vai atingir, e a marca não acompanha o jogador. Sair da casa evita o dano; bloquear mantém a posição.
+- **Por um fio.** Sair de uma casa marcada ou bloquear com a contagem em 1 faz a próxima carta custar 1 tique a menos (mínimo 1).
+- **Cadeia.** Conta as cartas jogadas desde a última ação de um inimigo. Andar não soma nem quebra.
+- **Guardar.** Ação básica fora do deck, sempre disponível: 2 tiques, bloqueia 2.
+- **Bloqueio.** Acumula e é consumido inteiro pelo próximo ataque que acertar.
+- **Fim da sala.** A porta só abre com todos os inimigos mortos.
+- **Mão de 4 cartas**, com dois modos em teste:
+  - *Recompor:* cartas jogadas não são repostas; Recompor (2 tiques) completa a mão.
+  - *Compra automática:* a cada carta jogada, outra entra na hora.
+
+### Sala de teste
+
+Grid de 5 colunas por 7 fileiras, 20 de vida, deck de 8 cartas.
+
+| Carta | Tiques | Alcance | Efeito |
+|---|---|---|---|
+| Golpe (×2) | 1 | Casa vizinha (inclusive atrás) | 3 de dano |
+| Aparar (×2) | 1 | Você | Bloqueia 4 do próximo ataque |
+| Estocada | 2 | Linha de 2 casas à frente | 4 de dano em cada |
+| Varredura | 2 | Arco de 3 casas à frente | 2 de dano em cada; com cadeia 2+, 4 |
+| Golpe Pesado | 3 | Casa vizinha | 8 de dano; com cadeia 2+, empurra 1 casa |
+| Passo Sombrio | 1 | Você | Move até 2 casas, para frente ou para os lados |
+
+| Inimigo | Vida | Comportamento |
+|---|---|---|
+| Carniçal | 6 | Alterna Avançar (até 2 casas, 2 tiques) e Mordida na casa onde você está (2 tiques, 3 de dano). Só morde se estiver vizinho. |
+| Arqueiro de Ossos | 5 | A cada 4 tiques, flecha de 5 de dano na coluna inteira onde você está; no disparo seguinte, na fileira inteira (alterna). Depois se afasta 1 casa, sem nunca ficar atrás de você. |
+| Sineiro | 10 | Imóvel, na última fileira. A cada 6 tiques, Badalada de 4 de dano na sala toda, menos nas casas vizinhas a ele. |
+
+Os números são ponto de partida para balancear.
+
+## Estrutura
+
+```
+Assets/Scripts/Core/   Regras do jogo em C# puro (sem UnityEngine). É o que a Unity compila.
+dotnet/                Projetos .NET que usam a mesma fonte, fora do editor:
+  HellsCastle.Core/        compila Assets/Scripts/Core
+  HellsCastle.Core.Tests/  testes automáticos (xUnit)
+  HellsCastle.Console/     protótipo jogável no terminal
+```
+
+As regras ficam separadas da parte visual: dá para testar e balancear o combate sem abrir a Unity.
+
+## Como rodar no terminal
+
+Requer o [.NET SDK 10](https://dotnet.microsoft.com/download). No PowerShell ou CMD, na pasta do repositório:
+
+```
+dotnet run --project dotnet/HellsCastle.Console
+```
+
+Opções: `--mao recompor` ou `--mao auto` escolhe o modo de mão; `--semente N` repete a mesma ordem de cartas.
+
+```
+dotnet run --project dotnet/HellsCastle.Console -- --mao auto --semente 7
+```
+
+Comandos durante o combate:
+
+| Comando | Ação |
+|---|---|
+| `w` `a` `d` | Anda para frente, esquerda, direita |
+| `2` | Joga a carta 2 da mão |
+| `1 w` | Joga a carta 1 na direção indicada (`w` frente, `a` esquerda, `d` direita, `s` trás) |
+| `3 wd` | Passo Sombrio com caminho de até 2 passos |
+| `r` | Recompor |
+| `g` | Guardar |
+| `q` | Sair |
+
+No mapa, `@` é você e o número ao lado de cada casa mostra em quantos tiques ela será atingida.
+
+## Como rodar os testes
+
+```
+dotnet test dotnet/HellsCastle.sln
+```
+
+## Como abrir na Unity
+
+O repositório ainda não tem `ProjectSettings/` nem `Packages/`; eles são criados pelo editor.
+
+1. No Unity Hub, use **Add > Add project from disk** e escolha a pasta do repositório.
+2. Escolha a versão do editor (Unity 2021.3 LTS ou mais nova) e abra.
+3. Faça commit das pastas `ProjectSettings/` e `Packages/` e dos arquivos `.meta` que a Unity criar em `Assets/`.

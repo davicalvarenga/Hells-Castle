@@ -1,0 +1,39 @@
+# --- Unity (pastas geradas pelo editor) ---
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Projetos e soluções que a Unity e a IDE geram na raiz.
+# Ancorado com "/" para não ignorar os projetos versionados em dotnet/.
+/*.csproj
+/*.sln
+/*.slnx
+/*.suo
+/*.user
+/*.userprefs
+/.vs/
+/.idea/
+
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+sysinfo.txt
+crashlytics-build.properties
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# --- .NET (testes e protótipo de terminal em dotnet/) ---
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/.vs/
+dotnet/**/*.user
