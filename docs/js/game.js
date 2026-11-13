@@ -157,8 +157,8 @@
 
     function revealAround(s, px, py, layout) {
         const map = layout || D.getFloorConfig(s.floor).layout;
-        for (let dy = -2; dy <= 2; dy++) {
-            for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -3; dy <= 3; dy++) {
+            for (let dx = -3; dx <= 3; dx++) {
                 const nx = px + dx;
                 const ny = py + dy;
                 if (ny >= 0 && ny < map.length && nx >= 0 && nx < map[0].length) {

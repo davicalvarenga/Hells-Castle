@@ -476,23 +476,23 @@
             exitHint: 'Elevador destrancado! Suba para o Andar 2 (Pântano da Copa).',
             layout: [
                 '#############',
-                '#.....E.....#',
-                '#.###...###.#',
-                '#C#...B...#C#',
-                '#.#.......#.#',
-                '#...#.3.#...#',
-                '#.###...###.#',
-                '#..?..2..M..#',
-                '#.###...###.#',
-                '#.....1.....#',
-                '#.###...###.#',
-                '#..?..S..C..#',
+                '#C..4...E..C#',
+                '#.#...#.#.###',
+                '#..?..B..5..#',
+                '###.#.###.#.#',
+                '#M..3.#...#.#',
+                '#.###.#.###.#',
+                '#..2..#..?..#',
+                '#.###.###.#.#',
+                '#..1......#C#',
+                '#####.###.#.#',
+                '#..?..S.....#',
                 '#############'
             ],
             encounters: {
                 '1': {
-                    zone: 'Corredor das Baias',
-                    intro: 'Dois estagiários perdidos bloqueiam as baias com dúvidas urgentes!',
+                    zone: 'Ala Oeste das Baias',
+                    intro: 'Dois estagiários perdidos bloqueiam o corredor lateral com dúvidas urgentes!',
                     enemies: ['goblin', 'goblin']
                 },
                 '2': {
@@ -504,6 +504,16 @@
                     zone: 'Corredor da TI',
                     intro: 'Uma Górgona da Bandeja 2 imprime lâminas diante de um Goblin!',
                     enemies: ['goblin', 'gorgon']
+                },
+                '4': {
+                    zone: 'Arquivo Morto',
+                    intro: 'Uma Harpia fofoqueira e um Goblin vigiam o cofre do arquivo!',
+                    enemies: ['harpy', 'goblin']
+                },
+                '5': {
+                    zone: 'Ala Leste de Reuniões',
+                    intro: 'Um Cultista e uma Harpia preparam uma dinâmica de grupo forçada!',
+                    enemies: ['cultist', 'harpy']
                 },
                 'B': {
                     zone: 'Sala da Gerência',
@@ -520,17 +530,17 @@
             exitHint: 'Elevador destrancado! Suba para a Cobertura do C-Level (Andar Final).',
             layout: [
                 '#############',
-                '#.....E.....#',
-                '#..##...##..#',
-                '#C....B....C#',
-                '#.###...###.#',
-                '#.....3.....#',
-                '#.#.##.##.#.#',
-                '#..M..2..?..#',
-                '#.##.....##.#',
-                '#..?..1..C..#',
-                '#.###...###.#',
-                '#.....S..C..#',
+                '#C..4...E..C#',
+                '#.#.###.#.###',
+                '#.#..B..#..5#',
+                '#.###.#.###.#',
+                '#..?..#..3..#',
+                '#.###.#.###.#',
+                '#..2..M..?..#',
+                '#.#.###.###.#',
+                '#.#..1....#C#',
+                '#.#.###.#.#.#',
+                '#.....S.....#',
                 '#############'
             ],
             encounters: {
@@ -540,14 +550,24 @@
                     enemies: ['slime', 'slime']
                 },
                 '2': {
-                    zone: 'Antecâmara do Café',
+                    zone: 'Corredor do Micro-ondas',
                     intro: 'Um Cultista do Mindset motiva uma Górgona da Bandeja 2!',
                     enemies: ['cultist', 'gorgon']
                 },
                 '3': {
-                    zone: 'Corredor do Feedback',
+                    zone: 'Ala Leste do Feedback',
                     intro: 'Fofocas e impressoras cercam a passagem do RH!',
                     enemies: ['harpy', 'slime', 'gorgon']
+                },
+                '4': {
+                    zone: 'Despensa Tóxica',
+                    intro: 'Um Limo gigante e uma Harpia protegem o estoque da copa!',
+                    enemies: ['slime', 'harpy']
+                },
+                '5': {
+                    zone: 'Sala de Dinâmica',
+                    intro: 'Dois Cultistas do Mindset tentam alinhar seus chakras corporativos!',
+                    enemies: ['cultist', 'cultist']
                 },
                 'B': {
                     zone: 'Inquisição do RH',
@@ -564,33 +584,43 @@
             exitHint: 'Cobertura dominada!',
             layout: [
                 '#############',
-                '#.....E.....#',
-                '#.###...###.#',
-                '#C...#B#...C#',
-                '#..#.....#..#',
-                '#..?..3..M..#',
-                '#.###...###.#',
-                '#..C..2..?..#',
-                '#.##.....##.#',
-                '#.....1.....#',
-                '#.###...###.#',
-                '#..C..S.....#',
+                '#C....E....C#',
+                '#.###.#.###.#',
+                '#..4..B..5..#',
+                '#.#.###.###.#',
+                '#.#..?..3..M#',
+                '#.###.#.###.#',
+                '#..2..#..?..#',
+                '#.###.#.###.#',
+                '#C....#..1..#',
+                '#.###.#.###.#',
+                '#.....S.....#',
                 '#############'
             ],
             encounters: {
                 '1': {
-                    zone: 'Hall dos Executivos',
+                    zone: 'Ala Leste Executiva',
                     intro: 'Seguranças burocráticos do C-Level bloqueiam o tapete dourado!',
                     enemies: ['gorgon', 'cultist']
                 },
                 '2': {
-                    zone: 'Sala de Guerra',
+                    zone: 'Galeria dos Acionistas',
                     intro: 'Cultistas e Harpias preparam o relatório trimestral!',
                     enemies: ['cultist', 'harpy', 'gorgon']
                 },
                 '3': {
-                    zone: 'Ante-sala da Presidência',
-                    intro: 'Última barreira antes da sala do CEO: Górgonas em formação!',
+                    zone: 'Ante-sala da Copa VIP',
+                    intro: 'Górgonas guardam a máquina de café executiva!',
+                    enemies: ['gorgon', 'gorgon']
+                },
+                '4': {
+                    zone: 'Guarda Oeste da Presidência',
+                    intro: 'Uma Harpia e um Cultista protegem o flanco esquerdo do CEO!',
+                    enemies: ['harpy', 'cultist', 'goblin']
+                },
+                '5': {
+                    zone: 'Guarda Leste da Presidência',
+                    intro: 'Última barreira no flanco direito: Górgonas em formação!',
                     enemies: ['gorgon', 'cultist', 'gorgon']
                 },
                 'B': {
