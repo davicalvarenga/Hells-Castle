@@ -7,6 +7,80 @@
         title: 'Sir Valter'
     };
 
+    const CHARACTERS = [
+        {
+            id: 'valter',
+            name: 'Valter Motta',
+            role: 'Analista',
+            title: 'Sir Valter',
+            dept: 'Relatórios & Planilhas',
+            badgeCode: 'HC-0402',
+            icon: 'hero_valter',
+            maxHp: 60,
+            turn1Shield: 4,
+            allyId: null,
+            extraCard: null,
+            desc: 'Equilibrado: começa com +4 de Escudo no 1º turno de cada combate (Sanidade 60).'
+        },
+        {
+            id: 'vivi',
+            name: 'Vivi da Arte',
+            role: 'Designer',
+            title: 'Lady Vivi',
+            dept: 'Criação & Layout',
+            badgeCode: 'HC-0718',
+            icon: 'ally_vivi',
+            maxHp: 48,
+            turn1Shield: 0,
+            allyId: 'ally_vivi',
+            extraCard: null,
+            desc: 'Combo sobe +2 por carta jogada em vez de +1 (Sanidade máx. 48).'
+        },
+        {
+            id: 'jorge',
+            name: 'Seu Jorge',
+            role: 'TI',
+            title: 'Dom Jorge',
+            dept: 'Infraestrutura & Cabos',
+            badgeCode: 'HC-0101',
+            icon: 'ally_jorge',
+            maxHp: 60,
+            turn1Shield: 0,
+            allyId: 'ally_jorge',
+            extraCard: 'chicote_dados',
+            desc: '+5 de Escudo automático todo turno e começa com 1 "Chicote de Dados" extra (Sanidade 60).'
+        },
+        {
+            id: 'claudia',
+            name: 'Cláudia',
+            role: 'Financeiro',
+            title: 'Dama Cláudia',
+            dept: 'Auditoria & VR',
+            badgeCode: 'HC-0990',
+            icon: 'ally_claudia',
+            maxHp: 52,
+            turn1Shield: 0,
+            allyId: 'ally_claudia',
+            extraCard: null,
+            desc: '+50% de VR ganho e +3 de dano base em todas as cartas (Sanidade máx. 52).'
+        }
+    ];
+
+    const FLOOR_CLOCKS = {
+        1: '17:15',
+        2: '17:30',
+        3: '17:45',
+        victory: '18:00!'
+    };
+
+    const REALITY_FLASH_QUIPS = [
+        'Valter... está na sala? Foco na reunião!',
+        'Foco no resultado! Onde está o Relatório #25?',
+        'Lembre-se do Relatório #25 antes das 18:00...',
+        'A luz fluorescente pisca... volte para sua planilha!',
+        'Motta? Está olhando para a parede de novo?'
+    ];
+
     const CARDS = {
         mordida_ferro: {
             id: 'mordida_ferro',
@@ -790,6 +864,9 @@
 
     window.GameData = {
         PROTAGONIST: PROTAGONIST,
+        CHARACTERS: CHARACTERS,
+        FLOOR_CLOCKS: FLOOR_CLOCKS,
+        REALITY_FLASH_QUIPS: REALITY_FLASH_QUIPS,
         CARDS: CARDS,
         STARTING_DECK: STARTING_DECK,
         EVOLUTIONS: EVOLUTIONS,

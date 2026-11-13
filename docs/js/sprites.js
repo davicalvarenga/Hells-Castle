@@ -717,6 +717,26 @@
             '................',
             '................',
             '................'
+        ],
+
+        // Protagonista: Valter Motta (Analista / Sir Valter) - 16x16
+        hero_valter: [
+            '....kkkkkkkk....',
+            '...kDDDDDDDDk...',
+            '..kDDffffffDDk..',
+            '..kDffkffkffDk..',
+            '..kffffffffffk..',
+            '...kfffFFfffk...',
+            '...kkffffffkk...',
+            '..kddddwwddddk..',
+            '.kddddwrwdddddk.',
+            '.kddddwrwddssdk.',
+            '.kddddwrwddssdk.',
+            '.kdddddddddddk..',
+            '..kkddddddddkk..',
+            '...kDDk..kDDk...',
+            '...kkkk..kkkk...',
+            '................'
         ]
     };
 
@@ -773,6 +793,63 @@
         }
     };
 
+    const FONT_3X5 = {
+        A: ['010', '101', '111', '101', '101'],
+        B: ['110', '101', '110', '101', '110'],
+        C: ['011', '100', '100', '100', '011'],
+        D: ['110', '101', '101', '101', '110'],
+        E: ['111', '100', '110', '100', '111'],
+        F: ['111', '100', '110', '100', '100'],
+        G: ['011', '100', '101', '101', '011'],
+        H: ['101', '101', '111', '101', '101'],
+        I: ['111', '010', '010', '010', '111'],
+        J: ['001', '001', '001', '101', '010'],
+        K: ['101', '101', '110', '101', '101'],
+        L: ['100', '100', '100', '100', '111'],
+        M: ['101', '111', '111', '101', '101'],
+        N: ['101', '111', '111', '111', '101'],
+        O: ['010', '101', '101', '101', '010'],
+        P: ['110', '101', '110', '100', '100'],
+        Q: ['010', '101', '101', '111', '011'],
+        R: ['110', '101', '110', '101', '101'],
+        S: ['011', '100', '010', '001', '110'],
+        T: ['111', '010', '010', '010', '010'],
+        U: ['101', '101', '101', '101', '111'],
+        V: ['101', '101', '101', '101', '010'],
+        W: ['101', '101', '111', '111', '101'],
+        X: ['101', '101', '010', '101', '101'],
+        Y: ['101', '101', '010', '010', '010'],
+        Z: ['111', '001', '010', '100', '111'],
+        '0': ['111', '101', '101', '101', '111'],
+        '1': ['010', '110', '010', '010', '111'],
+        '2': ['110', '001', '010', '100', '111'],
+        '3': ['110', '001', '110', '001', '110'],
+        '4': ['101', '101', '111', '001', '001'],
+        '5': ['111', '100', '110', '001', '110'],
+        '6': ['011', '100', '111', '101', '111'],
+        '7': ['111', '001', '010', '010', '010'],
+        '8': ['111', '101', '111', '101', '111'],
+        '9': ['111', '101', '111', '001', '110'],
+        '-': ['000', '000', '111', '000', '000'],
+        ' ': ['000', '000', '000', '000', '000']
+    };
+
+    function drawPixelText3x5(g, text, startX, startY, color) {
+        g.fillStyle = color;
+        const up = String(text || '').toUpperCase();
+        for (let i = 0; i < up.length; i++) {
+            const glyph = FONT_3X5[up[i]] || FONT_3X5[' '];
+            const gx = startX + i * 4;
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 3; c++) {
+                    if (glyph[r][c] === '1') {
+                        g.fillRect(gx + c, startY + r, 1, 1);
+                    }
+                }
+            }
+        }
+    }
+
     function makeWallTexture(variant, floorNum) {
         const size = 48;
         const c = makeCanvas(size, size);
@@ -805,7 +882,7 @@
         g.fillRect(0, 0, size, 1);
         g.fillRect(0, 30, size, 1);
 
-        const v = (variant || 0) % 3;
+        const v = (variant || 0) % 6;
         if (v === 0) {
             g.fillStyle = '#3d281b';
             g.fillRect(5, 6, size - 10, 23);
@@ -842,7 +919,7 @@
             g.fillRect(37, 13, 5, 5);
             g.fillStyle = '#b288e0';
             g.fillRect(7, 18, 4, 4);
-        } else {
+        } else if (v === 2) {
             g.fillStyle = fl.panel;
             g.fillRect(4, 6, size - 8, 23);
             g.fillStyle = floorNum === 3 ? '#f5cb5c' : '#d8d0c4';
@@ -855,6 +932,54 @@
             g.fillRect(24, 16, 8, 2);
             g.fillStyle = '#7fd15a';
             g.fillRect(12, 18, 10, 2);
+        } else if (v === 3) {
+            // Pôster Motivacional 1: "SINERGIA"
+            g.fillStyle = fl.panel;
+            g.fillRect(4, 6, size - 8, 23);
+            g.fillStyle = '#9ba8be';
+            g.fillRect(6, 7, 36, 21);
+            g.fillStyle = '#1b263b';
+            g.fillRect(7, 8, 34, 19);
+            // Seta corporativa dourada subindo
+            g.fillStyle = '#f5cb5c';
+            g.fillRect(22, 10, 4, 2);
+            g.fillRect(20, 12, 8, 2);
+            g.fillRect(22, 14, 4, 4);
+            g.fillStyle = '#38b6ff';
+            g.fillRect(14, 15, 6, 3);
+            g.fillRect(28, 15, 6, 3);
+            drawPixelText3x5(g, 'SINERGIA', 9, 20, '#f5cb5c');
+        } else if (v === 4) {
+            // Pôster Motivacional 2: "VISTA A CAMISA"
+            g.fillStyle = fl.panel;
+            g.fillRect(4, 6, size - 8, 23);
+            g.fillStyle = '#f5cb5c';
+            g.fillRect(7, 7, 34, 21);
+            g.fillStyle = '#251a30';
+            g.fillRect(8, 8, 32, 19);
+            // Camisa e gravata pixel art
+            g.fillStyle = '#f4ead8';
+            g.fillRect(20, 9, 8, 6);
+            g.fillStyle = '#e24a33';
+            g.fillRect(23, 10, 2, 5);
+            drawPixelText3x5(g, 'VISTA A', 10, 16, '#ffffff');
+            drawPixelText3x5(g, 'CAMISA', 12, 22, '#ff9f68');
+        } else {
+            // Pôster Motivacional 3: "SORRIA"
+            g.fillStyle = fl.panel;
+            g.fillRect(4, 6, size - 8, 23);
+            g.fillStyle = '#38b6ff';
+            g.fillRect(7, 7, 34, 21);
+            g.fillStyle = '#14202e';
+            g.fillRect(8, 8, 32, 19);
+            // Smiley corporativo
+            g.fillStyle = '#f5cb5c';
+            g.fillRect(20, 10, 8, 8);
+            g.fillStyle = '#14202e';
+            g.fillRect(21, 12, 2, 2);
+            g.fillRect(25, 12, 2, 2);
+            g.fillRect(21, 15, 6, 1);
+            drawPixelText3x5(g, 'SORRIA', 12, 20, '#6ae0a8');
         }
 
         return c;

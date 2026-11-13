@@ -13,10 +13,12 @@
     const els = {
         xpTrack: document.getElementById('xp-track'),
         xpFill: document.getElementById('xp-fill'),
+        statHero: document.getElementById('stat-hero'),
         statLv: document.getElementById('stat-lv'),
         statFloor: document.getElementById('stat-floor'),
         statKills: document.getElementById('stat-kills'),
         statVr: document.getElementById('stat-vr'),
+        clockTime: document.getElementById('clock-time'),
         hpText: document.getElementById('hp-text'),
         shieldBadge: document.getElementById('shield-badge'),
         shieldVal: document.getElementById('shield-val'),
@@ -24,6 +26,7 @@
         manaSub: document.getElementById('mana-sub'),
         alliesStrip: document.getElementById('allies-strip'),
         passivesStrip: document.getElementById('passives-strip'),
+        btnBossKey: document.getElementById('btn-boss-key'),
         btnMute: document.getElementById('btn-mute'),
         iconSoundOn: document.getElementById('icon-sound-on'),
         iconSoundOff: document.getElementById('icon-sound-off'),
@@ -49,6 +52,11 @@
         btnPlayAll: document.getElementById('btn-play-all'),
         btnEndTurn: document.getElementById('btn-end-turn'),
         xpParticlesLayer: document.getElementById('xp-particles-layer'),
+        titleModal: document.getElementById('title-modal'),
+        badgeSelectGrid: document.getElementById('badge-select-grid'),
+        btnStartDaydream: document.getElementById('btn-start-daydream'),
+        spreadsheetModal: document.getElementById('spreadsheet-modal'),
+        btnCloseSpreadsheet: document.getElementById('btn-close-spreadsheet'),
         levelupModal: document.getElementById('levelup-modal'),
         rewardGrid: document.getElementById('reward-grid'),
         shopModal: document.getElementById('shop-modal'),
@@ -68,10 +76,14 @@
     };
 
     let state = null;
+    let selectedHeroId = 'valter';
+    let bossKeyOpen = false;
     let uidCounter = 1;
     let chestIndex = 0;
     let eventIndex = 0;
     let logHideTimer = null;
+    let realityTimer = null;
+    let realityQuipIdx = 0;
 
     function shuffle(arr) {
         const copy = arr.slice();
@@ -92,6 +104,10 @@
         return state.allies.includes(allyId);
     }
 
+    function isTitleOpen() {
+        return !!(els.titleModal && !els.titleModal.classList.contains('hidden'));
+    }
+
     function scaleVr(amount) {
         return Math.round(amount * (hasAlly('ally_claudia') ? 1.5 : 1));
     }
@@ -104,25 +120,35 @@
         return { x: 6, y: 11 };
     }
 
-    function createInitialState() {
+    function createInitialState(heroId) {
         const fl = D.getFloorConfig(1);
         const start = findStartPos(fl.layout);
+        const chars = D.CHARACTERS || [];
+        const hero = chars.find(c => c.id === (heroId || selectedHeroId)) || chars[0] || {
+            id: 'valter', name: 'Valter Motta', role: 'Analista', title: 'Sir Valter', icon: 'hero_valter', maxHp: 60, turn1Shield: 4
+        };
         uidCounter = 1;
         chestIndex = 0;
         eventIndex = 0;
+        const startDeck = D.STARTING_DECK.slice();
+        if (hero.extraCard) startDeck.push(hero.extraCard);
         const s = {
             mode: 'explore',
             previousMode: 'explore',
             busy: false,
             autoPlaying: false,
+            heroId: hero.id,
+            heroName: hero.name,
+            heroTitle: hero.title,
+            turn1Shield: hero.turn1Shield || 0,
             floor: 1,
             player: {
                 x: start.x,
                 y: start.y,
                 dir: 0
             },
-            hp: 60,
-            maxHp: 60,
+            hp: hero.maxHp,
+            maxHp: hero.maxHp,
             mana: 3,
             maxMana: 3,
             shield: 0,
@@ -132,12 +158,12 @@
             vr: 0,
             combo: 1,
             damageMult: 1,
-            allies: [],
+            allies: hero.allyId ? [hero.allyId] : [],
             relics: [],
-            passives: [],
+            passives: [{ label: 'Crachá: ' + hero.name + ' (' + hero.role + ')', icon: hero.icon }],
             evolvedCards: {},
             pendingEvolutions: [],
-            deck: D.STARTING_DECK.slice(),
+            deck: startDeck,
             drawPile: [],
             hand: [],
             discardPile: [],
@@ -195,6 +221,21 @@
         logHideTimer = setTimeout(() => {
             els.logText.classList.add('toast-hidden');
         }, 3200);
+    }
+
+    function triggerRealityFlash(customMsg) {
+        if (!els.viewport) return;
+        els.viewport.classList.remove('reality-flash');
+        void els.viewport.offsetWidth;
+        els.viewport.classList.add('reality-flash');
+        if (realityTimer) clearTimeout(realityTimer);
+        realityTimer = setTimeout(() => {
+            els.viewport.classList.remove('reality-flash');
+        }, 200);
+        R.triggerScreenFlash('#d8f6ff', 0.42, 0.18);
+        const quips = D.REALITY_FLASH_QUIPS || [];
+        const line = customMsg || (quips.length ? quips[(realityQuipIdx++) % quips.length] : 'Foco no Relatório #25!');
+        setLog(line);
     }
 
     function spawnFloatingText(screenX, screenY, text, extraClass) {
@@ -570,11 +611,16 @@
             btn.addEventListener('click', () => {
                 A.unlock();
                 A.play('card');
+                const hpBefore = state.hp;
                 const msg = ch.effect(state, helpers);
                 if (state.mode === 'combat') return;
                 els.eventModal.classList.add('hidden');
                 state.mode = 'explore';
-                if (msg) setLog(msg);
+                if (state.hp < hpBefore) {
+                    triggerRealityFlash(msg);
+                } else if (msg) {
+                    setLog(msg);
+                }
                 R.syncState(state);
                 renderAll();
                 if (state.pendingLevelUps > 0) {
@@ -590,7 +636,7 @@
     // ---------- EXPLORAÇÃO ----------
 
     function moveRelative(forwardStep, strafeStep) {
-        if (state.mode !== 'explore' || state.busy) return;
+        if (bossKeyOpen || isTitleOpen() || state.mode !== 'explore' || state.busy) return;
         A.unlock();
         const layout = currentFloor().layout;
         const dir = state.player.dir;
@@ -619,7 +665,7 @@
     }
 
     function turnPlayer(deltaDir) {
-        if (state.mode !== 'explore' || state.busy) return;
+        if (bossKeyOpen || isTitleOpen() || state.mode !== 'explore' || state.busy) return;
         A.unlock();
         state.player.dir = (state.player.dir + deltaDir + 4) % 4;
         A.play('turn');
@@ -685,7 +731,7 @@
         state.mode = 'combat';
         state.currentEncounterTile = tileKey;
         state.mana = state.maxMana;
-        state.shield = hasAlly('ally_jorge') ? 5 : 0;
+        state.shield = (hasAlly('ally_jorge') ? 5 : 0) + (state.turn1Shield || 0);
         state.combo = 1;
         state.enemies = enc.enemies.map(kind => {
             const tpl = D.ENEMIES[kind];
@@ -949,8 +995,8 @@
                 state.autoPlaying = false;
                 return;
             }
-            if (state.busy) {
-                setTimeout(stepNext, 100);
+            if (bossKeyOpen || state.busy) {
+                setTimeout(stepNext, 120);
                 return;
             }
             const idx = state.hand.findIndex(id => !D.CARDS[id].purgeOnPlay && D.CARDS[id].cost <= state.mana);
@@ -986,6 +1032,10 @@
         function nextEnemyAction() {
             if (state.mode !== 'combat') {
                 state.busy = false;
+                return;
+            }
+            if (bossKeyOpen) {
+                setTimeout(nextEnemyAction, 150);
                 return;
             }
             if (idx >= alive.length) {
@@ -1055,11 +1105,11 @@
                 A.play('block');
                 spawnFloatingText(vpRect.left + vpRect.width * 0.5, vpRect.top + vpRect.height * 0.7, 'Bloqueou ' + absorbed, 'shield');
             }
+            let realityTriggered = false;
             if (dmg > 0) {
                 state.hp = Math.max(0, state.hp - dmg);
                 A.play('hurt');
                 R.triggerShake(0.08, 0.25);
-                R.triggerScreenFlash('#d8452f', 0.36, 0.26);
                 spawnFloatingText(vpRect.left + vpRect.width * 0.5, vpRect.top + vpRect.height * 0.62, '-' + dmg + ' Sanidade', 'player-hit');
                 const heartEl = els.hpText.parentElement;
                 if (heartEl) {
@@ -1067,9 +1117,18 @@
                     void heartEl.offsetWidth;
                     heartEl.classList.add('hit-pulse');
                 }
+                const lowSanity = state.hp > 0 && state.hp <= Math.ceil(state.maxHp * 0.3);
+                if (dmg >= 8 || lowSanity) {
+                    realityTriggered = true;
+                    triggerRealityFlash();
+                } else {
+                    R.triggerScreenFlash('#d8452f', 0.36, 0.26);
+                }
             }
 
-            setLog(enemy.name + ' (' + enemy.origin + '): ' + D.ENEMIES[enemy.kind].quip);
+            if (!realityTriggered) {
+                setLog(enemy.name + ' (' + enemy.origin + '): ' + D.ENEMIES[enemy.kind].quip);
+            }
             renderHud();
 
             if (state.hp <= 0) {
@@ -1126,14 +1185,14 @@
         els.endBox.classList.toggle('defeat', !victory);
         if (victory) {
             A.play('victory');
-            els.endTitle.textContent = 'SEXTOU! VOCE BATEU O PONTO AS 18:00!';
+            els.endTitle.textContent = 'SEXTOU! RELATÓRIO #25 ENTREGUE ÀS 18:00!';
             els.endDesc.textContent =
-                'Sir Valter derrotou o Lich, Dona Carmem do RH e Lorde Valdemar, O CEO! O expediente sombrio acabou!';
+                state.heroTitle + ' derrotou o Lich, Dona Carmem do RH e Lorde Valdemar, O CEO! Relatório #25 salvo e ponto batido às 18:00!';
         } else {
             A.play('defeat');
             els.endTitle.textContent = 'BURNOUT TOTAL...';
             els.endDesc.textContent =
-                'A Sanidade de Sir Valter zerou no Andar ' + state.floor + '. O RH convocou uma reuniao eterna.';
+                'A Sanidade de ' + state.heroTitle + ' zerou no Andar ' + state.floor + '. O RH convocou uma reunião eterna.';
         }
         els.endStats.textContent =
             'ANDAR ' + state.floor + '/3  |  LV ' + state.level +
@@ -1148,10 +1207,17 @@
     function renderHud() {
         const xpPct = Math.min(100, Math.round((state.xp / state.xpNext) * 100));
         els.xpFill.style.width = xpPct + '%';
+        if (els.statHero) els.statHero.textContent = (state.heroTitle || 'Sir Valter').toUpperCase();
         els.statLv.textContent = String(state.level);
         els.statFloor.textContent = 'ANDAR ' + state.floor + '/3';
         els.statKills.textContent = String(state.kills);
         els.statVr.textContent = String(state.vr);
+        if (els.clockTime) {
+            const isFinalVictory = state.mode === 'gameover' && state.bossDefeated && state.floor === D.FLOORS.length;
+            els.clockTime.textContent = isFinalVictory
+                ? ((D.FLOOR_CLOCKS && D.FLOOR_CLOCKS.victory) || '18:00!')
+                : ((D.FLOOR_CLOCKS && D.FLOOR_CLOCKS[state.floor]) || '17:15');
+        }
 
         els.hpText.textContent = state.hp + '/' + state.maxHp;
         if (state.shield > 0) {
@@ -1250,18 +1316,74 @@
         renderCombatControls(popCombo);
     }
 
-    function startNewGame() {
-        els.levelupModal.classList.add('hidden');
-        els.shopModal.classList.add('hidden');
-        els.eventModal.classList.add('hidden');
-        els.endModal.classList.add('hidden');
-        state = createInitialState();
+    function renderBadgeSelection() {
+        if (!els.badgeSelectGrid) return;
+        els.badgeSelectGrid.innerHTML = '';
+        (D.CHARACTERS || []).forEach(hero => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'badge-card' + (selectedHeroId === hero.id ? ' selected' : '');
+            btn.setAttribute('data-hero-id', hero.id);
+            btn.innerHTML =
+                '<span class="badge-code">' + hero.badgeCode + ' &middot; ' + hero.dept + '</span>' +
+                '<img src="' + S.getIconUrl(hero.icon) + '" alt="' + hero.name + '" />' +
+                '<div class="badge-name">' + hero.name + '</div>' +
+                '<div class="badge-role">' + hero.role + ' (' + hero.title + ')</div>' +
+                '<div class="badge-desc">' + hero.desc + '</div>';
+            btn.addEventListener('click', () => {
+                A.unlock();
+                A.play('card');
+                selectedHeroId = hero.id;
+                renderBadgeSelection();
+                initWorldFromHero();
+            });
+            els.badgeSelectGrid.appendChild(btn);
+        });
+    }
+
+    function initWorldFromHero() {
+        state = createInitialState(selectedHeroId);
         const fl = currentFloor();
         R.setHoveredCard(null);
         R.buildMap(fl.layout, state);
         R.syncState(state);
-        setLog('Sir Valter entrou no Andar 1 (' + fl.name + '). Chefe: ' + fl.bossName + '!');
         renderAll();
+    }
+
+    function openTitleModal() {
+        bossKeyOpen = false;
+        if (els.spreadsheetModal) els.spreadsheetModal.classList.add('hidden');
+        els.levelupModal.classList.add('hidden');
+        els.shopModal.classList.add('hidden');
+        els.eventModal.classList.add('hidden');
+        els.endModal.classList.add('hidden');
+        initWorldFromHero();
+        renderBadgeSelection();
+        if (els.titleModal) els.titleModal.classList.remove('hidden');
+    }
+
+    function confirmStartDaydream() {
+        A.unlock();
+        A.play('levelup');
+        if (els.titleModal) els.titleModal.classList.add('hidden');
+        document.body.classList.remove('daydream-transition');
+        void document.body.offsetWidth;
+        document.body.classList.add('daydream-transition');
+        setTimeout(() => document.body.classList.remove('daydream-transition'), 720);
+        const fl = currentFloor();
+        setLog(state.heroTitle + ' bateu o ponto! Entrando no Andar 1 (' + fl.name + ') — Chefe: ' + fl.bossName + '!');
+        renderAll();
+    }
+
+    function toggleBossKey() {
+        bossKeyOpen = !bossKeyOpen;
+        if (els.spreadsheetModal) {
+            els.spreadsheetModal.classList.toggle('hidden', !bossKeyOpen);
+        }
+    }
+
+    function startNewGame() {
+        openTitleModal();
     }
 
     // ---------- EVENTOS DE ENTRADA ----------
@@ -1276,16 +1398,32 @@
     els.btnPlayAll.addEventListener('click', playAllCards);
     els.btnEndTurn.addEventListener('click', endTurn);
     els.btnShopClose.addEventListener('click', closeShopModal);
+    if (els.btnBossKey) els.btnBossKey.addEventListener('click', toggleBossKey);
+    if (els.btnCloseSpreadsheet) els.btnCloseSpreadsheet.addEventListener('click', toggleBossKey);
+    if (els.btnStartDaydream) els.btnStartDaydream.addEventListener('click', confirmStartDaydream);
 
     els.btnMute.addEventListener('click', () => {
         const isMuted = A.toggleMute();
         els.iconSoundOn.classList.toggle('hidden', isMuted);
         els.iconSoundOff.classList.toggle('hidden', !isMuted);
     });
-    els.btnRestart.addEventListener('click', startNewGame);
-    els.btnPlayAgain.addEventListener('click', startNewGame);
+    els.btnRestart.addEventListener('click', openTitleModal);
+    els.btnPlayAgain.addEventListener('click', openTitleModal);
 
     window.addEventListener('keydown', ev => {
+        if (ev.key === 'p' || ev.key === 'P') {
+            ev.preventDefault();
+            toggleBossKey();
+            return;
+        }
+        if (bossKeyOpen) {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                toggleBossKey();
+            }
+            return;
+        }
+        if (isTitleOpen()) return;
         if (state.mode === 'shop' && ev.key === 'Escape') {
             closeShopModal();
             return;

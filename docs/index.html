@@ -11,6 +11,17 @@
 <body>
     <!-- Pequenos botões pixel art no canto superior direito -->
     <div class="top-right-tools">
+        <button id="btn-boss-key" class="tool-btn boss-key-btn" type="button" title="Modo Planilha / Boss Key (Tecla P)">
+            <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <rect fill="#1d6f42" x="1" y="2" width="14" height="12"/>
+                <rect fill="#e8f5e9" x="2" y="3" width="12" height="10"/>
+                <rect fill="#2e7d32" x="2" y="3" width="12" height="2"/>
+                <rect fill="#81c784" x="6" y="5" width="1" height="8"/>
+                <rect fill="#81c784" x="10" y="5" width="1" height="8"/>
+                <rect fill="#a5d6a7" x="2" y="7" width="12" height="1"/>
+                <rect fill="#a5d6a7" x="2" y="10" width="12" height="1"/>
+            </svg>
+        </button>
         <button id="btn-mute" class="tool-btn" type="button" title="Alternar Som">
             <svg id="icon-sound-on" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
                 <path fill="#f5efe6" d="M2,6 h3 l4,-3 v10 l-4,-3 h-3 z"/>
@@ -37,9 +48,24 @@
 
     <!-- Lateral Esquerda (fora da janela 3D) -->
     <aside class="side-left">
-        <div class="left-top-strips">
-            <div id="allies-strip" class="allies-strip" title="Colegas Aliados Recrutados"></div>
-            <div id="passives-strip" class="passives-grid"></div>
+        <div class="left-top-stack">
+            <div id="timeclock-visor" class="timeclock-visor" title="Relógio de Ponto — Saída às 18:00">
+                <svg class="clock-px-ico" viewBox="0 0 14 14" shape-rendering="crispEdges" aria-hidden="true">
+                    <path fill="#0b1016" d="M3,1 h8 v1 h1 v1 h1 v8 h-1 v1 h-1 v1 h-8 v-1 h-1 v-1 h-1 v-8 h1 v-1 h1 z"/>
+                    <path fill="#94a3b8" d="M4,2 h6 v1 h1 v1 h1 v6 h-1 v1 h-1 v1 h-6 v-1 h-1 v-1 h-1 v-6 h1 v-1 h1 z"/>
+                    <rect fill="#13222b" x="3" y="3" width="8" height="8"/>
+                    <rect fill="#4ade80" x="6" y="4" width="1" height="4"/>
+                    <rect fill="#f5cb5c" x="7" y="7" width="3" height="1"/>
+                </svg>
+                <div class="clock-meta">
+                    <span class="clock-lbl">PONTO</span>
+                    <b id="clock-time" class="clock-digits">17:15</b>
+                </div>
+            </div>
+            <div class="left-top-strips">
+                <div id="allies-strip" class="allies-strip" title="Colegas Aliados Recrutados"></div>
+                <div id="passives-strip" class="passives-grid"></div>
+            </div>
         </div>
 
         <div class="heart-wrap" title="Sanidade (HP)">
@@ -104,7 +130,7 @@
             </div>
 
             <!-- LV à esquerda e Caveira + Moeda VR à direita (limpo como Vampire Crawlers) -->
-            <div class="vp-top-lv">SIR VALTER &middot; LV <b id="stat-lv">1</b> &middot; <span id="stat-floor">ANDAR 1/3</span></div>
+            <div class="vp-top-lv"><span id="stat-hero">SIR VALTER</span> &middot; LV <b id="stat-lv">1</b> &middot; <span id="stat-floor">ANDAR 1/3</span></div>
 
             <div id="vp-stats" class="vp-top-stats">
                 <svg class="px-stat-ico" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true">
@@ -175,8 +201,9 @@
                     </button>
                 </div>
 
-                <div class="parchment-wrap" title="Minimapa do Andar">
+                <div class="parchment-wrap" title="Planta de Emergência / Minimapa do Andar">
                     <canvas id="minimap-canvas" width="168" height="168"></canvas>
+                    <span class="memo-stamp">PLANTA &middot; SAÍDA</span>
                 </div>
             </div>
 
@@ -202,9 +229,101 @@
                 </button>
             </div>
         </section>
+
+        <!-- Dois pequenos post-its pixel art nas bordas vazias da moldura (ocultos em telas menores) -->
+        <div class="postit-note postit-left" aria-hidden="true">
+            <span class="postit-pin"></span>
+            <div class="postit-line strong">RELATÓRIO #25</div>
+            <div class="postit-line">ENTREGAR 18H</div>
+        </div>
+        <div class="postit-note postit-right" aria-hidden="true">
+            <span class="postit-pin"></span>
+            <div class="postit-line strong">RAMAL RH: 666</div>
+            <div class="postit-line">SORRIA!</div>
+        </div>
     </main>
 
     <div id="xp-particles-layer"></div>
+
+    <!-- Tela Inicial Corporativa: Bater o Ponto & Seleção de Crachá -->
+    <div id="title-modal" class="modal-overlay">
+        <div class="modal-box intranet-box">
+            <div class="intranet-topbar">
+                <span>HELTON CORP &middot; INTRANET v4.2 — TERMINAL DE PONTO ELETRÔNICO</span>
+                <span class="intranet-clock">SEXTA-FEIRA &middot; 17:15</span>
+            </div>
+            <h1 class="intranet-title">HELL'S CASTLE: BATER O PONTO</h1>
+            <div class="ceo-email-box">
+                <div class="email-hdr">DE: valdemar.ceo@heltoncorp.com &middot; ASSUNTO: URGENTE (PRIORIDADE MÁXIMA)</div>
+                <div class="email-msg">"Motta, onde está o Relatório #25? Reunião obrigatória antes das 18:00."</div>
+            </div>
+            <p class="mitty-motto">"Enxergar além das planilhas. Enfrentar a copa. Sobreviver até as 18:00."</p>
+            <div class="badge-pick-lbl">ESCOLHA SEU CRACHÁ DE FUNCIONÁRIO PARA INICIAR O EXPEDIENTE:</div>
+            <div id="badge-select-grid" class="badge-grid"></div>
+            <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E ENTRAR EM DEVANEIO</button>
+        </div>
+    </div>
+
+    <!-- Boss Key: Modo Planilha Corporativa (Tecla P) -->
+    <div id="spreadsheet-modal" class="spreadsheet-overlay hidden">
+        <div class="xlsx-topbar">
+            <span>HeltonCorp_Balanco_Q4_FINAL.xlsx — Planilha Corporativa [MODO LEITURA]</span>
+            <button id="btn-close-spreadsheet" class="xlsx-close-btn" type="button">VOLTAR AO EXPEDIENTE [P]</button>
+        </div>
+        <div class="xlsx-ribbon">
+            <span>Arquivo</span><span>Página Inicial</span><span>Inserir</span><span>Fórmulas</span><span>Auditoria RH</span>
+        </div>
+        <div class="xlsx-formula">
+            <span class="fx-tag">fx</span>
+            <span class="fx-val">=SE(HORARIO="18:00";"SEXTOU";PROCV("RELATORIO_25";A2:F10;6;FALSO))</span>
+        </div>
+        <div class="xlsx-body">
+            <div class="xlsx-table-wrap">
+                <table class="xlsx-table">
+                    <thead>
+                        <tr>
+                            <th>CÓD</th>
+                            <th>SETOR / CENTRO DE CUSTO</th>
+                            <th>META Q3</th>
+                            <th>REALIZADO Q4</th>
+                            <th>VARIAÇÃO</th>
+                            <th>STATUS AUDITORIA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>CC-101</td><td>Catacumbas das Baias (Operações)</td><td>R$ 420.000</td><td>R$ 438.920</td><td>+4,5%</td><td>SINERGIA OK</td></tr>
+                        <tr><td>CC-104</td><td>Infraestrutura &amp; Cabos Cat6 (TI)</td><td>R$ 185.000</td><td>R$ 184.100</td><td>-0,5%</td><td>FIREWALL ATIVO</td></tr>
+                        <tr><td>CC-202</td><td>Pântano da Copa (Suprimentos Café)</td><td>R$ 92.400</td><td>R$ 119.850</td><td>+29,7%</td><td>ESTOQUE CRÍTICO</td></tr>
+                        <tr><td>CC-218</td><td>Departamento de Feedback &amp; RH</td><td>R$ 310.000</td><td>R$ 295.300</td><td>-4,7%</td><td>ATAS PENDENTES</td></tr>
+                        <tr><td>CC-305</td><td>Coordenadoria de Mindset Ágil</td><td>R$ 150.000</td><td>R$ 152.000</td><td>+1,3%</td><td>EM ALINHAMENTO</td></tr>
+                        <tr><td>CC-412</td><td>Parque de Impressoras Bandeja 2</td><td>R$ 68.500</td><td>R$ 94.210</td><td>+37,5%</td><td>PAPEL ATOLADO</td></tr>
+                        <tr><td>CC-500</td><td>Diretoria Executiva C-Level</td><td>R$ 1.250.000</td><td>R$ 1.310.400</td><td>+4,8%</td><td>REVISAR REL. #25</td></tr>
+                        <tr><td>TOT-25</td><td>CONSOLIDADO HELTON CORP Q4</td><td>R$ 2.475.900</td><td>R$ 2.594.780</td><td>+4,8%</td><td>FECHAMENTO 18:00</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <aside class="xlsx-charts">
+                <div class="xlsx-chart-card">
+                    <div class="xlsx-chart-title">PROJEÇÃO DE SINERGIA Q4</div>
+                    <div class="xlsx-bars">
+                        <div class="xlsx-bar-col"><span style="height:45%"></span><b>OUT</b></div>
+                        <div class="xlsx-bar-col"><span style="height:68%"></span><b>NOV</b></div>
+                        <div class="xlsx-bar-col"><span style="height:82%"></span><b>DEZ</b></div>
+                        <div class="xlsx-bar-col accent"><span style="height:96%"></span><b>META</b></div>
+                    </div>
+                </div>
+                <div class="xlsx-chart-card">
+                    <div class="xlsx-chart-title">TAXA DE ALOCAÇÃO TI/RH</div>
+                    <div class="xlsx-bars">
+                        <div class="xlsx-bar-col"><span style="height:88%"></span><b>TI</b></div>
+                        <div class="xlsx-bar-col warn"><span style="height:74%"></span><b>RH</b></div>
+                        <div class="xlsx-bar-col"><span style="height:62%"></span><b>FIN</b></div>
+                        <div class="xlsx-bar-col accent"><span style="height:91%"></span><b>COPA</b></div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
 
     <!-- Modal de Level Up (1 de 3) -->
     <div id="levelup-modal" class="modal-overlay hidden">
