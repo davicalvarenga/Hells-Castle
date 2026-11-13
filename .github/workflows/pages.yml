@@ -1,11 +1,11 @@
 name: Publicar versão web
 
-# Roda os testes, compila a versão de navegador (Blazor WebAssembly) e publica no GitHub Pages.
+# Publica o protótipo jogável na pasta /docs diretamente no GitHub Pages.
 # Requer, uma única vez: Settings > Pages > Build and deployment > Source: GitHub Actions.
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2-web-crawler]
   workflow_dispatch:
 
 permissions:
@@ -18,41 +18,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Testes
-        run: dotnet test dotnet/HellsCastle.sln -c Release
-
-      - name: Compilar a versão web
-        run: dotnet publish dotnet/HellsCastle.Web -c Release -o publish
-
-      - name: Ajustar o caminho base para o GitHub Pages
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          sed -i "s#<base href=\"/\" />#<base href=\"/${REPO_NAME}/\" />#" publish/wwwroot/index.html
-          grep -q "<base href=\"/${REPO_NAME}/\" />" publish/wwwroot/index.html
-          cp publish/wwwroot/index.html publish/wwwroot/404.html
-
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: publish/wwwroot
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
       - id: deployment
         uses: actions/deploy-pages@v4
