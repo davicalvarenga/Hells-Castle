@@ -244,7 +244,7 @@
                         addWorldSprite(x, y, 'event_q', 0.78);
                     } else if (ch === 'E') {
                         addWorldSprite(x, y, 'exit', 1.2);
-                    } else if (ch === '1' || ch === '2' || ch === '3' || ch === 'B') {
+                    } else if ((ch >= '1' && ch <= '9') || ch === 'B') {
                         const enc = floorCfg && floorCfg.encounters && floorCfg.encounters[ch];
                         const previewKind = enc && enc.enemies ? (ch === 'B' ? enc.enemies[Math.floor(enc.enemies.length / 2)] : enc.enemies[0]) : (ch === 'B' ? 'lich' : 'goblin');
                         addWorldSprite(x, y, previewKind, ch === 'B' ? 1.15 : 0.92);
@@ -728,7 +728,7 @@
                     } else if (ch === 'E') {
                         mctx.fillStyle = '#2b8a3e';
                         mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
-                    } else if ((ch === '1' || ch === '2' || ch === '3' || ch === 'B') && !cleared) {
+                    } else if (((ch >= '1' && ch <= '9') || ch === 'B') && !cleared) {
                         mctx.fillStyle = ch === 'B' ? '#b81414' : '#d9480f';
                         mctx.beginPath();
                         mctx.arc(px + cell / 2, py + cell / 2, cell * 0.3, 0, Math.PI * 2);
