@@ -1,5 +1,7 @@
 ﻿@page "/"
 @using HellsCastle.Core
+@implements IAsyncDisposable
+@inject IJSRuntime JS
 
 <PageTitle>Hell's Castle — combate de teste</PageTitle>
 
@@ -14,87 +16,66 @@
                         @onclick="() => SetMode(HandMode.AutoDraw)">Compra automática</button>
             </div>
             <button type="button" class="plain" @onclick="NewCombat">Novo combate</button>
+            <button type="button" class="plain" @onclick="ToggleSound" aria-pressed="@(!_muted)">
+                Som: @(_muted ? "não" : "sim")
+            </button>
         </div>
     </header>
 
-    <section class="status" aria-label="Estado do jogador">
-        <div class="stat life">
-            <span class="label">Vida</span>
-            <span class="bar"><i style="width:@Percent(_combat.PlayerHp, _combat.PlayerMaxHp)%"></i></span>
-            <span class="value">@_combat.PlayerHp/@_combat.PlayerMaxHp</span>
-        </div>
-        <div class="stat"><span class="label">Bloqueio</span><span class="value block">@_combat.Block</span></div>
-        <div class="stat"><span class="label">Cadeia</span><span class="value chain">@_combat.Chain</span></div>
-        <div class="stat"><span class="label">Tique</span><span class="value">@_combat.Tick</span></div>
-        @if (_combat.OnTheEdge)
-        {
-            <div class="edge-badge">Por um fio: próxima carta −1 tique</div>
-        }
-    </section>
-
-    <section class="timeline" aria-label="Linha do tempo">
-        <div class="tl-label">Tiques até cada inimigo agir</div>
-        <div class="tl-track">
-            @for (int t = 1; t <= TimelineSlots; t++)
-            {
-                int slot = t;
-                <div class="tl-slot @(SelectedCost >= slot ? "spent" : "")">
-                    <span class="tl-num">@slot@(slot == TimelineSlots ? "+" : "")</span>
-                    <span class="tl-tokens">
-                        @foreach (Enemy enemy in _combat.Enemies)
-                        {
-                            if (enemy.IsAlive && Math.Min(enemy.Counter, TimelineSlots) == slot)
-                            {
-                                <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
-                            }
-                        }
-                    </span>
-                </div>
-            }
-        </div>
-    </section>
-
     <main class="layout">
         <section class="board" aria-label="Sala">
-            <div class="door @(_combat.Status == CombatStatus.Victory ? "open" : "")">
-                @(_combat.Status == CombatStatus.Victory ? "saída aberta" : "saída trancada")
-            </div>
-            <div class="tiles" style="grid-template-columns: repeat(@_combat.Width, var(--tile));">
-                @for (int y = _combat.Height - 1; y >= 0; y--)
-                {
-                    @for (int x = 0; x < _combat.Width; x++)
-                    {
-                        Pos pos = new Pos(x, y);
-                        Enemy? enemy = _combat.EnemyAt(pos);
-                        int? ticks = _combat.TicksUntilHit(pos);
-                        <button type="button" class="@TileClass(pos, ticks)" @onclick="() => ClickTile(pos)"
-                                aria-label="@TileLabel(pos, enemy, ticks)">
-                            @if (ticks != null)
-                            {
-                                <span class="danger-num">@ticks</span>
-                            }
-                            @if (pos == _combat.PlayerPos)
-                            {
-                                <span class="token tk-player">Eu</span>
-                            }
-                            else if (enemy != null)
-                            {
-                                <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
-                                <span class="hp-mini"><i style="width:@Percent(enemy.Hp, enemy.MaxHp)%"></i></span>
-                            }
-                        </button>
-                    }
-                }
-            </div>
-            <div class="door entry">entrada</div>
+            <canvas class="room" @ref="_canvas" aria-label="Sala de combate"></canvas>
         </section>
 
         <section class="side">
+            <div class="status" aria-label="Estado do jogador">
+                <div class="stat life">
+                    <span class="label">Vida</span>
+                    <span class="bar"><i style="width:@Percent(_combat.PlayerHp, _combat.PlayerMaxHp)%"></i></span>
+                    <span class="value">@_combat.PlayerHp/@_combat.PlayerMaxHp</span>
+                </div>
+                <div class="stat-row">
+                    <div class="stat"><span class="label">Bloqueio</span><span class="value block">@_combat.Block</span></div>
+                    <div class="stat"><span class="label">Cadeia</span><span class="value chain">@_combat.Chain</span></div>
+                    <div class="stat"><span class="label">Tique</span><span class="value">@_combat.Tick</span></div>
+                </div>
+                @if (PlayerDanger is int hitIn)
+                {
+                    <div class="warn-badge @(hitIn <= 1 ? "now" : "")">Sua casa será atingida em @hitIn</div>
+                }
+                @if (_combat.OnTheEdge)
+                {
+                    <div class="edge-badge">Por um fio: próxima carta −1 tique</div>
+                }
+            </div>
+
+            <div class="timeline" aria-label="Linha do tempo">
+                <div class="tl-label">Tiques até cada inimigo agir</div>
+                <div class="tl-track">
+                    @for (int t = 1; t <= TimelineSlots; t++)
+                    {
+                        int slot = t;
+                        <div class="tl-slot @(SelectedCost >= slot ? "spent" : "")">
+                            <span class="tl-num">@slot@(slot == TimelineSlots ? "+" : "")</span>
+                            <span class="tl-tokens">
+                                @foreach (Enemy enemy in _combat.Enemies)
+                                {
+                                    if (enemy.IsAlive && Math.Min(enemy.Counter, TimelineSlots) == slot)
+                                    {
+                                        <img class="portrait" src="@Icon(enemy.Symbol.ToString())" alt="@enemy.Name" />
+                                    }
+                                }
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+
             <div class="enemies" aria-label="Inimigos">
                 @foreach (Enemy enemy in _combat.Enemies)
                 {
                     <div class="enemy @(enemy.IsAlive ? "" : "dead")">
-                        <span class="token tk-@enemy.Symbol">@enemy.Symbol</span>
+                        <img class="portrait big" src="@Icon(enemy.Symbol.ToString())" alt="" />
                         <div class="enemy-body">
                             <div class="enemy-head">
                                 <strong>@enemy.Name</strong>
@@ -128,12 +109,13 @@
             {
                 CardDefinition card = CardLibrary.Get(_combat.Hand[index]);
                 int cost = _combat.EffectiveCost(card.Id);
-                <button type="button" class="card @(_selected == index ? "selected" : "")"
+                <button type="button" class="card @CardKind(card.Id) @(_selected == index ? "selected" : "")"
                         @onclick="() => ClickCard(index)">
-                    <span class="cost @(cost < card.Cost ? "discount" : "")">@cost</span>
+                    <span class="cost @(cost < card.Cost ? "discount" : "")"><b>@cost</b></span>
+                    <span class="key">@(index + 1)</span>
+                    <span class="art"><img src="@Icon(card.Id.ToString())" alt="" /></span>
                     <span class="name">@card.Name</span>
                     <span class="text">@card.Text</span>
-                    <span class="key">@(index + 1)</span>
                 </button>
             }
             else
@@ -144,11 +126,15 @@
     </section>
 
     <section class="actions">
-        <button type="button" @onclick="DoGuard">Guardar <small>2 tiques · bloqueia 2 · tecla G</small></button>
+        <button type="button" @onclick="DoGuard">
+            <img src="@Icon("Guardar")" alt="" />
+            <span>Guardar <small>2 tiques · bloqueia 2 · tecla G</small></span>
+        </button>
         @if (_mode == HandMode.Recompose)
         {
             <button type="button" disabled="@(_combat.Hand.Count >= _combat.HandSize)" @onclick="DoRecompose">
-                Recompor <small>2 tiques · completa a mão · tecla R</small>
+                <img src="@Icon("Recompor")" alt="" />
+                <span>Recompor <small>2 tiques · completa a mão · tecla R</small></span>
             </button>
         }
         <span class="piles">monte @_combat.DrawPileCount · descarte @_combat.DiscardCount · semente @_seed</span>
@@ -158,16 +144,16 @@
         <summary>Como jogar</summary>
         <ul>
             <li><b>Não há turnos.</b> Cada ação tem efeito na hora e depois gasta tiques. A cada tique, a contagem dos inimigos cai 1; em zero, o inimigo age.</li>
-            <li><b>Andar:</b> toque numa casa vizinha destacada (1 tique). Você nunca recua. Teclas W, A, D.</li>
-            <li><b>Cartas:</b> toque na carta e depois na casa destacada. Aparar é jogada direto. Teclas 1 a 4.</li>
-            <li><b>Números nas casas:</b> tiques até aquela casa ser atingida. A marca não segue você.</li>
+            <li><b>Andar:</b> toque numa casa vizinha destacada em verde (1 tique). Você nunca recua. Teclas W, A, D.</li>
+            <li><b>Cartas:</b> toque na carta e depois na casa destacada em dourado. Aparar é jogada direto. Teclas 1 a 4.</li>
+            <li><b>Casas vermelhas:</b> o número é quantos tiques faltam para aquela casa ser atingida. A marca não segue você.</li>
             <li><b>Por um fio:</b> sair de uma casa marcada ou bloquear com a contagem em 1 dá −1 tique na próxima carta.</li>
             <li><b>Cadeia:</b> cartas jogadas desde a última ação de um inimigo. Com 2 ou mais, Varredura e Golpe Pesado ficam mais fortes.</li>
             <li><b>Vitória:</b> a saída só abre com todos os inimigos mortos.</li>
         </ul>
     </details>
 
-    @if (_combat.Status != CombatStatus.InProgress)
+    @if (_showResult)
     {
         <div class="overlay">
             <div class="result @(_combat.Status == CombatStatus.Victory ? "win" : "loss")">
@@ -196,7 +182,10 @@
 
 @code {
     private const int TimelineSlots = 6;
-    private const int LogLines = 7;
+    private const int LogLines = 6;
+
+    /// <summary>Tempo para as animações finais terminarem antes de mostrar o resultado.</summary>
+    private const int ResultDelayMs = 1200;
 
     private static readonly Direction[] WalkDirections = { Direction.Forward, Direction.Left, Direction.Right };
     private static readonly Direction[] AllDirections = { Direction.Forward, Direction.Left, Direction.Right, Direction.Back };
@@ -216,8 +205,56 @@
     private int _logMark;
     private DateTime? _startedAt;
     private TimeSpan _duration;
+    private bool _showResult;
+
+    // Ligação com o desenho em canvas (wwwroot/js/game.js).
+    private ElementReference _canvas;
+    private DotNetObjectReference<Home>? _self;
+    private Dictionary<string, string> _icons = new();
+    private bool _jsReady;
+    private bool _muted;
+    private int _eventMark;
+
+    private sealed class InitResult
+    {
+        public Dictionary<string, string>? Icons { get; set; }
+        public bool Muted { get; set; }
+    }
 
     protected override void OnInitialized() => Start(NewSeed(), _mode);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _self = DotNetObjectReference.Create(this);
+        InitResult result = await JS.InvokeAsync<InitResult>("hellsCastle.init", _canvas, _self);
+        _icons = result.Icons ?? new Dictionary<string, string>();
+        _muted = result.Muted;
+        _jsReady = true;
+        await SyncAsync(reset: true);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_jsReady)
+            {
+                await JS.InvokeVoidAsync("hellsCastle.dispose");
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // A página já foi fechada.
+        }
+
+        _self?.Dispose();
+    }
 
     private static int NewSeed() => Random.Shared.Next(1, 100000);
 
@@ -230,20 +267,31 @@
         _targets.Clear();
         _error = null;
         _logMark = 0;
+        _eventMark = 0;
         _startedAt = null;
         _duration = TimeSpan.Zero;
+        _showResult = false;
     }
 
-    private void NewCombat() => Start(NewSeed(), _mode);
-    private void Replay() => Start(_seed, _mode);
-    private void ReplayOtherMode() =>
-        Start(_seed, _mode == HandMode.Recompose ? HandMode.AutoDraw : HandMode.Recompose);
-
-    private void SetMode(HandMode mode)
+    private async Task Restart(int seed, HandMode mode)
     {
-        if (mode != _mode)
+        Start(seed, mode);
+        await SyncAsync(reset: true);
+    }
+
+    private Task NewCombat() => Restart(NewSeed(), _mode);
+    private Task Replay() => Restart(_seed, _mode);
+    private Task ReplayOtherMode() =>
+        Restart(_seed, _mode == HandMode.Recompose ? HandMode.AutoDraw : HandMode.Recompose);
+
+    private Task SetMode(HandMode mode) => mode == _mode ? Task.CompletedTask : Restart(_seed, mode);
+
+    private async Task ToggleSound()
+    {
+        _muted = !_muted;
+        if (_jsReady)
         {
-            Start(_seed, mode);
+            await JS.InvokeVoidAsync("hellsCastle.setMuted", _muted);
         }
     }
 
@@ -252,9 +300,21 @@
     private int SelectedCost =>
         _selected is int index && index < _combat.Hand.Count ? _combat.EffectiveCost(_combat.Hand[index]) : 0;
 
+    private int? PlayerDanger => Playing ? _combat.TicksUntilHit(_combat.PlayerPos) : null;
+
+    private string Icon(string name) => _icons.TryGetValue(name, out string? url) ? url : "";
+
+    /// <summary>Classe de cor da carta: ataque, defesa ou movimento.</summary>
+    private static string CardKind(CardId id) => id switch
+    {
+        CardId.Aparar => "def",
+        CardId.PassoSombrio => "mov",
+        _ => "atk"
+    };
+
     // ---------------------------------------------------------------- ações
 
-    private void Run(Func<ActionResult> action)
+    private async Task Run(Func<ActionResult> action)
     {
         if (!Playing)
         {
@@ -269,22 +329,39 @@
         if (!result.Success)
         {
             _error = result.Error;
+            await SyncAsync();
             return;
         }
 
         _error = null;
         _logMark = logBefore;
         _startedAt ??= DateTime.UtcNow;
+        await SyncAsync();
+
         if (!Playing)
         {
             _duration = DateTime.UtcNow - _startedAt.Value;
+            Combat finished = _combat;
+            await Task.Delay(ResultDelayMs);
+            if (ReferenceEquals(finished, _combat))
+            {
+                _showResult = true;
+                StateHasChanged();
+            }
         }
     }
 
-    private void DoGuard() => Run(() => _combat.Guard());
-    private void DoRecompose() => Run(() => _combat.Recompose());
+    private Task DoGuard() => Run(() => _combat.Guard());
+    private Task DoRecompose() => Run(() => _combat.Recompose());
 
-    private void ClickTile(Pos pos)
+    [JSInvokable]
+    public async Task OnTileClick(int x, int y)
+    {
+        await ClickTile(new Pos(x, y));
+        StateHasChanged();
+    }
+
+    private async Task ClickTile(Pos pos)
     {
         if (!Playing)
         {
@@ -295,11 +372,11 @@
         {
             if (_targets.TryGetValue(pos, out Direction[]? directions))
             {
-                Run(() => _combat.PlayCard(index, directions));
+                await Run(() => _combat.PlayCard(index, directions));
             }
             else
             {
-                Cancel();
+                await Cancel();
             }
 
             return;
@@ -309,13 +386,13 @@
         {
             if (_combat.PlayerPos.Step(direction) == pos && _combat.IsFree(pos))
             {
-                Run(() => _combat.Move(direction));
+                await Run(() => _combat.Move(direction));
                 return;
             }
         }
     }
 
-    private void ClickCard(int index)
+    private async Task ClickCard(int index)
     {
         if (!Playing || index >= _combat.Hand.Count)
         {
@@ -329,11 +406,11 @@
             // Segundo toque: confirma as cartas de área fixa; cancela as que pedem alvo.
             if (card.Targeting == CardTargeting.None)
             {
-                Run(() => _combat.PlayCard(index));
+                await Run(() => _combat.PlayCard(index));
             }
             else
             {
-                Cancel();
+                await Cancel();
             }
 
             return;
@@ -342,20 +419,22 @@
         // Aparar não toca o mapa: é jogada direto, sem confirmação.
         if (card.Id == CardId.Aparar)
         {
-            Run(() => _combat.PlayCard(index));
+            await Run(() => _combat.PlayCard(index));
             return;
         }
 
         _error = null;
         _selected = index;
         _targets = BuildTargets(card);
+        await SyncAsync();
     }
 
-    private void Cancel()
+    private async Task Cancel()
     {
         _selected = null;
         _targets.Clear();
         _error = null;
+        await SyncAsync();
     }
 
     private Dictionary<Pos, Direction[]> BuildTargets(CardDefinition card)
@@ -421,7 +500,7 @@
         return targets;
     }
 
-    private void OnKey(KeyboardEventArgs e)
+    private async Task OnKey(KeyboardEventArgs e)
     {
         if (!Playing || e.CtrlKey || e.AltKey || e.MetaKey)
         {
@@ -445,7 +524,7 @@
                 if (index < _combat.Hand.Count
                     && CardLibrary.Get(_combat.Hand[index]).Targeting == CardTargeting.OneDirection)
                 {
-                    Run(() => _combat.PlayCard(index, dir));
+                    await Run(() => _combat.PlayCard(index, dir));
                 }
             }
             else if (dir == Direction.Back)
@@ -454,7 +533,7 @@
             }
             else
             {
-                Run(() => _combat.Move(dir));
+                await Run(() => _combat.Move(dir));
             }
 
             return;
@@ -466,22 +545,119 @@
             case "2":
             case "3":
             case "4":
-                ClickCard(key[0] - '1');
+                await ClickCard(key[0] - '1');
                 break;
             case "g":
-                DoGuard();
+                await DoGuard();
                 break;
             case "r":
                 if (_mode == HandMode.Recompose)
                 {
-                    DoRecompose();
+                    await DoRecompose();
                 }
 
                 break;
             case "escape":
-                Cancel();
+                await Cancel();
                 break;
         }
+    }
+
+    // ---------------------------------------------------------------- envio do estado para o canvas
+
+    private async Task SyncAsync(bool reset = false)
+    {
+        if (!_jsReady)
+        {
+            return;
+        }
+
+        var events = new List<object>();
+        for (int i = _eventMark; i < _combat.Events.Count; i++)
+        {
+            events.Add(EventDto(_combat.Events[i]));
+        }
+
+        _eventMark = _combat.Events.Count;
+        await JS.InvokeVoidAsync("hellsCastle.sync", Snapshot(), events, reset);
+    }
+
+    private static int[] Xy(Pos pos) => new[] { pos.X, pos.Y };
+
+    private object Snapshot()
+    {
+        var enemies = new List<object>();
+        for (int i = 0; i < _combat.Enemies.Count; i++)
+        {
+            Enemy enemy = _combat.Enemies[i];
+            enemies.Add(new
+            {
+                id = i,
+                kind = enemy.Symbol.ToString(),
+                x = enemy.Pos.X,
+                y = enemy.Pos.Y,
+                hp = enemy.Hp,
+                maxHp = enemy.MaxHp,
+                alive = enemy.IsAlive,
+                counter = enemy.Counter
+            });
+        }
+
+        var danger = new List<int[]>();
+        var walk = new List<int[]>();
+        for (int x = 0; x < _combat.Width; x++)
+        {
+            for (int y = 0; y < _combat.Height; y++)
+            {
+                var pos = new Pos(x, y);
+                if (_combat.TicksUntilHit(pos) is int ticks)
+                {
+                    danger.Add(new[] { x, y, ticks });
+                }
+
+                if (IsWalkTarget(pos))
+                {
+                    walk.Add(Xy(pos));
+                }
+            }
+        }
+
+        return new
+        {
+            cols = _combat.Width,
+            rows = _combat.Height,
+            status = _combat.Status switch
+            {
+                CombatStatus.Victory => "victory",
+                CombatStatus.Defeat => "defeat",
+                _ => "playing"
+            },
+            player = new { x = _combat.PlayerPos.X, y = _combat.PlayerPos.Y },
+            enemies,
+            danger,
+            walk,
+            targets = _selected != null ? _targets.Keys.Select(Xy).ToList() : new List<int[]>()
+        };
+    }
+
+    private static object EventDto(CombatEvent e)
+    {
+        string name = e.Type.ToString();
+        return new
+        {
+            type = char.ToLowerInvariant(name[0]) + name.Substring(1),
+            id = e.EnemyIndex,
+            fx = e.From.X,
+            fy = e.From.Y,
+            tx = e.To.X,
+            ty = e.To.Y,
+            amount = e.Amount,
+            absorbed = e.Absorbed,
+            hit = e.Hit,
+            pushed = e.Pushed,
+            card = e.Card?.ToString(),
+            tiles = e.Tiles.Select(Xy).ToList()
+        };
     }
 
     // ---------------------------------------------------------------- apresentação
@@ -504,33 +680,6 @@
         }
 
         return false;
-    }
-
-    private string TileClass(Pos pos, int? ticks)
-    {
-        string css = "tile";
-        if (ticks != null)
-        {
-            css += ticks.Value <= 1 ? " danger now" : ticks.Value <= 3 ? " danger soon" : " danger later";
-        }
-
-        if (_selected != null && _targets.ContainsKey(pos))
-        {
-            css += " target";
-        }
-        else if (IsWalkTarget(pos))
-        {
-            css += " walk";
-        }
-
-        return css;
-    }
-
-    private string TileLabel(Pos pos, Enemy? enemy, int? ticks)
-    {
-        string what = pos == _combat.PlayerPos ? "você" : enemy != null ? enemy.Name : "casa vazia";
-        string danger = ticks != null ? ", atingida em " + ticks + " tiques" : "";
-        return "Coluna " + pos.X + ", fileira " + pos.Y + ": " + what + danger;
     }
 
     private string Hint()

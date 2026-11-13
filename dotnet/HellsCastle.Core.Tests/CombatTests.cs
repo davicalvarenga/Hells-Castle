@@ -570,3 +570,96 @@ public class CombatTests
         Assert.True(hands.Count > 5);
     }
 }
+
+public class CombatEventTests
+{
+    private static Combat Make(List<CardId> deck, params Enemy[] enemies)
+    {
+        return new Combat(new CombatConfig
+        {
+            PlayerStart = new Pos(2, 0),
+            ShuffleDeck = false,
+            Deck = deck,
+            Enemies = enemies.ToList()
+        });
+    }
+
+    [Fact]
+    public void Andar_gera_evento_de_movimento()
+    {
+        Combat combat = Make(new List<CardId>(), new Dummy(new Pos(0, 6)));
+
+        combat.Move(Direction.Forward);
+
+        CombatEvent moved = Assert.Single(combat.Events);
+        Assert.Equal(CombatEventType.PlayerMoved, moved.Type);
+        Assert.Equal(new Pos(2, 0), moved.From);
+        Assert.Equal(new Pos(2, 1), moved.To);
+    }
+
+    [Fact]
+    public void Carta_que_mata_gera_carta_dano_morte_e_vitoria_nessa_ordem()
+    {
+        Combat combat = Make(new List<CardId> { CardId.Golpe }, new Dummy(new Pos(2, 1), hp: 3));
+
+        combat.PlayCard(0, Direction.Forward);
+
+        Assert.Equal(
+            new[]
+            {
+                CombatEventType.CardPlayed, CombatEventType.EnemyDamaged,
+                CombatEventType.EnemyDied, CombatEventType.Victory
+            },
+            combat.Events.Select(e => e.Type).ToArray());
+        Assert.Equal(CardId.Golpe, combat.Events[0].Card);
+        Assert.Equal(new[] { new Pos(2, 1) }, combat.Events[0].Tiles);
+        Assert.Equal(0, combat.Events[1].EnemyIndex);
+        Assert.Equal(3, combat.Events[1].Amount);
+    }
+
+    [Fact]
+    public void Ataque_inimigo_informa_dano_e_bloqueio()
+    {
+        Combat combat = Make(new List<CardId> { CardId.Aparar },
+            new Striker(new Pos(4, 6), ticks: 1, damage: 5, new Pos(2, 0)));
+
+        combat.PlayCard(0);
+
+        CombatEvent attack = combat.Events.Single(e => e.Type == CombatEventType.EnemyAttacked);
+        Assert.True(attack.Hit);
+        Assert.Equal(1, attack.Amount);
+        Assert.Equal(4, attack.Absorbed);
+        Assert.Contains(combat.Events, e => e.Type == CombatEventType.BlockGained && e.Amount == 4);
+        Assert.Contains(combat.Events, e => e.Type == CombatEventType.EdgeGranted);
+    }
+
+    [Fact]
+    public void Ataque_que_erra_e_movimento_de_inimigo_geram_eventos()
+    {
+        var ghoul = new Ghoul(new Pos(2, 3));
+        Combat combat = Make(new List<CardId>(), ghoul);
+
+        combat.Move(Direction.Left);
+        combat.Move(Direction.Left); // tique 2: o Carniçal avança
+
+        CombatEvent moved = combat.Events.Single(e => e.Type == CombatEventType.EnemyMoved);
+        Assert.Equal(new Pos(2, 3), moved.From);
+        Assert.Equal(ghoul.Pos, moved.To);
+        Assert.False(moved.Pushed);
+    }
+
+    [Fact]
+    public void Empurrao_gera_movimento_marcado_como_empurrao()
+    {
+        var dummy = new Dummy(new Pos(2, 1), hp: 20);
+        Combat combat = Make(new List<CardId> { CardId.Golpe, CardId.Golpe, CardId.GolpePesado }, dummy);
+
+        combat.PlayCard(0, Direction.Forward);
+        combat.PlayCard(0, Direction.Forward);
+        combat.PlayCard(0, Direction.Forward);
+
+        CombatEvent pushed = combat.Events.Single(e => e.Type == CombatEventType.EnemyMoved);
+        Assert.True(pushed.Pushed);
+        Assert.Equal(new Pos(2, 2), pushed.To);
+    }
+}

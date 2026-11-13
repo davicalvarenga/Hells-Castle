@@ -98,6 +98,7 @@ namespace HellsCastle.Core
         protected int AdvanceToward(Combat combat, int maxSteps)
         {
             int moved = 0;
+            Pos start = Pos;
             for (int i = 0; i < maxSteps; i++)
             {
                 if (Pos.IsAdjacentTo(combat.PlayerPos))
@@ -132,6 +133,7 @@ namespace HellsCastle.Core
                 moved++;
             }
 
+            combat.ReportEnemyMoved(this, start);
             return moved;
         }
 
@@ -148,7 +150,9 @@ namespace HellsCastle.Core
                 throw new InvalidOperationException("A casa de destino não está livre: " + pos);
             }
 
+            Pos from = Pos;
             Pos = pos;
+            combat.ReportEnemyMoved(this, from);
         }
     }
 
@@ -203,6 +207,7 @@ namespace HellsCastle.Core
                 }
                 else
                 {
+                    combat.ReportEnemyMiss(this);
                     combat.AddLog(Name + " morde o vazio: foi afastado do alvo.");
                 }
             }

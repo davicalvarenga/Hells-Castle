@@ -2,7 +2,7 @@
 
 Roguelike de dark fantasy com cartas, grid e linha do tempo. Projeto pessoal, para um jogador, em pixel art 2D, feito em C# para a Unity.
 
-**Estado atual:** protótipo das regras de combate, jogável no navegador e no terminal e coberto por testes. A parte visual na Unity ainda não existe.
+**Estado atual:** protótipo das regras de combate, jogável no navegador (com sala em pixel art, animações e som) e no terminal, coberto por testes. A parte visual na Unity ainda não existe.
 
 ## Regras do combate (protótipo)
 
@@ -59,6 +59,8 @@ A cada push na `main`, o workflow `Publicar versão web` roda os testes, compila
 
 Para ativar, uma única vez: no repositório, **Settings > Pages > Build and deployment > Source: GitHub Actions**. Em contas gratuitas, o GitHub Pages só funciona em repositório público.
 
+A sala é desenhada em canvas por `wwwroot/js/game.js` (sprites, animações, partículas, iluminação e som sintetizado). As regras continuam no C#: a cada ação, a página envia ao desenho um retrato do estado e a lista de eventos (`Combat.Events`) para animar. A arte fica em `wwwroot/js/sprites.js`, como grades de 16×16 caracteres com uma paleta; para trocar um sprite, basta editar a grade.
+
 Na tela: toque numa casa vizinha destacada para andar; toque numa carta e depois na casa destacada para jogá-la. No teclado: `W` `A` `D` andam, `1` a `4` escolhem a carta, `G` guarda, `R` recompõe, `Esc` cancela. O botão de modo de mão no topo reinicia o combate com a mesma semente no outro modo.
 
 Para rodar localmente (requer o .NET SDK 10):
@@ -66,6 +68,8 @@ Para rodar localmente (requer o .NET SDK 10):
 ```
 dotnet run --project dotnet/HellsCastle.Web
 ```
+
+Créditos: a fonte é a [Jersey 15](https://github.com/scfried/soft-type-jersey), sob a SIL Open Font License 1.1 (texto em `dotnet/HellsCastle.Web/wwwroot/fonts/Jersey15-OFL.txt`). Os sprites e os sons são originais deste projeto.
 
 ## Como rodar no terminal
 

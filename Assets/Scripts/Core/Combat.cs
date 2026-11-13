@@ -73,6 +73,7 @@ namespace HellsCastle.Core
         private readonly List<CardId> _hand = new List<CardId>();
         private readonly List<CardId> _discard = new List<CardId>();
         private readonly List<string> _log = new List<string>();
+        private readonly List<CombatEvent> _events = new List<CombatEvent>();
         private readonly Rng _rng;
 
         public Combat(CombatConfig config)
@@ -166,6 +167,9 @@ namespace HellsCastle.Core
         public IReadOnlyList<Enemy> Enemies => _enemies;
         public IReadOnlyList<string> Log => _log;
 
+        /// <summary>Tudo o que aconteceu, em ordem. A interface lê a partir do ponto em que parou.</summary>
+        public IReadOnlyList<CombatEvent> Events => _events;
+
         // Estatísticas para avaliar o teste.
         public int CardsPlayed { get; private set; }
         public int EdgeCount { get; private set; }
@@ -241,6 +245,42 @@ namespace HellsCastle.Core
         }
 
         public void AddLog(string message) => _log.Add(message);
+
+        /// <summary>Registra que um inimigo mudou de casa por conta própria (chamado pelos inimigos).</summary>
+        public void ReportEnemyMoved(Enemy enemy, Pos from)
+        {
+            if (enemy == null)
+            {
+                throw new ArgumentNullException(nameof(enemy));
+            }
+
+            if (enemy.Pos != from)
+            {
+                _events.Add(new CombatEvent(CombatEventType.EnemyMoved)
+                {
+                    EnemyIndex = _enemies.IndexOf(enemy),
+                    From = from,
+                    To = enemy.Pos
+                });
+            }
+        }
+
+        /// <summary>Registra um ataque de inimigo que não chegou a ser aplicado (ex.: alvo fora de alcance).</summary>
+        public void ReportEnemyMiss(Enemy enemy)
+        {
+            if (enemy == null)
+            {
+                throw new ArgumentNullException(nameof(enemy));
+            }
+
+            _events.Add(new CombatEvent(CombatEventType.EnemyAttacked)
+            {
+                EnemyIndex = _enemies.IndexOf(enemy),
+                From = enemy.Pos,
+                Tiles = new List<Pos>(enemy.Marks),
+                Hit = false
+            });
+        }
 
         // ------------------------------------------------------------------
         // Ações do jogador
@@ -341,6 +381,20 @@ namespace HellsCastle.Core
             AddLog("Você joga " + card.Name + " (" + cost + (cost == 1 ? " tique" : " tiques")
                    + (discounted ? ", por um fio" : "") + ").");
 
+            var affected = new List<Pos>(CardArea(cardId));
+            if (card.Targeting == CardTargeting.OneDirection)
+            {
+                affected.Add(PlayerPos.Step(directions[0]));
+            }
+
+            _events.Add(new CombatEvent(CombatEventType.CardPlayed)
+            {
+                Card = cardId,
+                Amount = cost,
+                From = PlayerPos,
+                Tiles = affected
+            });
+
             switch (cardId)
             {
                 case CardId.Golpe:
@@ -432,6 +486,7 @@ namespace HellsCastle.Core
             int before = _hand.Count;
             DrawUpTo(HandSize);
             RecomposeCount++;
+            _events.Add(new CombatEvent(CombatEventType.Recomposed) { Amount = _hand.Count - before });
             AddLog("Você se recompõe e compra " + (_hand.Count - before) + " carta(s) ("
                    + RecomposeTicks + " tiques).");
             Elapse(RecomposeTicks);
@@ -447,6 +502,7 @@ namespace HellsCastle.Core
             }
 
             GuardCount++;
+            _events.Add(new CombatEvent(CombatEventType.Guarded));
             AddLog("Você se guarda (" + GuardTicks + " tiques).");
             GainBlock(GuardBlock);
             Elapse(GuardTicks);
@@ -467,6 +523,7 @@ namespace HellsCastle.Core
 
             if (!enemy.HasMarkOn(PlayerPos))
             {
+                ReportEnemyMiss(enemy);
                 AddLog(enemy.Name + " erra: você não está mais na área.");
                 return;
             }
@@ -476,12 +533,22 @@ namespace HellsCastle.Core
             Block = 0;
             PlayerHp = Math.Max(0, PlayerHp - damage);
             DamageTaken += damage;
+            _events.Add(new CombatEvent(CombatEventType.EnemyAttacked)
+            {
+                EnemyIndex = _enemies.IndexOf(enemy),
+                From = enemy.Pos,
+                Tiles = new List<Pos>(enemy.Marks),
+                Hit = true,
+                Amount = damage,
+                Absorbed = absorbed
+            });
             AddLog(enemy.Name + " acerta: " + damage + " de dano"
                    + (absorbed > 0 ? " (" + absorbed + " bloqueado)" : "") + ".");
 
             if (PlayerHp == 0)
             {
                 Status = CombatStatus.Defeat;
+                _events.Add(new CombatEvent(CombatEventType.Defeat));
                 AddLog("Você morreu.");
             }
         }
@@ -533,6 +600,7 @@ namespace HellsCastle.Core
             }
 
             PlayerPos = target;
+            _events.Add(new CombatEvent(CombatEventType.PlayerMoved) { From = from, To = target });
             if (edge)
             {
                 GrantEdge("Você escapa por um fio.");
@@ -551,6 +619,7 @@ namespace HellsCastle.Core
             }
 
             Block += amount;
+            _events.Add(new CombatEvent(CombatEventType.BlockGained) { Amount = amount });
             if (edge)
             {
                 GrantEdge("Você bloqueia por um fio.");
@@ -561,6 +630,7 @@ namespace HellsCastle.Core
         {
             OnTheEdge = true;
             EdgeCount++;
+            _events.Add(new CombatEvent(CombatEventType.EdgeGranted));
             AddLog(message + " A próxima carta custa 1 tique a menos.");
         }
 
@@ -573,6 +643,13 @@ namespace HellsCastle.Core
             }
 
             enemy.TakeDamage(amount);
+            int index = _enemies.IndexOf(enemy);
+            _events.Add(new CombatEvent(CombatEventType.EnemyDamaged) { EnemyIndex = index, Amount = amount, To = pos });
+            if (!enemy.IsAlive)
+            {
+                _events.Add(new CombatEvent(CombatEventType.EnemyDied) { EnemyIndex = index, To = pos });
+            }
+
             AddLog(enemy.Name + " sofre " + amount + " de dano"
                    + (enemy.IsAlive ? " (vida " + enemy.Hp + "/" + enemy.MaxHp + ")." : " e morre."));
         }
@@ -592,7 +669,15 @@ namespace HellsCastle.Core
                 return;
             }
 
+            Pos origin = enemy.Pos;
             enemy.MoveTo(destination);
+            _events.Add(new CombatEvent(CombatEventType.EnemyMoved)
+            {
+                EnemyIndex = _enemies.IndexOf(enemy),
+                From = origin,
+                To = destination,
+                Pushed = true
+            });
             AddLog(enemy.Name + " é empurrado para " + destination + ".");
         }
 
@@ -633,6 +718,7 @@ namespace HellsCastle.Core
             }
 
             Status = CombatStatus.Victory;
+            _events.Add(new CombatEvent(CombatEventType.Victory));
             AddLog("Todos os inimigos caíram. A porta se abre.");
         }
     }
