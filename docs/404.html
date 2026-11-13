@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hell's Castle: Expediente Sombrio</title>
+    <link rel="icon" type="image/png" href="icon-192.png" />
+    <link rel="preload" href="fonts/Jersey15-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+    <!-- Pequenos botões pixel art no canto superior direito -->
+    <div class="top-right-tools">
+        <button id="btn-mute" class="tool-btn" type="button" title="Alternar Som">
+            <svg id="icon-sound-on" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#f5efe6" d="M2,6 h3 l4,-3 v10 l-4,-3 h-3 z"/>
+                <rect fill="#69c8f0" x="11" y="5" width="1" height="6"/>
+                <rect fill="#69c8f0" x="13" y="3" width="1" height="10"/>
+            </svg>
+            <svg id="icon-sound-off" class="hidden" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#8b8299" d="M2,6 h3 l4,-3 v10 l-4,-3 h-3 z"/>
+                <path fill="#e24a33" d="M11,5 h1 v1 h1 v1 h1 v2 h-1 v1 h-1 v1 h-1 v-1 h1 v-1 h1 v-2 h-1 v-1 h-1 z"/>
+                <path fill="#e24a33" d="M14,5 h-1 v1 h-1 v1 h1 v1 h1 v-1 h-1 v-1 h1 z"/>
+                <rect fill="#e24a33" x="11" y="5" width="1" height="1"/>
+                <rect fill="#e24a33" x="14" y="5" width="1" height="1"/>
+                <rect fill="#e24a33" x="11" y="10" width="1" height="1"/>
+                <rect fill="#e24a33" x="14" y="10" width="1" height="1"/>
+            </svg>
+        </button>
+        <button id="btn-restart" class="tool-btn" type="button" title="Reiniciar Expediente">
+            <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#f5cb5c" d="M4,4 h7 v-2 l3,3 l-3,3 v-2 h-6 v4 h-2 v-5 h1 z"/>
+                <path fill="#f5cb5c" d="M12,12 h-7 v2 l-3,-3 l3,-3 v2 h6 v-4 h2 v5 h-1 z"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Lateral Esquerda (fora da janela 3D) -->
+    <aside class="side-left">
+        <div id="passives-strip" class="passives-grid"></div>
+
+        <div class="heart-wrap" title="Sanidade (HP)">
+            <svg class="pixel-heart" viewBox="0 0 16 15" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#0a060e" d="M2,1 h4 v1 h1 v1 h2 v-1 h1 v-1 h4 v1 h1 v5 h-1 v2 h-1 v1 h-1 v1 h-1 v1 h-1 v1 h-1 v1 h-2 v-1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-2 h-1 v-5 h1 z"/>
+                <path fill="#a3151c" d="M2,2 h4 v1 h1 v1 h2 v-1 h1 v-1 h4 v5 h-1 v2 h-1 v1 h-1 v1 h-1 v1 h-1 v1 h-2 v-1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-2 h-1 v-5 z"/>
+                <path fill="#e63030" d="M2,2 h3 v1 h2 v1 h2 v-1 h2 v-1 h3 v4 h-1 v2 h-1 v1 h-1 v1 h-1 v1 h-2 v-1 h-1 v-1 h-1 v-1 h-1 v-1 h-1 v-2 h-1 v-4 z"/>
+                <path fill="#ff8a80" d="M3,3 h2 v1 h-1 v2 h-1 v-3 z"/>
+                <rect fill="#ffffff" x="3" y="3" width="1" height="1"/>
+            </svg>
+            <div id="hp-text" class="heart-val">60/60</div>
+            <div id="shield-badge" class="shield-orb hidden" title="Escudo Burocrático">
+                <svg class="px-ico" viewBox="0 0 14 14" shape-rendering="crispEdges" aria-hidden="true">
+                    <path fill="#0a060e" d="M2,1 h10 v6 h-1 v2 h-1 v2 h-2 v1 h-2 v-1 h-2 v-2 h-1 v-2 h-1 z"/>
+                    <path fill="#3898e8" d="M3,2 h8 v5 h-1 v2 h-2 v2 h-2 v-2 h-2 v-2 h-1 z"/>
+                    <path fill="#8fd6ff" d="M4,3 h3 v6 h-1 v-2 h-1 v-2 h-1 z"/>
+                </svg>
+                <span id="shield-val">0</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Lateral Direita (fora da janela 3D) -->
+    <aside class="side-right">
+        <div id="combo-badge" class="combo-flame hidden" title="Multiplicador de Combo do Turno">
+            <svg class="combo-crest" viewBox="0 0 24 26" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#081224" d="M11,1 h2 v2 h2 v2 h2 v-1 h2 v4 h2 v3 h1 v6 h-1 v3 h-2 v2 h-2 v2 h-3 v1 h-4 v-1 h-3 v-2 h-2 v-2 h-2 v-3 h-1 v-6 h1 v-3 h2 v-4 h2 v1 h2 v-2 h2 z"/>
+                <path fill="#1464d6" d="M11,2 h2 v2 h2 v2 h2 v3 h2 v3 h1 v5 h-1 v3 h-2 v2 h-3 v2 h-4 v-2 h-3 v-2 h-2 v-3 h-1 v-5 h1 v-3 h2 v-3 h2 v-2 h2 z"/>
+                <path fill="#3cc8ff" d="M11,4 h2 v3 h2 v2 h2 v4 h1 v4 h-2 v3 h-2 v2 h-4 v-2 h-2 v-3 h-2 v-4 h1 v-4 h2 v-2 h2 z"/>
+                <path fill="#b8f4ff" d="M10,8 h4 v3 h2 v5 h-2 v3 h-4 v-3 h-2 v-5 h2 z"/>
+                <rect fill="#0b1f45" x="6" y="10" width="12" height="10"/>
+            </svg>
+            <div class="combo-inner">
+                <span class="combo-lbl">COMBO</span>
+                <span id="combo-num" class="combo-num">x1</span>
+            </div>
+        </div>
+
+        <div class="mana-wrap" title="Cafeína (Mana)">
+            <svg class="pixel-orb" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="#080b14" d="M5,1 h6 v1 h2 v1 h1 v2 h1 v6 h-1 v2 h-1 v1 h-2 v1 h-6 v-1 h-2 v-1 h-1 v-2 h-1 v-6 h1 v-2 h1 v-1 h2 z"/>
+                <path fill="#13468f" d="M5,2 h6 v1 h2 v2 h1 v6 h-1 v2 h-2 v1 h-6 v-1 h-2 v-2 h-1 v-6 h1 v-2 h2 z"/>
+                <path fill="#1e88e5" d="M5,2 h5 v1 h2 v2 h1 v5 h-1 v2 h-2 v1 h-5 v-1 h-2 v-2 h-1 v-5 h1 v-2 h2 z"/>
+                <path fill="#4fc3f7" d="M4,3 h4 v1 h2 v2 h-1 v2 h-2 v-2 h-3 v-3 z"/>
+                <rect fill="#e1f5fe" x="4" y="4" width="2" height="2"/>
+                <rect fill="#ffffff" x="4" y="4" width="1" height="1"/>
+            </svg>
+            <div id="mana-text" class="orb-val">3</div>
+            <div id="mana-sub" class="orb-sub">3/3</div>
+        </div>
+    </aside>
+
+    <!-- Palco Central -->
+    <main class="stage">
+        <section id="viewport" class="viewport-frame">
+            <canvas id="gl-canvas"></canvas>
+            <canvas id="hud-canvas"></canvas>
+
+            <!-- Barra fina azul brilhante de XP no topo interno -->
+            <div id="xp-track" class="xp-thin-track" title="Horas Extras (XP)">
+                <div id="xp-fill" class="xp-thin-fill"></div>
+            </div>
+
+            <!-- LV à esquerda e Caveira + Moeda VR à direita (limpo como Vampire Crawlers) -->
+            <div class="vp-top-lv">LV <b id="stat-lv">1</b></div>
+
+            <div id="vp-stats" class="vp-top-stats">
+                <svg class="px-stat-ico" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true">
+                    <path fill="#0b0810" d="M3,1 h6 v1 h1 v2 h1 v4 h-1 v1 h-1 v2 h-6 v-2 h-1 v-1 h-1 v-4 h1 v-2 h1 z"/>
+                    <path fill="#efe6d8" d="M3,2 h6 v2 h1 v3 h-1 v1 h-1 v2 h-4 v-2 h-1 v-1 h-1 v-3 h1 z"/>
+                    <rect fill="#140c18" x="3" y="4" width="2" height="2"/>
+                    <rect fill="#140c18" x="7" y="4" width="2" height="2"/>
+                    <rect fill="#140c18" x="5" y="7" width="2" height="1"/>
+                    <rect fill="#140c18" x="4" y="9" width="1" height="1"/>
+                    <rect fill="#140c18" x="7" y="9" width="1" height="1"/>
+                </svg>
+                <b id="stat-kills">0</b>
+                <span class="stat-sep"></span>
+                <svg class="px-stat-ico" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true">
+                    <path fill="#0b0810" d="M4,1 h4 v1 h2 v2 h1 v4 h-1 v2 h-2 v1 h-4 v-1 h-2 v-2 h-1 v-4 h1 v-2 h2 z"/>
+                    <path fill="#f5cb5c" d="M4,2 h4 v1 h1 v1 h1 v4 h-1 v1 h-1 v1 h-4 v-1 h-1 v-1 h-1 v-4 h1 v-1 h1 z"/>
+                    <rect fill="#b88424" x="5" y="3" width="2" height="6"/>
+                    <rect fill="#fff6c9" x="3" y="3" width="2" height="2"/>
+                </svg>
+                <span>VR <b id="stat-vr">0</b></span>
+            </div>
+
+            <div id="log-text" class="vp-toast">Explore as baias ate derrotar o Lich das Planilhas.</div>
+            <div id="overkill-banner" class="overkill-banner">OVERKILL!</div>
+        </section>
+
+        <!-- Parte Inferior Central -->
+        <section class="bottom-dock">
+            <!-- Modo Exploração: 6 botões bege/dourados com setas pixel art + Minimapa Pergaminho -->
+            <div id="explore-panel" class="explore-dock">
+                <div class="dpad-grid">
+                    <button id="btn-turn-left" class="bevel-btn" type="button" title="Girar Esquerda (A / Seta Esq)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M7,2 v2 h5 v9 h-3 v-6 h-2 v2 l-5,-3.5 z"/>
+                            <path fill="#fff2d2" d="M7,2 v1 h5 v1 h-5 z"/>
+                        </svg>
+                    </button>
+                    <button id="btn-move-fwd" class="bevel-btn" type="button" title="Avançar (W / Seta Cima)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M8,2 l5,6 h-3 v6 h-4 v-6 h-3 z"/>
+                            <path fill="#fff2d2" d="M8,2 l4,5 h-1 l-3,-3.5 l-3,3.5 h-1 z"/>
+                        </svg>
+                    </button>
+                    <button id="btn-turn-right" class="bevel-btn" type="button" title="Girar Direita (D / Seta Dir)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M9,2 v2 h-5 v9 h3 v-6 h2 v2 l5,-3.5 z"/>
+                            <path fill="#fff2d2" d="M9,2 v1 h-5 v1 h5 z"/>
+                        </svg>
+                    </button>
+                    <button id="btn-strafe-left" class="bevel-btn" type="button" title="Passo à Esquerda (Q)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M2,8 l6,-5 v3 h6 v4 h-6 v3 z"/>
+                            <path fill="#fff2d2" d="M3,8 l5,-4 v1 l-3.5,3 h8.5 v1 h-10 z"/>
+                        </svg>
+                    </button>
+                    <button id="btn-move-back" class="bevel-btn" type="button" title="Recuar (S / Seta Baixo)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M8,14 l-5,-6 h3 v-6 h4 v6 h3 z"/>
+                            <path fill="#fff2d2" d="M6,2 h4 v1 h-4 z"/>
+                        </svg>
+                    </button>
+                    <button id="btn-strafe-right" class="bevel-btn" type="button" title="Passo à Direita (E)">
+                        <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                            <path fill="#26180c" d="M14,8 l-6,-5 v3 h-6 v4 h6 v3 z"/>
+                            <path fill="#fff2d2" d="M2,6 h6 v1 h-6 z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="parchment-wrap" title="Minimapa do Andar">
+                    <canvas id="minimap-canvas" width="168" height="168"></canvas>
+                </div>
+            </div>
+
+            <!-- Modo Combate: Jogar Tudo + Cartas grandes em fileira + Fim do Turno -->
+            <div id="combat-panel" class="combat-dock hidden">
+                <button id="btn-play-all" class="action-side-btn play-all" type="button" title="Atalho: Espaço">
+                    <svg class="btn-px-ico" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                        <path fill="#1b0a02" d="M12,1 h3 v3 l-7,7 l2,2 l-1,1 l-2,-2 l-3,3 h-2 v-2 l3,-3 l-2,-2 l1,-1 l2,2 z"/>
+                        <path fill="#fff2c2" d="M12,2 h2 v2 l-6,6 l-2,-2 z"/>
+                    </svg>
+                    <span>JOGAR<br />TUDO</span>
+                </button>
+
+                <div id="hand-grid" class="cards-fan"></div>
+
+                <button id="btn-end-turn" class="action-side-btn end-turn" type="button" title="Atalho: Enter">
+                    <svg class="btn-px-ico" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                        <path fill="#f5cb5c" d="M3,2 h10 v2 h-1 v2 l-2,2 l2,2 v2 h1 v2 h-10 v-2 h1 v-2 l2,-2 l-2,-2 v-2 h-1 z"/>
+                        <rect fill="#3ecbff" x="6" y="4" width="4" height="2"/>
+                        <rect fill="#3ecbff" x="7" y="10" width="2" height="2"/>
+                    </svg>
+                    <span>FIM DO<br />TURNO</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <div id="xp-particles-layer"></div>
+
+    <!-- Modal de Level Up (1 de 3) -->
+    <div id="levelup-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h2>LEVEL UP!</h2>
+            <p>Escolha 1 recompensa para sobreviver ao expediente:</p>
+            <div id="reward-grid" class="reward-grid"></div>
+        </div>
+    </div>
+
+    <!-- Modal de Vitória / Derrota -->
+    <div id="end-modal" class="modal-overlay hidden">
+        <div id="end-box" class="modal-box">
+            <h2 id="end-title">EXPEDIENTE ENCERRADO!</h2>
+            <p id="end-desc"></p>
+            <p id="end-stats" class="end-stats"></p>
+            <button id="btn-play-again" class="bevel-btn modal-restart" type="button">NOVO EXPEDIENTE</button>
+        </div>
+    </div>
+
+    <script src="js/three.min.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/sprites.js"></script>
+    <script src="js/data.js"></script>
+    <script src="js/renderer3d.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
