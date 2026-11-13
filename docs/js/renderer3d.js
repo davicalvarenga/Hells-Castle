@@ -140,6 +140,16 @@
         if (!webglOk) return;
         const THREE = window.THREE;
 
+        const floorNum = (state && state.floor) || 1;
+        const floorColors = {
+            1: { bg: 0x161224, amb: 0xc8c2e8, hemiSky: 0xd0d8ff, hemiGnd: 0x3a2d4c, torch: 0xffaa44, player: 0xffe6c4 },
+            2: { bg: 0x0f1f18, amb: 0xaee6c4, hemiSky: 0xb6ffd4, hemiGnd: 0x223d2d, torch: 0x7eff9e, player: 0xd9ffe8 },
+            3: { bg: 0x220d12, amb: 0xf2c2b6, hemiSky: 0xffe1a8, hemiGnd: 0x451a22, torch: 0xffc644, player: 0xffe8ba }
+        };
+        const fc = floorColors[floorNum] || floorColors[1];
+        renderer.setClearColor(fc.bg, 1);
+        scene.fog = new THREE.Fog(fc.bg, 2.8, 9.5);
+
         while (scene.children.length > 0) {
             scene.remove(scene.children[0]);
         }
@@ -147,14 +157,14 @@
         worldPickups.clear();
         combatSprites.clear();
 
-        scene.add(new THREE.AmbientLight(0xc8c2e8, 2.1));
-        scene.add(new THREE.HemisphereLight(0xd0d8ff, 0x3a2d4c, 1.15));
+        scene.add(new THREE.AmbientLight(fc.amb, 2.1));
+        scene.add(new THREE.HemisphereLight(fc.hemiSky, fc.hemiGnd, 1.15));
 
-        playerLight = new THREE.PointLight(0xffe6c4, 3.6, 7.5, 1.1);
+        playerLight = new THREE.PointLight(fc.player, 3.6, 7.5, 1.1);
         playerLight.position.set(camX, 0.95, camZ);
         scene.add(playerLight);
 
-        const floorTex = makeTexture(window.GameSprites.makeFloorTexture(), mapCols, mapRows);
+        const floorTex = makeTexture(window.GameSprites.makeFloorTexture(floorNum), mapCols, mapRows);
         const floor = new THREE.Mesh(
             new THREE.PlaneGeometry(mapCols, mapRows),
             new THREE.MeshLambertMaterial({ map: floorTex })
@@ -163,7 +173,7 @@
         floor.position.set((mapCols - 1) / 2, 0, (mapRows - 1) / 2);
         scene.add(floor);
 
-        const ceilTex = makeTexture(window.GameSprites.makeCeilingTexture(), mapCols, mapRows);
+        const ceilTex = makeTexture(window.GameSprites.makeCeilingTexture(floorNum), mapCols, mapRows);
         const ceiling = new THREE.Mesh(
             new THREE.PlaneGeometry(mapCols, mapRows),
             new THREE.MeshLambertMaterial({ map: ceilTex })
@@ -173,12 +183,13 @@
         scene.add(ceiling);
 
         const wallMats = [0, 1, 2].map(v =>
-            new THREE.MeshLambertMaterial({ map: makeTexture(window.GameSprites.makeWallTexture(v)) })
+            new THREE.MeshLambertMaterial({ map: makeTexture(window.GameSprites.makeWallTexture(v, floorNum)) })
         );
         const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
 
         const torchFrames = [0, 1, 2].map(v => makeTexture(window.GameSprites.makeTorchCanvas(v)));
         let torchCount = 0;
+        const floorCfg = window.GameData && window.GameData.getFloorConfig ? window.GameData.getFloorConfig(floorNum) : null;
 
         for (let y = 0; y < mapRows; y++) {
             for (let x = 0; x < mapCols; x++) {
@@ -213,7 +224,7 @@
                             stick.position.set(x + adjWall[0] * 0.45, 0.84, y + adjWall[1] * 0.45);
                             scene.add(stick);
 
-                            const light = new THREE.PointLight(0xffaa44, 4.2, 6.0, 1.2);
+                            const light = new THREE.PointLight(fc.torch, 4.2, 6.0, 1.2);
                             light.position.set(x + adjWall[0] * 0.22, 1.05, y + adjWall[1] * 0.22);
                             scene.add(light);
                             torches.push({
@@ -227,12 +238,16 @@
 
                     if (ch === 'C') {
                         addWorldSprite(x, y, 'chest', 0.68);
+                    } else if (ch === 'M') {
+                        addWorldSprite(x, y, 'vending', 0.94);
+                    } else if (ch === '?') {
+                        addWorldSprite(x, y, 'event_q', 0.78);
                     } else if (ch === 'E') {
                         addWorldSprite(x, y, 'exit', 1.2);
-                    } else if (ch === '1' || ch === '2' || ch === '3') {
-                        addWorldSprite(x, y, ch === '3' ? 'harpy' : 'goblin', 0.92);
-                    } else if (ch === 'B') {
-                        addWorldSprite(x, y, 'lich', 1.15);
+                    } else if (ch === '1' || ch === '2' || ch === '3' || ch === 'B') {
+                        const enc = floorCfg && floorCfg.encounters && floorCfg.encounters[ch];
+                        const previewKind = enc && enc.enemies ? (ch === 'B' ? enc.enemies[Math.floor(enc.enemies.length / 2)] : enc.enemies[0]) : (ch === 'B' ? 'lich' : 'goblin');
+                        addWorldSprite(x, y, previewKind, ch === 'B' ? 1.15 : 0.92);
                     }
                 }
             }
@@ -276,7 +291,11 @@
 
         for (const [key, obj] of worldPickups.entries()) {
             const cleared = state.clearedTiles.has(key);
-            obj.sprite.visible = !cleared && state.mode !== 'combat';
+            if (obj.kind === 'vending') {
+                obj.sprite.visible = state.mode !== 'combat';
+            } else {
+                obj.sprite.visible = !cleared && state.mode !== 'combat';
+            }
         }
 
         syncCombatSprites(state);
@@ -319,6 +338,7 @@
         const entry = combatSprites.get(enemyId);
         if (!entry) return;
         entry.anim.lunge = 1;
+        entry.anim.white = 0.45;
     }
 
     function syncCombatSprites(state) {
@@ -626,15 +646,23 @@
             hctx.fillStyle = enemy.isBoss ? '#e84545' : '#d8452f';
             hctx.fillRect(bx, by, Math.max(2, bw * hpPct), bh);
 
-            drawOutlined(enemy.hp + '/' + enemy.maxHp, sx, by + bh / 2 + 1, 13, '#ffffff');
+            const hpText = enemy.shield > 0
+                ? enemy.hp + '/' + enemy.maxHp + ' (+' + enemy.shield + ')'
+                : enemy.hp + '/' + enemy.maxHp;
+            drawOutlined(hpText, sx, by + bh / 2 + 1, 13, '#ffffff');
 
             const intentY = by + bh + 11;
             if (enemy.stunned) {
                 drawPixelStun(Math.round(sx - 38), Math.round(intentY));
                 drawOutlined('ATORDOADO', sx + 8, intentY, 13, '#69c8f0');
             } else {
-                const label = 'ATK ' + enemy.atk + (enemy.immuneKnockback ? ' [IMUNE]' : '');
-                drawPixelSword(Math.round(sx - (enemy.immuneKnockback ? 44 : 26)), Math.round(intentY));
+                let tag = '';
+                if (enemy.doubleIfUnshielded) tag = currentState.shield > 0 ? ' [BLOQ]' : 'x2 [DOBRO]';
+                else if (enemy.curseCard) tag = ' [+ATA]';
+                else if (enemy.buffAllies) tag = ' [+BUFF]';
+                else if (enemy.immuneKnockback) tag = ' [IMUNE]';
+                const label = 'ATK ' + enemy.atk + tag;
+                drawPixelSword(Math.round(sx - (tag ? 48 : 26)), Math.round(intentY));
                 drawOutlined(label, sx + 8, intentY, 14, enemy.isBoss ? '#ff9f68' : '#f0a03c');
             }
         });
@@ -687,6 +715,16 @@
                     if (ch === 'C' && !cleared) {
                         mctx.fillStyle = '#d99a16';
                         mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
+                    } else if (ch === 'M') {
+                        mctx.fillStyle = '#2b8a3e';
+                        mctx.fillRect(px + 1, py + 1, cell - 2, cell - 2);
+                        mctx.fillStyle = '#f5cb5c';
+                        mctx.fillRect(px + Math.floor(cell * 0.32), py + Math.floor(cell * 0.32), Math.max(2, cell * 0.36), Math.max(2, cell * 0.36));
+                    } else if (ch === '?' && !cleared) {
+                        mctx.fillStyle = '#7b3fa8';
+                        mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
+                        mctx.fillStyle = '#f5cb5c';
+                        mctx.fillRect(px + Math.floor(cell * 0.38), py + Math.floor(cell * 0.38), Math.max(2, cell * 0.24), Math.max(2, cell * 0.24));
                     } else if (ch === 'E') {
                         mctx.fillStyle = '#2b8a3e';
                         mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
@@ -780,23 +818,26 @@
                 if (a.hurt > 0) a.hurt = Math.max(0, a.hurt - dt * 4.2);
                 if (a.white > 0) a.white = Math.max(0, a.white - dt * 5.8);
                 if (a.shake > 0) a.shake = Math.max(0, a.shake - dt);
-                if (a.lunge > 0) a.lunge = Math.max(0, a.lunge - dt * 4.2);
+                if (a.lunge > 0) a.lunge = Math.max(0, a.lunge - dt * 2.8);
                 if (!entry.alive) a.death = Math.min(1, a.death + dt * 3.8);
 
                 const dir = currentState ? currentState.player.dir : 0;
                 const fx = DIR_DX[dir];
                 const fz = DIR_DY[dir];
-                const lungeOffset = Math.sin(a.lunge * Math.PI) * 0.42;
+                const lungeSin = Math.sin(a.lunge * Math.PI);
+                const lungeOffset = lungeSin * 0.55;
+                const lungeHop = lungeSin * 0.08;
+                const lungeScale = 1 + lungeSin * 0.28;
                 const shakeOffset = a.shake > 0 ? Math.sin(now / 18) * 0.06 : 0;
                 const idleBob = Math.sin(now / 260 + a.phase) * 0.025;
 
                 entry.group.position.set(
                     entry.baseX - fx * lungeOffset + shakeOffset,
-                    0.14 + idleBob,
+                    0.14 + idleBob + lungeHop,
                     entry.baseZ - fz * lungeOffset
                 );
 
-                const s = entry.scale * (1 - a.death * 0.65);
+                const s = entry.scale * lungeScale * (1 - a.death * 0.65);
                 const alpha = 1 - a.death;
                 entry.main.scale.set(s, s, 1);
                 entry.red.scale.set(s, s, 1);

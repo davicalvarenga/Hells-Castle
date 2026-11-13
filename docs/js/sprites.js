@@ -24,7 +24,12 @@
         D: '#241b2e', // sombra profunda
         e: '#ff4838', // olho vermelho
         a: '#69c8f0', // azul dados / rede / escudo
-        A: '#2a6f9c'  // azul escuro
+        A: '#2a6f9c', // azul escuro
+        f: '#f2c199', // pele clara
+        F: '#c48a62', // pele sombra
+        m: '#6ae0a8', // menta slime / led
+        t: '#3aa88b', // turquesa copa
+        u: '#f078b8'  // magenta arte
     };
 
     const SPRITE_GRIDS = {
@@ -84,7 +89,7 @@
             '........................'
         ],
 
-        // Lich das Planilhas (Gerente - Chefe Final) - 24x24 imponente
+        // Lich das Planilhas (Gerente - Chefe Andar 1) - 24x24 imponente
         lich: [
             '......kkkkkkkkkkkk......',
             '.....kyyYyyYYyyYyyk.....',
@@ -109,6 +114,146 @@
             '....kDDDDkDDDDkDDDDk....',
             '....kDDDk.kDDk.kDDDk....',
             '....kkkk..kkkk..kkkk....',
+            '........................'
+        ],
+
+        // Limo da Geladeira (Marmita de 2024) - 24x24
+        slime: [
+            '........................',
+            '.......kkkkkkkkkk.......',
+            '......kaaaaaaaaaak......',
+            '.....kwwwwwwwwwwwwk.....',
+            '....kAAkkkkkkkkkkAAk....',
+            '....kkmmmmmmmmmmmmkk....',
+            '...kmmmmggggggggmmmmk...',
+            '..kmmmgggmmmmmmgggmmmk..',
+            '..kmmgmmggggggggmmgmmk..',
+            '.kmmgggkeeekkeekggmmmk..',
+            '.kmmgggkewkkkeekggmmmk..',
+            '.kmmggggkkkkkkkkggmmmk..',
+            '.kmmgGGGGmmmmmmGGGGmmk..',
+            '..kmGGGGGGGGGGGGGGGGmk..',
+            '..kmmGmmGrrrrrrGmmGmmk..',
+            '.kmmgGGGGGGGGGGGGGGgmmk.',
+            '.kmGGhGGGGhhhhGGGGhGGmk.',
+            '.kmGhhhGGhmmmmhGGhhhGmk.',
+            '.kGGhhhhhhhhhhhhhhhhGGk.',
+            '..kGGhhGGhGGGGhGGhhGGk..',
+            '...kGGGGh......hGGGGk...',
+            '....kkkk........kkkk....',
+            '........................',
+            '........................'
+        ],
+
+        // Cultista do Mindset (Coach Corporativo) - 24x24
+        cultist: [
+            '........................',
+            '........kkkkkkkk........',
+            '......kkPPPPPPPPkk......',
+            '.....kPPppppppppPPk.....',
+            '....kPPpDDDDDDDDpPPk....',
+            '....kPpDDDDDDDDDDpPk....',
+            '...kaakDDyyDDyyDDpPk....',
+            '...kaakDDeeDDeeDDpPk....',
+            '...kaaSDDDDDDDDDDpPk....',
+            '....kSDDDwwwwwwDDPPk....',
+            '.....kDDDwkkkkwDDPk.....',
+            '....kkPPPDDDDDDPPPkk....',
+            '...kPPPPdkYYYYkdPPPPk...',
+            '..kPPppPdkrrrrkdPppPPk..',
+            '..kPpPpkdkrrrrkdkpPpPk..',
+            '.kffkpk.kddYYddk.kpkffk.',
+            '.kFFk...kddddddk...kFFk.',
+            '..kk....kPPddPPk....kk..',
+            '.......kPPPPPPPPk.......',
+            '......kPPPkkkkPPPk......',
+            '......kPPk....kPPk......',
+            '......kDDk....kDDk......',
+            '......kkkk....kkkk......',
+            '........................'
+        ],
+
+        // Górgona da Bandeja 2 (Impressora Possuída) - 24x24
+        gorgon: [
+            '........................',
+            '......kk........kk......',
+            '.....kwwk......kwwk.....',
+            '....kwwwwkkkkkkwwwwk....',
+            '....kwccksssssskccwk....',
+            '...kkssskSSSSSSkssskk...',
+            '..ksssssSSSSSSSSsssssk..',
+            '..ksDDDDSSSSSSSSDDDDsk..',
+            '..ksDeekSSSSSSSSkeedsk..',
+            '..ksDDDDkrrrrrrkDDDDsk..',
+            '..kssssskwwwwwwksssssk..',
+            '..ksssskwwkkkkwwkssssk..',
+            '..kSSSSskwwwwwwksSSSSk..',
+            '.kkSSSSkkkkkkkkkkSSSSkk.',
+            '.kwkSSksssssssssskSSkwk.',
+            'kwwkSSksaaaaaaaaaskSSkww',
+            'kwckkkksaaDDDDaaskkkkckw',
+            'kcck...ksDDDDDDsk...kcck',
+            '.kk.....kSSSSSSk.....kk.',
+            '.......kSSk..kSSk.......',
+            '......kSSk....kSSk......',
+            '.....kwkk......kkwk.....',
+            '.....kkk........kkk.....',
+            '........................'
+        ],
+
+        // Dona Carmem do RH (Inquisidora do Feedback - Chefe Andar 2) - 24x24
+        carmem: [
+            '.......kkkkkkkkkk.......',
+            '......kDDDDDDDDDDk......',
+            '.....kDDddddddddDDk.....',
+            '....kDDddddddkkddDDk....',
+            '....kDdkffffffffkdDk....',
+            '...kkaakfkkffkkfkaakk...',
+            '...kwwakfeefkfeefkawwk..',
+            '....kkfkffffffffkfkk....',
+            '.....kffkrrrrrrkffk.....',
+            '......kffkkkkkkffk......',
+            '.....kkRRRRddRRRRkk.....',
+            '....kRRRRRdyyydRRRRRk...',
+            '...kRRrrRddyyyyddRrrRk..',
+            '..kRRrkRRdwwwwwwdRRkrRk.',
+            '.kffk.kRRdwbbbbwdRRk.kfk',
+            '..kk..kRRdwbyybwdRRk..kk',
+            '......kRRdwwwwwwdRRk....',
+            '.....kRRRddddddddRRRk...',
+            '.....kRRRkkkkkkkkRRRk...',
+            '....kRRRRkDDDDDDkRRRRk..',
+            '....kRRRRk......kRRRRk..',
+            '....kDDDDk......kDDDDk..',
+            '....kkkkkk......kkkkkk..',
+            '........................'
+        ],
+
+        // Lorde Valdemar, O CEO (Chefe Final Andar 3) - 24x24
+        valdemar: [
+            '....kk..kkkkkkkk..kk....',
+            '...kyykkYYYYYYYYkkyyk...',
+            '...kYyyyyyyyyyyyyyyYk...',
+            '....kkkkkkkkkkkkkkkk....',
+            '.....kDDDDDDDDDDDDk.....',
+            '....kDDkffffffffkDDk....',
+            '....kDkfccffffccfkDk....',
+            '....kDkfekffffkefkDk....',
+            '....kDkffffkkffffkDk....',
+            '.....kkffkwwwwkffkk.....',
+            '..kkkRRkkDDDDDDkkRRkkk..',
+            '.kRRRRRkDDrrrrDDkRRRRRk.',
+            '.kRRRddkDDryyrDDkddRRRk.',
+            'kRRrkDDkDDryyrDDkDDkrRRk',
+            'kRrk.kDkDDDDDDDDkDk.krRk',
+            'kkk..kDkdYYYYYYdkDk..kkk',
+            '.....kDkddddddddkDk.....',
+            '....kRRkddddddddkRRk....',
+            '....kRRkdddkkdddkRRk....',
+            '...kRRRkddk..kddkRRRk...',
+            '...kDDkkDDk..kDDkkDDk...',
+            '...kkkkDDk....kDDkkkk...',
+            '......kkkk....kkkk......',
             '........................'
         ],
 
@@ -332,6 +477,246 @@
             '................',
             '................',
             '................'
+        ],
+
+        // Máquina de Café da Copa (Loja) - 16x16
+        vending: [
+            '..kkkkkkkkkkkk..',
+            '.kyyyyyyyyyyyyk.',
+            '.kyGGGGGGGGGGyk.',
+            '.kyGkkkkkkkkGyk.',
+            '.kyGkBBBBBBkGyk.',
+            '.kyGkBoooookGyk.',
+            '.kyGkaaaaaakGyk.',
+            '.kyGkkkkkkkkGyk.',
+            '.kyGGGGyyGGGGyk.',
+            '.kyGkDDDDDDkGyk.',
+            '.kyGkDwwwwDkGyk.',
+            '.kyGkDBBBBDkGyk.',
+            '.kyGkkkkkkkkGyk.',
+            '.kyGGGGGGGGGGyk.',
+            '.kkkkkkkkkkkkkk.',
+            '..kkk......kkk..'
+        ],
+
+        // Evento Aleatório do Corredor (?) - 16x16
+        event_q: [
+            '................',
+            '....kkkkkkkk....',
+            '...kPPPPPPPPk...',
+            '..kPPyyyyyyPPk..',
+            '..kPykPPPPkyPk..',
+            '..kPykPPPPkyPk..',
+            '..kPPPkkPPkyPk..',
+            '..kPPPPkyykPPk..',
+            '..kPPPPkykPPPk..',
+            '..kPPPPkykPPPk..',
+            '..kPPPPPPPPPPk..',
+            '..kPPPPkykPPPk..',
+            '..kPPPPPPPPPPk..',
+            '...kPPPPPPPPk...',
+            '....kkkkkkkk....',
+            '................'
+        ],
+
+        // Aliado: Seu Jorge do TI - 16x16
+        ally_jorge: [
+            '....kkkkkkkk....',
+            '...kssssssssk...',
+            '..kssffffffssk..',
+            '..kffkakkfakfk..',
+            '..kffffffffffk..',
+            '...kffkccckffk..',
+            '...kffcccccffk..',
+            '..kkttttttttkk..',
+            '.kttttaaaattttk.',
+            '.ktttawwwwattkk.',
+            '.kttttawwaattkk.',
+            '.kttttttttttttk.',
+            '..kkttttttttkk..',
+            '...kDDk..kDDk...',
+            '...kkkk..kkkk...',
+            '................'
+        ],
+
+        // Aliada: Vivi da Arte - 16x16
+        ally_vivi: [
+            '...kkkkkkkkkk...',
+            '..kuuuuuuuuuuk..',
+            '.kuukffffffkuuk.',
+            '.kuukfkkfkfkuuk.',
+            '.kukffffffffkuk.',
+            '..kkfffrrfffkk..',
+            '...kkffffffkk...',
+            '..kkppppppppkk..',
+            '.kppyyppppyuppk.',
+            '.kppyyyyyyuuppk.',
+            '.kppppppppppppk.',
+            '..kkppppppppkk..',
+            '...kDDk..kDDk...',
+            '...kkkk..kkkk...',
+            '................',
+            '................'
+        ],
+
+        // Aliada: Cláudia do Financeiro - 16x16
+        ally_claudia: [
+            '....kkkkkkkk....',
+            '...kBBBBBBBBk...',
+            '..kBBffffffBBk..',
+            '..kBfkaakfakBk..',
+            '..kBffffffffBk..',
+            '...kfffrrfffk...',
+            '..kkDDDDDDDDkk..',
+            '.kDDDDyyyyDDDDk.',
+            '.kDDDywwwwyDDDk.',
+            '.kDDDywggwyDDDk.',
+            '.kDDDDyyyyDDDDk.',
+            '.kDDDDDDDDDDDDk.',
+            '..kkDDk..kDDkk..',
+            '...kkkk..kkkk...',
+            '................',
+            '................'
+        ],
+
+        // Relíquia: Garrafa Térmica - 16x16
+        thermos: [
+            '.....kkkkkk.....',
+            '....kssssssk....',
+            '....kSSSSSSk....',
+            '.....kkkkkk.....',
+            '....krrrrrrk....',
+            '...krrroorrrk...',
+            '...krrroorrrk...',
+            '...krrroorrrk...',
+            '...krrryyrrrk...',
+            '...krrryyrrrk...',
+            '...krrrrrrrrk...',
+            '...kRRRRRRRRk...',
+            '...kRRRRRRRRk...',
+            '....kkkkkkkk....',
+            '................',
+            '................'
+        ],
+
+        // Relíquia: Caixa de Grampos - 16x16
+        staple_box: [
+            '................',
+            '..kkkkkkkkkkkk..',
+            '.kssssssssssssk.',
+            '.kswyyssssssSsk.',
+            '.ksyyyyyssssSsk.',
+            '.kkkkkkkkkkkkkk.',
+            '.kssssssssssssk.',
+            '.ksSkSkSkSkSkSk.',
+            '.ksSkSkSkSkSkSk.',
+            '.ksSSSSSSSSSSsk.',
+            '.kssssssssssssk.',
+            '.kkkkkkkkkkkkkk.',
+            '................',
+            '................',
+            '................',
+            '................'
+        ],
+
+        // Relíquia: Cópia Oculta CCO - 16x16
+        cco_shield: [
+            '..kkkkkkkkkkkk..',
+            '.kyyyyyyyyyyyyk.',
+            '.kyksssssssskyk.',
+            '.kyksawwwwaskyk.',
+            '.kyksaakkkaskyk.',
+            '.kyksaaaaaaaskyk',
+            '.kyksaaeeaaaskyk',
+            '.kykssaaaasskyk.',
+            '..kyksssssskyk..',
+            '...kyksssskyk...',
+            '....kyksskyk....',
+            '.....kykkyk.....',
+            '......kyyk......',
+            '.......kk.......',
+            '................',
+            '................'
+        ],
+
+        // Carta Evoluída: Vulcão de Expresso - 16x16
+        vulcao: [
+            '.....o..y..o....',
+            '....r.oo.yy.r...',
+            '...rrrooyyoor...',
+            '....kkoyyokk....',
+            '...kRRRRRRRRk...',
+            '..kRRRRooRRRRk..',
+            '..kRRRyyyyRRRk..',
+            '.kRRRRyooyRRRRk.',
+            '.kRRRooooooRRRk.',
+            '.kRRRRRRRRRRRRk.',
+            '.kDDDDDDDDDDDDk.',
+            '..kkkkkkkkkkkk..',
+            '................',
+            '................',
+            '................',
+            '................'
+        ],
+
+        // Carta Evoluída: Mandíbula de Ferro - 16x16
+        mandibula: [
+            '.kkkkkkkkkkkkkk.',
+            'kyyyyyyyyyyyyyyk',
+            'kyssssssssssssyk',
+            'kyswwkkkkkkwwsyk',
+            '.kk..k.kk.k..kk.',
+            '.....kw..wk.....',
+            '.....k....k.....',
+            '.....kw..wk.....',
+            '.kk..k.kk.k..kk.',
+            'kyswwkkkkkkwwsyk',
+            'kyRRRRRRRRRRRRyk',
+            'kyyyyyyyyyyyyyyk',
+            '.kkkkkkkkkkkkkk.',
+            '................',
+            '................',
+            '................'
+        ],
+
+        // Carta Evoluída: Muralha Jurídica - 16x16
+        muralha: [
+            '..kk..kkkk..kk..',
+            '.kyykkyyyykyyk..',
+            '.kyyyyyyyyyyyyk.',
+            '.kBBBByyyyBBBBk.',
+            '.kBssBysysBssBk.',
+            '.kBssByssyBssBk.',
+            '.kBssByssyBssBk.',
+            '.kBssByssyBssBk.',
+            '.kBBBByyyyBBBBk.',
+            '.kBBBBBBBBBBBBk.',
+            '.kBBBBkkkkBBBBk.',
+            '.kBBBBk..kBBBBk.',
+            '.kkkkkk..kkkkkk.',
+            '................',
+            '................',
+            '................'
+        ],
+
+        // Carta Maldição: Ata de Reunião - 16x16
+        ata: [
+            '................',
+            '..kkkkkkkkkkk...',
+            '.kccccccccckk...',
+            '.kcDDDDDDcckwk..',
+            '.kccccccccckwk..',
+            '.kcDDDDDDcckwk..',
+            '.kccccccccckwk..',
+            '.kcDDDDDDcckwk..',
+            '.kcccccccrckwk..',
+            '.kccccccrrckwk..',
+            '.kccccccccckwk..',
+            '..kkkkkkkkkkwk..',
+            '...kkkkkkkkkkk..',
+            '................',
+            '................',
+            '................'
         ]
     };
 
@@ -362,7 +747,7 @@
             const row = grid[y];
             for (let x = 0; x < w; x++) {
                 const ch = row[x];
-                if (ch === '.') continue;
+                if (!ch || ch === '.') continue;
                 g.fillStyle = tintColor || PALETTE[ch] || '#ff00ff';
                 g.fillRect(x, y, 1, 1);
             }
@@ -370,20 +755,39 @@
         return c;
     }
 
-    function makeWallTexture(variant) {
+    const FLOOR_THEMES = {
+        1: {
+            wallBg: '#332942', brickRgb: [82, 70, 98], trim: '#5c667d', trimHi: '#8b97b0', panel: '#473c59',
+            floorBg: '#2a2236', stoneA: '#3f3450', stoneB: '#342a44', carpet: '#631d28', carpetMid: '#7d2634', carpetTrim: '#ba8524', grout: '#181221',
+            ceilBg: '#1a1424', ceilMid: '#282036', ceilBeam: '#3d334d', lampGlow: '#97b4db', lampCore: '#d2ecff'
+        },
+        2: {
+            wallBg: '#1f382c', brickRgb: [52, 86, 68], trim: '#4b6e5d', trimHi: '#7da892', panel: '#2c4a3b',
+            floorBg: '#182b21', stoneA: '#243b30', stoneB: '#1e3328', carpet: '#2e5930', carpetMid: '#3d733f', carpetTrim: '#cfa238', grout: '#101f17',
+            ceilBg: '#122119', ceilMid: '#1d3328', ceilBeam: '#2b4739', lampGlow: '#82d99b', lampCore: '#d4ffe0'
+        },
+        3: {
+            wallBg: '#3d1720', brickRgb: [92, 42, 54], trim: '#946f29', trimHi: '#f0c85a', panel: '#4d1f2a',
+            floorBg: '#2b161b', stoneA: '#422028', stoneB: '#361920', carpet: '#8c1d24', carpetMid: '#ad262f', carpetTrim: '#f5cb5c', grout: '#170a0d',
+            ceilBg: '#1c0c10', ceilMid: '#2b1318', ceilBeam: '#4f2830', lampGlow: '#f2c166', lampCore: '#fff2ba'
+        }
+    };
+
+    function makeWallTexture(variant, floorNum) {
         const size = 48;
         const c = makeCanvas(size, size);
         const g = c.getContext('2d');
-        const rnd = mulberry32(2026 + (variant || 0) * 131);
+        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
+        const rnd = mulberry32(2026 + (variant || 0) * 131 + (floorNum || 1) * 37);
 
-        g.fillStyle = '#332942';
+        g.fillStyle = fl.wallBg;
         g.fillRect(0, 0, size, size);
 
         for (let y = 32; y < size; y += 8) {
             const off = (y % 16 === 0) ? 0 : 6;
             for (let x = -off; x < size; x += 12) {
                 const shade = 0.85 + rnd() * 0.3;
-                g.fillStyle = 'rgb(' + ((82 * shade) | 0) + ',' + ((70 * shade) | 0) + ',' + ((98 * shade) | 0) + ')';
+                g.fillStyle = 'rgb(' + ((fl.brickRgb[0] * shade) | 0) + ',' + ((fl.brickRgb[1] * shade) | 0) + ',' + ((fl.brickRgb[2] * shade) | 0) + ')';
                 g.fillRect(x + 1, y + 1, 10, 6);
                 g.fillStyle = 'rgba(255,255,255,0.12)';
                 g.fillRect(x + 1, y + 1, 10, 1);
@@ -392,12 +796,12 @@
             }
         }
 
-        g.fillStyle = '#5c667d';
+        g.fillStyle = fl.trim;
         g.fillRect(0, 0, size, 5);
         g.fillRect(0, 30, size, 3);
         g.fillRect(0, 0, 3, 32);
         g.fillRect(size - 3, 0, 3, 32);
-        g.fillStyle = '#8b97b0';
+        g.fillStyle = fl.trimHi;
         g.fillRect(0, 0, size, 1);
         g.fillRect(0, 30, size, 1);
 
@@ -421,13 +825,13 @@
                 }
             }
         } else if (v === 1) {
-            g.fillStyle = '#473c59';
+            g.fillStyle = fl.panel;
             g.fillRect(4, 6, size - 8, 23);
             g.fillStyle = '#141722';
             g.fillRect(14, 9, 20, 14);
-            g.fillStyle = '#256fa8';
+            g.fillStyle = floorNum === 3 ? '#992525' : floorNum === 2 ? '#25875a' : '#256fa8';
             g.fillRect(16, 11, 16, 10);
-            g.fillStyle = '#69e2ff';
+            g.fillStyle = floorNum === 3 ? '#ffcb6b' : floorNum === 2 ? '#8bffb8' : '#69e2ff';
             g.fillRect(17, 12, 10, 2);
             g.fillRect(17, 15, 13, 1);
             g.fillRect(17, 17, 8, 1);
@@ -439,9 +843,9 @@
             g.fillStyle = '#b288e0';
             g.fillRect(7, 18, 4, 4);
         } else {
-            g.fillStyle = '#463b57';
+            g.fillStyle = fl.panel;
             g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = '#d8d0c4';
+            g.fillStyle = floorNum === 3 ? '#f5cb5c' : '#d8d0c4';
             g.fillRect(9, 8, 30, 15);
             g.fillStyle = '#232030';
             g.fillRect(10, 9, 28, 13);
@@ -456,37 +860,36 @@
         return c;
     }
 
-    // Piso em ladrilhos de pedra escura + tapete gótico carmesim com friso dourado
-    function makeFloorTexture() {
+    // Piso em ladrilhos de pedra escura + tapete por andar
+    function makeFloorTexture(floorNum) {
         const size = 48;
         const c = makeCanvas(size, size);
         const g = c.getContext('2d');
-        const rnd = mulberry32(4242);
+        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
+        const rnd = mulberry32(4242 + (floorNum || 1) * 19);
 
-        g.fillStyle = '#2a2236';
+        g.fillStyle = fl.floorBg;
         g.fillRect(0, 0, size, size);
 
         for (let qy = 0; qy < 2; qy++) {
             for (let qx = 0; qx < 2; qx++) {
                 const alt = (qx + qy) % 2 === 0;
-                g.fillStyle = alt ? '#3f3450' : '#342a44';
+                g.fillStyle = alt ? fl.stoneA : fl.stoneB;
                 g.fillRect(qx * 24 + 2, qy * 24 + 2, 20, 20);
                 g.fillStyle = 'rgba(255,255,255,0.08)';
                 g.fillRect(qx * 24 + 2, qy * 24 + 2, 20, 1);
             }
         }
 
-        // Centro de tapete gótico vinho com borda dourada
-        g.fillStyle = '#631d28';
+        g.fillStyle = fl.carpet;
         g.fillRect(10, 0, 28, size);
-        g.fillStyle = '#7d2634';
+        g.fillStyle = fl.carpetMid;
         g.fillRect(14, 0, 20, size);
-        g.fillStyle = '#ba8524';
+        g.fillStyle = fl.carpetTrim;
         g.fillRect(10, 0, 2, size);
         g.fillRect(36, 0, 2, size);
 
-        // Junta do grid
-        g.fillStyle = '#181221';
+        g.fillStyle = fl.grout;
         g.fillRect(0, 0, size, 2);
         g.fillRect(0, 0, 2, size);
 
@@ -497,22 +900,23 @@
         return c;
     }
 
-    function makeCeilingTexture() {
+    function makeCeilingTexture(floorNum) {
         const size = 48;
         const c = makeCanvas(size, size);
         const g = c.getContext('2d');
-        g.fillStyle = '#1a1424';
+        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
+        g.fillStyle = fl.ceilBg;
         g.fillRect(0, 0, size, size);
-        g.fillStyle = '#282036';
+        g.fillStyle = fl.ceilMid;
         g.fillRect(3, 3, size - 6, size - 6);
-        g.fillStyle = '#3d334d';
+        g.fillStyle = fl.ceilBeam;
         g.fillRect(0, 0, size, 3);
         g.fillRect(0, 0, 3, size);
         g.fillStyle = '#474f66';
         g.fillRect(10, 18, 28, 12);
-        g.fillStyle = '#97b4db';
+        g.fillStyle = fl.lampGlow;
         g.fillRect(13, 21, 22, 6);
-        g.fillStyle = '#d2ecff';
+        g.fillStyle = fl.lampCore;
         g.fillRect(15, 23, 18, 2);
         return c;
     }
