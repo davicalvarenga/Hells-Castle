@@ -795,36 +795,31 @@
         const left = Math.max(-VIEW_HALF_WIDTH, -(TILE / 2 + freeL * TILE) + WALL_MARGIN);
         const right = Math.min(VIEW_HALF_WIDTH, (TILE / 2 + freeR * TILE) - WALL_MARGIN);
 
-        const list = state.enemies.map(e => combatSprites.get(e.uid));
-        const n = list.length;
-        const total = list.reduce((sum, e) => sum + e.visW, 0) + FORMATION_GAP * (n - 1);
-        const fits = total <= right - left;
-        const xs = [];
-        if (fits) {
-            let cursor = clamp(-total / 2, left, right - total);
-            list.forEach(e => {
-                xs.push(cursor + e.visW / 2);
-                cursor += e.visW + FORMATION_GAP;
-            });
-        } else {
-            // espaço apertado: distribui de parede a parede (com sobreposição) e alterna a profundidade
-            const first = left + list[0].visW / 2;
-            const last = right - list[n - 1].visW / 2;
-            list.forEach((e, i) => xs.push(n === 1 ? (left + right) / 2 : first + (last - first) * i / (n - 1)));
-        }
+        state.enemies.forEach((enemy, i) => {
+            const entry = combatSprites.get(enemy.uid);
+            if (!entry) return;
+            const col = clamp(typeof enemy.col === 'number' ? enemy.col : (i % 5), 0, 4);
+            const row = Math.max(0, typeof enemy.row === 'number' ? enemy.row : 0);
+            const span = Math.max(0.8, right - left);
+            const margin = Math.min(0.45, span * 0.14);
+            const colCenter = (left + margin) + (span - 2 * margin) * (col / 4);
+            const peek = row > 0 ? (col <= 2 ? -0.22 : 0.22) : 0;
+            const halfW = entry.visW * 0.5;
+            const sx = halfW * 2 >= span
+                ? (left + right) / 2
+                : clamp(colCenter + peek, left + halfW, right - halfW);
 
-        list.forEach((entry, i) => {
-            let depth = FORMATION_DEPTH;
-            if (!fits) depth += i % 2 === 0 ? -0.3 : 0.3;
-            else if (entry.isBoss) depth += 0.25;
-            else if (n >= 3) depth += (i === 0 || i === n - 1) ? -0.12 : 0.12;
-            depth = clamp(depth, FORMATION_MIN_DEPTH, FORMATION_MAX_DEPTH);
-            if (!aheadFree) depth = 0.7;
+            let depth = row === 0
+                ? (entry.isBoss ? 2.2 : 2.1)
+                : clamp(2.68 + (row - 1) * 0.16, FORMATION_MIN_DEPTH, FORMATION_MAX_DEPTH);
+            if (!aheadFree) depth = row === 0 ? 0.8 : 1.15;
 
-            entry.slotX = xs[i];
+            entry.col = col;
+            entry.row = row;
+            entry.slotX = sx;
             entry.slotZ = depth;
-            entry.roomL = Math.max(0, xs[i] - entry.visW / 2 - left);
-            entry.roomR = Math.max(0, right - (xs[i] + entry.visW / 2));
+            entry.roomL = Math.max(0, sx - entry.visW / 2 - left);
+            entry.roomR = Math.max(0, right - (sx + entry.visW / 2));
             entry.limL = left;
             entry.limR = right;
             entry.fwdX = fx;
@@ -833,13 +828,14 @@
             entry.originZ = state.player.y * TILE;
             entry.rightX = rx;
             entry.rightZ = rz;
-            entry.baseX = state.player.x * TILE + fx * depth + rx * xs[i];
-            entry.baseZ = state.player.y * TILE + fz * depth + rz * xs[i];
+            entry.baseX = state.player.x * TILE + fx * depth + rx * sx;
+            entry.baseZ = state.player.y * TILE + fz * depth + rz * sx;
             if (entry.curX === null) {
                 entry.curX = entry.baseX;
                 entry.curZ = entry.baseZ;
             }
-            entry.alive = state.enemies[i].hp > 0;
+            entry.overkill = !!enemy.overkill;
+            entry.alive = enemy.hp > 0 || !!enemy.overkill;
         });
     }
 
@@ -929,6 +925,18 @@
         hctx.fillRect(cx - 1, cy - 1, 2, 2);
     }
 
+    function drawPixelFlame(cx, cy) {
+        hctx.fillStyle = '#0b0710';
+        hctx.fillRect(cx - 5, cy - 6, 10, 11);
+        hctx.fillStyle = '#e24a33';
+        hctx.fillRect(cx - 4, cy - 3, 8, 7);
+        hctx.fillRect(cx - 2, cy - 5, 4, 2);
+        hctx.fillStyle = '#f59e0b';
+        hctx.fillRect(cx - 3, cy - 2, 6, 5);
+        hctx.fillStyle = '#fff3b0';
+        hctx.fillRect(cx - 1, cy, 2, 3);
+    }
+
     function drawReticle(cx, cy, size, now, isAll) {
         const pulse = Math.sin(now / 110) * 5;
         const r = size * 0.44 + pulse;
@@ -955,14 +963,17 @@
         hctx.fillStyle = grad;
         hctx.fillRect(0, 0, W, H);
         if (currentState && currentState.mode === 'combat') {
-            const count = currentState.enemies.length;
-            currentState.enemies.forEach((e, idx) => {
-                if (e.hp <= 0) return;
-                const sx = count === 1 ? W * 0.5 : W * (0.22 + (idx / (count - 1)) * 0.56);
-                const sz = Math.min(W, H) * (e.isBoss ? 0.4 : 0.28);
+            const ordered = currentState.enemies.slice().sort((a, b) => (b.row || 0) - (a.row || 0));
+            ordered.forEach(e => {
+                if (e.hp <= 0 && !e.overkill) return;
+                const col = clamp(typeof e.col === 'number' ? e.col : 2, 0, 4);
+                const row = Math.max(0, e.row || 0);
+                const sx = W * (0.16 + (col / 4) * 0.68) + (row > 0 ? (col <= 2 ? -18 : 18) : 0);
+                const sz = Math.min(W, H) * (e.isBoss ? 0.36 : (row > 0 ? 0.2 : 0.27));
+                const by = row > 0 ? H * 0.6 : H * 0.72;
                 const sheet = window.GameSprites.getSheet(e.kind);
                 hctx.imageSmoothingEnabled = false;
-                hctx.drawImage(sheet.normal, sx - sz / 2, H * 0.7 - sz, sz, sz);
+                hctx.drawImage(sheet.normal, sx - sz / 2, by - sz, sz, sz);
             });
         }
     }
@@ -972,16 +983,29 @@
         enemyHitboxes.length = 0;
         if (!currentState || currentState.mode !== 'combat') return;
 
+        // Indicadores de Burn por coluna (0..4)
+        if (currentState.columnBurn) {
+            for (let c = 0; c < 5; c++) {
+                const stacks = currentState.columnBurn[c] || 0;
+                if (stacks <= 0) continue;
+                const pos = getColumnLocalPos(c);
+                drawPixelFlame(Math.round(pos.x - 20), Math.round(pos.y));
+                drawOutlined('BURN ' + stacks, pos.x + 12, pos.y, 13, '#ffb347');
+            }
+        }
+
         const enemies = currentState.enemies;
-        const count = enemies.length;
         const items = [];
 
-        enemies.forEach((enemy, idx) => {
-            if (enemy.hp <= 0) return;
-            let sx = viewW * 0.5;
-            let topY = viewH * 0.3;
-            let botY = viewH * 0.68;
-            let widthPx = viewH * 0.25;
+        enemies.forEach(enemy => {
+            if (enemy.hp <= 0 && !enemy.overkill) return;
+            const col = clamp(typeof enemy.col === 'number' ? enemy.col : 2, 0, 4);
+            const row = Math.max(0, enemy.row || 0);
+            const isRear = row > 0;
+            let sx = viewW * (0.16 + (col / 4) * 0.68) + (isRear ? (col <= 2 ? -18 : 18) : 0);
+            let topY = viewH * (enemy.isBoss ? 0.28 : (isRear ? 0.38 : 0.42));
+            let botY = viewH * (isRear ? 0.6 : 0.72);
+            let widthPx = viewH * (isRear ? 0.18 : 0.24);
 
             const entry = combatSprites.get(enemy.uid);
             if (webglOk && entry) {
@@ -993,19 +1017,16 @@
                     botY = bot.y;
                     widthPx = entry.visW * top.s;
                 }
-            } else {
-                sx = count === 1 ? viewW * 0.5 : viewW * (0.22 + (idx / (count - 1)) * 0.56);
-                topY = viewH * (enemy.isBoss ? 0.3 : 0.42);
-                botY = viewH * 0.7;
             }
 
             const isTarget = currentState.targetUid === enemy.uid;
             const compactView = viewW < 520;
-            const bw = clamp(widthPx * 0.82, compactView ? 44 : 58, compactView ? 96 : 132);
-            const nameSize = clamp(bw * 0.15, compactView ? 11 : 13, 18);
+            const bw = clamp(widthPx * 0.82, compactView ? 42 : 56, compactView ? 92 : 128);
+            const nameSize = clamp(bw * 0.15, compactView ? 11 : 13, 17);
             hctx.font = Math.round(nameSize) + 'px "Jersey 15", monospace';
             items.push({
                 enemy: enemy,
+                isRear: isRear,
                 sx: sx,
                 topY: topY,
                 botY: botY,
@@ -1014,18 +1035,18 @@
                 nameSize: nameSize,
                 nameW: hctx.measureText(enemy.name).width,
                 isTarget: isTarget,
-                showName: true,
-                showIntent: true,
-                lift: 0
+                showName: !isRear || isTarget,
+                showIntent: !isRear,
+                lift: isRear ? 10 : 0
             });
         });
 
-        // A barra nunca é mais larga que o espaço até o vizinho (não sobrepõe outra barra).
+        // A barra nunca é mais larga que o espaço até o vizinho na mesma linha.
         const byX = items.slice().sort((a, b) => a.sx - b.sx);
         byX.forEach((it, i) => {
             let gap = Infinity;
-            if (i > 0) gap = Math.min(gap, it.sx - byX[i - 1].sx);
-            if (i < byX.length - 1) gap = Math.min(gap, byX[i + 1].sx - it.sx);
+            if (i > 0 && byX[i - 1].isRear === it.isRear) gap = Math.min(gap, it.sx - byX[i - 1].sx);
+            if (i < byX.length - 1 && byX[i + 1].isRear === it.isRear) gap = Math.min(gap, byX[i + 1].sx - it.sx);
             it.bw = Math.max(34, Math.min(it.bw, gap - 10));
         });
 
@@ -1044,10 +1065,13 @@
                     [a, b].forEach(it => { if (!it.isTarget) it.showName = false; });
                 } else {
                     [a, b].forEach(it => { if (!it.isTarget) it.showIntent = false; });
-                    if (collide(a, b) && a.lift === 0) b.lift = 16;
+                    if (collide(a, b) && a.lift === b.lift) b.lift += 16;
                 }
             }
         }
+
+        // Desenha retaguarda primeiro para que a linha de frente fique visualmente acima.
+        items.sort((a, b) => (b.isRear ? 1 : 0) - (a.isRear ? 1 : 0));
 
         items.forEach(it => {
             const enemy = it.enemy;
@@ -1057,7 +1081,7 @@
             // de baixo para cima a partir da cabeça: intenção, barra de HP, nome
             const intentY = it.topY - 10 - it.lift;
             const by = (it.showIntent ? intentY - 22 : it.topY - 16 - it.lift);
-            const safeBy = Math.max(74, by);
+            const safeBy = Math.max(76, by);
             const bx = cx - bw / 2;
 
             enemyHitboxes.push({
@@ -1068,12 +1092,13 @@
                 h: it.botY - (safeBy - 20)
             });
 
-            if (hoveredCard && (hoveredCard.target === 'all' || (hoveredCard.target === 'single' && it.isTarget))) {
+            if (hoveredCard && ((hoveredCard.target === 'all' && !it.isRear) || (hoveredCard.target === 'single' && it.isTarget))) {
                 drawReticle(it.sx, (it.topY + it.botY) * 0.5, Math.min(it.widthPx, it.botY - it.topY) * 0.95, now, hoveredCard.target === 'all');
             }
 
             if (it.showName) {
-                drawOutlined(enemy.name, cx, safeBy - 11, it.nameSize, it.isTarget ? '#fff5d4' : '#efe6d8');
+                const labelName = it.isRear ? enemy.name + ' [RET]' : enemy.name;
+                drawOutlined(labelName, cx, safeBy - 11, it.nameSize, it.isTarget ? '#fff5d4' : (it.isRear ? '#b8adc4' : '#efe6d8'));
             }
             if (it.isTarget) {
                 const pulse = Math.round(Math.sin(now / 150) * 3);
@@ -1085,21 +1110,29 @@
             hctx.fillStyle = '#3b1518';
             hctx.fillRect(bx, safeBy, bw, bh);
             const hpPct = clamp(enemy.hp / enemy.maxHp, 0, 1);
-            hctx.fillStyle = enemy.isBoss ? '#e84545' : '#d8452f';
-            hctx.fillRect(bx, safeBy, Math.max(2, bw * hpPct), bh);
+            hctx.fillStyle = enemy.overkill ? '#ffd147' : (enemy.isBoss ? '#e84545' : (it.isRear ? '#9e3829' : '#d8452f'));
+            hctx.fillRect(bx, safeBy, Math.max(enemy.overkill ? bw : 2, bw * hpPct), bh);
             if (enemy.shield > 0) {
                 hctx.fillStyle = '#69c8f0';
                 hctx.fillRect(bx, safeBy + bh - 2, bw, 2);
             }
-            const hpText = enemy.shield > 0 ? enemy.hp + ' (+' + enemy.shield + ')' : enemy.hp + '/' + enemy.maxHp;
-            drawOutlined(hpText, cx, safeBy + bh / 2 + 1, 12, '#ffffff');
+            const hpText = enemy.overkill
+                ? 'OVERKILL!'
+                : (enemy.shield > 0 ? enemy.hp + ' (+' + enemy.shield + ')' : enemy.hp + '/' + enemy.maxHp);
+            drawOutlined(hpText, cx, safeBy + bh / 2 + 1, 12, enemy.overkill ? '#fff6c9' : '#ffffff');
 
-            if (!it.showIntent) return;
+            // Somente inimigos na linha de frente (row === 0) mostram intenção de ataque no turno
+            if (!it.showIntent || it.isRear) return;
             const iy = safeBy + bh + 11;
-            if (enemy.stunned) {
+            if (enemy.overkill) {
+                drawOutlined('BATA P/ +VR!', cx, iy, 13, '#ffe066');
+            } else if (enemy.stunned) {
                 drawPixelStun(Math.round(cx - 38), Math.round(iy));
                 drawOutlined('ATORDOADO', cx + 8, iy, 13, '#69c8f0');
-            } else {
+            } else if (enemy.disarmed) {
+                drawPixelStun(Math.round(cx - 42), Math.round(iy));
+                drawOutlined('DESARMADO!', cx + 8, iy, 13, '#69c8f0');
+            } else if (enemy.hasIntent !== false) {
                 let tag = '';
                 if (enemy.attacksPerTurn > 1) tag = ' x' + enemy.attacksPerTurn;
                 else if (enemy.drainMana) tag = ' [DRENA]';
@@ -1605,6 +1638,9 @@
                 if (flash > 0) {
                     map = entry.tex.white;
                     color = flashColor;
+                } else if (entry.overkill && Math.floor(now / 150) % 2 === 0) {
+                    map = entry.tex.white;
+                    color = 0xffd147;
                 } else if (deathBlink || a.white > 0.45) {
                     map = entry.tex.white;
                 } else if (a.hurt > 0.3) {
@@ -1720,6 +1756,29 @@
         return out;
     }
 
+    function getColumnLocalPos(col) {
+        const c = clamp(col, 0, 4);
+        if (webglOk && currentState && currentState.mode === 'combat') {
+            const dir = currentState.player.dir;
+            const fx = DIR_DX[dir];
+            const fz = DIR_DY[dir];
+            const rx = -fz;
+            const rz = fx;
+            const sx = -2.1 + 4.2 * (c / 4);
+            const wx = currentState.player.x * TILE + fx * 1.95 + rx * sx;
+            const wz = currentState.player.y * TILE + fz * 1.95 + rz * sx;
+            const p = project3D(wx, 0.12, wz);
+            if (p) return { x: clamp(p.x, 38, viewW - 38), y: clamp(p.y, 90, viewH - 22) };
+        }
+        return { x: viewW * (0.16 + (c / 4) * 0.68), y: viewH * 0.78 };
+    }
+
+    function getColumnScreenPos(col) {
+        const rect = hudCanvas.getBoundingClientRect();
+        const p = getColumnLocalPos(col);
+        return { x: rect.left + p.x, y: rect.top + p.y };
+    }
+
     function getEnemyScreenPos(enemyUid) {
         const rect = hudCanvas.getBoundingClientRect();
         const entry = combatSprites.get(enemyUid);
@@ -1753,6 +1812,7 @@
         getDebugBounds: getDebugBounds,
         getCombatLabelAnchors: getCombatLabelAnchors,
         getEnemyScreenPos: getEnemyScreenPos,
+        getColumnScreenPos: getColumnScreenPos,
         constants: { TILE: TILE, CAM_HEIGHT: CAM_HEIGHT, COMMON_HEIGHT: COMMON_HEIGHT, BOSS_HEIGHT: BOSS_HEIGHT }
     };
 })();

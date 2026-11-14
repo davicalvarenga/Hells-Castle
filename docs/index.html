@@ -75,7 +75,7 @@
                 <path fill="#ff8a80" d="M3,3 h2 v1 h-1 v2 h-1 v-3 z"/>
                 <rect fill="#ffffff" x="3" y="3" width="1" height="1"/>
             </svg>
-            <div id="hp-text" class="heart-val">60/60</div>
+            <div id="hp-text" class="heart-val">50/50</div>
             <div id="shield-badge" class="shield-orb hidden" title="Escudo Burocrático">
                 <svg class="px-ico" viewBox="0 0 14 14" shape-rendering="crispEdges" aria-hidden="true">
                     <path fill="#0a060e" d="M2,1 h10 v6 h-1 v2 h-1 v2 h-2 v1 h-2 v-1 h-2 v-2 h-1 v-2 h-1 z"/>
@@ -151,6 +151,14 @@
                     <rect fill="#fff6c9" x="3" y="3" width="2" height="2"/>
                 </svg>
                 <span>VR <b id="stat-vr">0</b></span>
+            </div>
+
+            <div id="vp-combat-stats" class="vp-combat-stats" title="Atributos Ativos (Vampire Crawlers)">
+                <span>MIGHT <b id="stat-might">+0%</b></span>
+                <span>AMT <b id="stat-amount">+0</b></span>
+                <span>AREA <b id="stat-area">+0%</b></span>
+                <span>LUCK <b id="stat-luck">+0%</b></span>
+                <span>GRW <b id="stat-growth">+0%</b></span>
             </div>
 
             <div id="log-text" class="vp-toast toast-hidden"></div>
@@ -333,13 +341,18 @@
         </div>
     </div>
 
-    <!-- Modal de Level Up (1 de 3) — sempre aberto pela fila única de modais -->
+    <!-- Modal de Level Up (1 de 3/4) — sempre aberto pela fila única de modais -->
     <div id="levelup-modal" class="modal-overlay hidden">
         <div class="modal-box">
             <h2>LEVEL UP!</h2>
             <p id="levelup-count" class="levelup-count">Nível 2</p>
-            <p>Escolha 1 recompensa para Valter seguir em frente:</p>
+            <p id="levelup-subtitle">Escolha 1 recompensa para Valter seguir em frente:</p>
             <div id="reward-grid" class="reward-grid"></div>
+            <div id="levelup-actions" class="levelup-actions">
+                <button id="btn-lvl-reroll" class="lvl-action-btn reroll" type="button">REROLL (3)</button>
+                <button id="btn-lvl-skip" class="lvl-action-btn skip" type="button">SKIP (+20% XP)</button>
+                <button id="btn-lvl-banish" class="lvl-action-btn banish" type="button">BANIR (2)</button>
+            </div>
         </div>
     </div>
 

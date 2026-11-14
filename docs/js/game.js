@@ -21,6 +21,11 @@
         statFloor: $('stat-floor'),
         statKills: $('stat-kills'),
         statVr: $('stat-vr'),
+        statMight: $('stat-might'),
+        statAmount: $('stat-amount'),
+        statArea: $('stat-area'),
+        statLuck: $('stat-luck'),
+        statGrowth: $('stat-growth'),
         clockTime: $('clock-time'),
         hpText: $('hp-text'),
         shieldBadge: $('shield-badge'),
@@ -63,7 +68,11 @@
         btnCloseSpreadsheet: $('btn-close-spreadsheet'),
         levelupModal: $('levelup-modal'),
         levelupCount: $('levelup-count'),
+        levelupSubtitle: $('levelup-subtitle'),
         rewardGrid: $('reward-grid'),
+        btnLvlReroll: $('btn-lvl-reroll'),
+        btnLvlSkip: $('btn-lvl-skip'),
+        btnLvlBanish: $('btn-lvl-banish'),
         restModal: $('rest-modal'),
         restTitle: $('rest-title'),
         restDesc: $('rest-desc'),
@@ -187,33 +196,46 @@
             player: { x: start.x, y: start.y, dir: 0 },
             hp: hero.maxHp,
             maxHp: hero.maxHp,
-            mana: 3,
-            maxMana: 3,
+            mana: B.baseMana,
+            maxMana: B.baseMana,
+            dealCount: B.dealCount,
             manaDrain: 0,
             shield: 0,
             xp: 0,
-            xpNext: B.xpFirstLevel,
+            xpNext: D.getXpForLevel(1),
             level: 1,
             vr: 0,
             combo: 1,
-            damageMult: 1,
+            comboCount: 0,
+            lastComboCost: null,
+            stats: { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0 },
             healPerCombat: 0,
             relics: [],
             specialRelics: [],
             takenRewards: [],
+            banishedIds: [],
+            rerollsLeft: 3,
+            skipsLeft: 5,
+            banishesLeft: 2,
+            banishMode: false,
             restUsed: {},
             passives: [{ label: 'Crachá: ' + hero.name + ' (' + hero.role + ')', icon: hero.icon }],
+            cardLevels: {},
             evolvedCards: {},
             deck: D.STARTING_DECK.slice(),
             drawPile: [],
             hand: [],
+            handReturnCounts: [],
             discardPile: [],
+            destroyedPile: [],
             enemies: [],
+            columnBurn: [0, 0, 0, 0, 0],
             targetUid: null,
             currentEncounterId: null,
             encounters: buildEncounters(fl),
             steps: 0,
             bossDefeated: false,
+            bossOverkillActive: false,
             finalVictory: false,
             kills: 0,
             overkills: 0,
@@ -331,26 +353,102 @@
         return { x: r.left + r.width * fx, y: r.top + r.height * fy };
     }
 
-    // Substitui cartas base pelas evoluídas quando a relíquia correspondente foi obtida.
-    function checkAndTriggerEvolutions() {
-        const evolvedNames = [];
-        D.EVOLUTIONS.forEach(ev => {
-            if (!state.relics.includes(ev.passiveId)) return;
-            [state.deck, state.drawPile, state.hand, state.discardPile].forEach(pile => {
-                for (let i = 0; i < pile.length; i++) {
-                    if (pile[i] === ev.fromCard) pile[i] = ev.toCard;
-                }
-            });
-            if (state.deck.includes(ev.toCard) && !state.evolvedCards[ev.toCard]) {
-                state.evolvedCards[ev.toCard] = true;
-                evolvedNames.push(D.CARDS[ev.toCard].name);
+    function getLuckMultiplier() {
+        return 1 + (((state && state.stats && state.stats.Luck) || 0) / 100);
+    }
+
+    function getCardLevel(cardId) {
+        return (state && state.cardLevels && state.cardLevels[cardId]) || 1;
+    }
+
+    function getCardPreviewValues(card, comboMult) {
+        const mult = Math.max(1, comboMult || 1);
+        const stats = (state && state.stats) || { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0 };
+        const mightMult = 1 + ((stats.Might || 0) / 100);
+        const statAmt = stats.Amount || 0;
+
+        let hits = card.baseAmount || card.hits || (card.damage > 0 ? 1 : 0);
+        if (card.amountScalesWithCombo) {
+            hits = hits * mult + statAmt;
+        }
+
+        let dmg = card.damage || 0;
+        if (dmg > 0) {
+            if (card.damageScalesWithCombo) dmg *= mult;
+            if (card.damageScalesWithAmount) dmg *= (1 + statAmt);
+            dmg = Math.max(1, Math.round(dmg * mightMult));
+        }
+
+        let shield = card.shield || 0;
+        if (shield > 0 && card.scalesWithCombo) {
+            shield = Math.round(shield * mult);
+        }
+
+        let heal = card.heal || 0;
+        if (heal > 0 && card.scalesWithCombo) {
+            heal = Math.round(heal * mult);
+        }
+
+        return {
+            hits: hits,
+            damage: dmg,
+            shield: shield,
+            heal: heal,
+            burn: card.burn || 0
+        };
+    }
+
+    function formatCardDesc(card, preview) {
+        const pv = preview || getCardPreviewValues(card, 1);
+        return (card.desc || '')
+            .replace(/\{HITS\}/g, String(pv.hits))
+            .replace(/\{DMG\}/g, String(pv.damage))
+            .replace(/\{SHIELD\}/g, String(pv.shield))
+            .replace(/\{HEAL\}/g, String(pv.heal))
+            .replace(/\{BURN\}/g, String(pv.burn));
+    }
+
+    function hasCardInCollection(cardId) {
+        if (!state) return false;
+        return state.deck.includes(cardId) ||
+            state.hand.includes(cardId) ||
+            state.drawPile.includes(cardId) ||
+            state.discardPile.includes(cardId);
+    }
+
+    function isEvolutionReady(ev) {
+        return state.relics.includes(ev.passiveId) &&
+            getCardLevel(ev.fromCard) >= B.maxCardLevel &&
+            hasCardInCollection(ev.fromCard) &&
+            !state.evolvedCards[ev.toCard];
+    }
+
+    function applyEvolution(ev) {
+        [state.deck, state.drawPile, state.hand, state.discardPile].forEach(pile => {
+            for (let i = 0; i < pile.length; i++) {
+                if (pile[i] === ev.fromCard) pile[i] = ev.toCard;
             }
         });
-        if (evolvedNames.length > 0) {
-            const label = evolvedNames.join(' & ');
-            triggerGoldBanner('EVOLUÇÃO! ' + label.toUpperCase());
-            setLog('Carta aprimorada: ' + label + '!');
+        state.evolvedCards[ev.toCard] = true;
+        const evolved = D.CARDS[ev.toCard];
+        triggerGoldBanner('EVOLUÇÃO! ' + evolved.name.toUpperCase());
+        setLog('Carta evoluída: ' + evolved.name + '!');
+        return evolved;
+    }
+
+    // Verifica se alguma carta atingiu condição de evolução (Nv.MÁX + Relíquia).
+    // allowImmediate=true evolui na hora (usado ao abrir Baú); caso contrário avisa que aparecerá no próximo Baú/Level Up.
+    function checkAndTriggerEvolutions(allowImmediate) {
+        const ready = D.EVOLUTIONS.filter(isEvolutionReady);
+        if (ready.length === 0) return [];
+        if (!allowImmediate) {
+            const names = ready.map(ev => D.CARDS[ev.toCard].name).join(', ');
+            setLog('Evolução pronta (' + names + ')! Disponível no próximo Baú ou Level Up.');
+            return ready;
         }
+        const evolvedNames = ready.map(ev => applyEvolution(ev).name);
+        triggerGoldBanner('BAÚ EVOLUIU: ' + evolvedNames.join(' & ').toUpperCase());
+        return ready;
     }
 
     function grantRelic(id) {
@@ -359,12 +457,13 @@
         state.specialRelics.push(id);
         state.passives.push({ label: relic.title + ' — ' + relic.desc, icon: relic.icon });
         if (id === 'foto_parque') {
-            state.damageMult += 0.15;
+            state.stats.Might += 15;
             state.healPerCombat += 5;
         } else if (id === 'bilhete_cinema') {
-            state.damageMult += 0.1;
+            state.stats.Might += 10;
         } else if (id === 'chave_bicicleta') {
             state.maxMana = Math.min(B.maxManaCap, state.maxMana + 1);
+            state.mana = Math.min(state.maxMana, state.mana + 1);
         }
         triggerGoldBanner('RELÍQUIA: ' + relic.title.toUpperCase());
     }
@@ -433,7 +532,8 @@
     // {type:'levelup'} na fila. Nenhum modal é aberto dentro do loop.
     function gainXp(amount) {
         if (state.mode === 'gameover' || amount <= 0) return;
-        state.xp += amount;
+        const effectiveXp = Math.max(1, Math.round((1 + ((state.stats && state.stats.Growth) || 0) / 100) * amount));
+        state.xp += effectiveXp;
         A.play('xpTick');
         els.xpTrack.classList.remove('pulse');
         void els.xpTrack.offsetWidth;
@@ -443,7 +543,7 @@
         while (state.xp >= state.xpNext) {
             state.xp -= state.xpNext;
             state.level += 1;
-            state.xpNext = Math.round(state.xpNext * B.xpGrowth);
+            state.xpNext = D.getXpForLevel(state.level);
             state.pendingLevelUps += 1;
             gained += 1;
         }
@@ -530,43 +630,169 @@
         els.epilogueOverlay.classList.add('hidden');
     }
 
-    // ---------- MODAL: LEVEL UP ----------
-    function openLevelUpModal() {
-        A.play('levelup');
-        const pool = D.LEVEL_UP_REWARDS.filter(rw =>
-            !(rw.once && (state.takenRewards.includes(rw.id) || state.relics.includes(rw.id))));
-        const choices = shuffle(pool).slice(0, 3);
+    function getEligibleLevelUpPool() {
+        return D.LEVEL_UP_REWARDS.filter(rw => {
+            if (state.banishedIds && state.banishedIds.includes(rw.id)) return false;
+            if (rw.once && (state.takenRewards.includes(rw.id) || state.relics.includes(rw.id))) return false;
+            if (rw.id && rw.id.indexOf('up_') === 0 && getCardLevel(rw.id.slice(3)) >= B.maxCardLevel) return false;
+            return true;
+        });
+    }
+
+    function buildEvolutionChoice(ev) {
+        const toCard = D.CARDS[ev.toCard];
+        const fromCard = D.CARDS[ev.fromCard];
+        return {
+            id: 'evo_' + ev.toCard,
+            kind: 'evolucao',
+            title: toCard.name,
+            origin: 'Evolução de ' + fromCard.name,
+            icon: toCard.icon,
+            noBanish: true,
+            desc: formatCardDesc(toCard, getCardPreviewValues(toCard, 1)),
+            apply: function () {
+                applyEvolution(ev);
+            }
+        };
+    }
+
+    function buildLevelUpChoices() {
+        const fourthChance = 0.025 * getLuckMultiplier();
+        const slotCount = Math.random() < fourthChance ? 4 : 3;
+        const choices = D.EVOLUTIONS.filter(isEvolutionReady).map(buildEvolutionChoice);
+        const pool = shuffle(getEligibleLevelUpPool());
+        for (let i = 0; i < pool.length && choices.length < slotCount; i++) {
+            const candidate = pool[i];
+            if (!choices.some(c => c.id === candidate.id)) {
+                choices.push(candidate);
+            }
+        }
+        if (choices.length === 0) {
+            choices.push({
+                id: 'fallback_treino',
+                kind: 'passiva',
+                title: 'Fôlego da Vigília',
+                origin: 'Treino de Reserva',
+                icon: 'vr_boost',
+                noBanish: true,
+                desc: '+10% Might, cura 10 de Sanidade e +8 VR.',
+                apply: function () {
+                    state.stats.Might += 10;
+                    state.hp = Math.min(state.maxHp, state.hp + 10);
+                    state.vr += 8;
+                }
+            });
+        }
+        return choices.slice(0, slotCount);
+    }
+
+    function renderLevelUpModal() {
+        if (!activeModal || activeModal.type !== 'levelup') return;
+        const choices = activeModal.choices || [];
         els.rewardGrid.innerHTML = '';
+        els.rewardGrid.classList.toggle('four-choices', choices.length >= 4);
+        els.rewardGrid.classList.toggle('banish-active', !!state.banishMode);
+
         if (els.levelupCount) {
             els.levelupCount.textContent = state.pendingLevelUps > 1
                 ? 'Nível ' + (state.level - state.pendingLevelUps + 1) + ' — restam ' + state.pendingLevelUps + ' escolhas'
                 : 'Nível ' + state.level;
         }
+        if (els.levelupSubtitle) {
+            els.levelupSubtitle.textContent = state.banishMode
+                ? 'BANIR: clique em 1 carta/passiva abaixo para removê-la desta run.'
+                : choices.length >= 4
+                    ? 'Luck ativou a 4ª opção! Escolha 1 melhoria para levar adiante:'
+                    : 'Escolha 1 melhoria para levar adiante:';
+        }
 
-        choices.forEach(rw => {
+        const skipXp = Math.max(2, Math.round(state.xpNext * 0.20));
+        if (els.btnLvlReroll) {
+            els.btnLvlReroll.textContent = 'Re-rolar (' + state.rerollsLeft + ')';
+            els.btnLvlReroll.disabled = state.rerollsLeft <= 0 || modalActionLocked;
+        }
+        if (els.btnLvlSkip) {
+            els.btnLvlSkip.textContent = 'Pular (+' + skipXp + ' XP • ' + state.skipsLeft + ')';
+            els.btnLvlSkip.disabled = state.skipsLeft <= 0 || modalActionLocked;
+        }
+        if (els.btnLvlBanish) {
+            els.btnLvlBanish.textContent = state.banishMode ? 'Cancelar Banir' : 'Banir (' + state.banishesLeft + ')';
+            els.btnLvlBanish.classList.toggle('active', !!state.banishMode);
+            els.btnLvlBanish.disabled = (!state.banishMode && state.banishesLeft <= 0) || modalActionLocked;
+        }
+
+        choices.forEach((rw, idx) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'reward-card';
-            const kindLabel = rw.kind === 'carta' ? 'Nova Carta' : rw.kind === 'reliquia' ? 'Relíquia de Evolução' : 'Passiva';
+            btn.className = 'reward-card' + (rw.kind === 'evolucao' ? ' evo-choice' : '');
+            const kindLabel = rw.kind === 'carta'
+                ? 'Nova Carta'
+                : rw.kind === 'reliquia'
+                    ? 'Relíquia de Evolução'
+                    : rw.kind === 'evolucao'
+                        ? 'EVOLUÇÃO PRONTA'
+                        : 'Passiva';
             btn.innerHTML =
                 '<span class="reward-kind">' + kindLabel + '</span>' +
                 '<img src="' + S.getIconUrl(rw.icon) + '" alt="" />' +
                 '<div class="reward-title">' + rw.title + '</div>' +
                 '<div class="reward-origin">(' + rw.origin + ')</div>' +
                 '<div class="reward-desc">' + rw.desc + '</div>';
-            btn.addEventListener('click', guardModalAction(() => {
+
+            btn.addEventListener('click', () => {
+                if (modalActionLocked || !activeModal || activeModal.type !== 'levelup') return;
+                A.unlock();
+                if (state.banishMode) {
+                    if (rw.noBanish) {
+                        state.banishMode = false;
+                        setLog('Evoluções não podem ser banidas!');
+                        renderLevelUpModal();
+                        return;
+                    }
+                    if (!state.banishedIds.includes(rw.id)) state.banishedIds.push(rw.id);
+                    state.banishesLeft = Math.max(0, state.banishesLeft - 1);
+                    state.banishMode = false;
+                    A.play('card');
+                    setLog('Banido desta run: ' + rw.title + '.');
+                    const usedIds = choices.map(c => c.id);
+                    const replacements = shuffle(getEligibleLevelUpPool().filter(c => !usedIds.includes(c.id)));
+                    if (replacements.length > 0) {
+                        choices[idx] = replacements[0];
+                    } else {
+                        choices.splice(idx, 1);
+                    }
+                    if (choices.length === 0) {
+                        modalActionLocked = true;
+                        state.pendingLevelUps = Math.max(0, state.pendingLevelUps - 1);
+                        renderHud();
+                        closeActiveModal();
+                    } else {
+                        renderLevelUpModal();
+                    }
+                    return;
+                }
+
+                modalActionLocked = true;
                 A.play('card');
                 rw.apply(state);
-                if (rw.once) state.takenRewards.push(rw.id);
+                if (rw.once && !state.takenRewards.includes(rw.id)) state.takenRewards.push(rw.id);
                 state.pendingLevelUps = Math.max(0, state.pendingLevelUps - 1);
-                checkAndTriggerEvolutions();
+                state.banishMode = false;
+                checkAndTriggerEvolutions(false);
                 setLog('Recompensa escolhida: ' + rw.title + '!');
                 renderHud();
                 closeActiveModal();
-            }));
+            });
             els.rewardGrid.appendChild(btn);
         });
+    }
 
+    // ---------- MODAL: LEVEL UP ----------
+    function openLevelUpModal() {
+        A.play('levelup');
+        state.banishMode = false;
+        activeModal.choices = buildLevelUpChoices();
+        renderLevelUpModal();
         els.levelupModal.classList.remove('hidden');
     }
 
@@ -621,7 +847,7 @@
                 const card = D.CARDS[id];
                 addRestItem({
                     title: card.name + (counts[id] > 1 ? ' x' + counts[id] : ''),
-                    desc: card.desc.replace('{DMG}', String(card.damage)),
+                    desc: formatCardDesc(card, getCardPreviewValues(card, 1)),
                     icon: card.icon,
                     priceText: 'REMOVER',
                     onPick: () => {
@@ -684,7 +910,7 @@
                     state.relics.push(relic.passiveId);
                     state.passives.push({ label: relic.title + ' (Evolução)', icon: relic.icon });
                     flags.relic = true;
-                    checkAndTriggerEvolutions();
+                    checkAndTriggerEvolutions(false);
                 }
             });
         } else {
@@ -1029,8 +1255,13 @@
         state.vr += loot.vr;
         A.play('chest');
         setLog(loot.title + ': ' + loot.text);
+        const evolved = checkAndTriggerEvolutions(true);
         const p = viewportPoint(0.5, 0.48);
         spawnFloatingText(p.x, p.y - 12, '+' + loot.hp + ' Sanidade', 'heal');
+        if (evolved.length > 0) {
+            A.play('levelup');
+            spawnFloatingText(p.x, p.y - 34, 'EVOLUÇÃO!', 'combo');
+        }
         spawnXpParticles(p.x, p.y, loot.xp);
         spawnVrParticles(p.x, p.y + 8, loot.vr);
     }
@@ -1065,8 +1296,8 @@
         }
     }
 
-    // ---------- COMBATE ----------
-    function makeEnemy(kind, summoned) {
+    // ---------- COMBATE (5 COLUNAS: FRENTE VS. RETAGUARDA) ----------
+    function makeEnemy(kind, summoned, col, row) {
         const tpl = D.getEnemyStats(kind);
         return {
             uid: 'e_' + (uidCounter++),
@@ -1079,6 +1310,12 @@
             atk: tpl.atk,
             xp: tpl.xp,
             vr: tpl.vr,
+            col: typeof col === 'number' ? Math.max(0, Math.min(4, col)) : 2,
+            row: typeof row === 'number' ? Math.max(0, row) : 0,
+            hasIntent: false,
+            disarmed: false,
+            overkill: false,
+            killedOnce: false,
             immuneKnockback: !!tpl.immuneKnockback,
             buffAllies: tpl.buffAllies || 0,
             curseCard: tpl.curseCard || null,
@@ -1095,6 +1332,49 @@
             stunned: false,
             stunImmune: 0
         };
+    }
+
+    function normalizeColumns() {
+        const buckets = [[], [], [], [], []];
+        state.enemies.forEach(e => {
+            if (e.hp > 0 || e.overkill) {
+                const c = Math.max(0, Math.min(4, typeof e.col === 'number' ? e.col : 2));
+                e.col = c;
+                buckets[c].push(e);
+            }
+        });
+        buckets.forEach(list => {
+            list.sort((a, b) => (a.row || 0) - (b.row || 0));
+            list.forEach((e, idx) => { e.row = idx; });
+        });
+    }
+
+    function getFrontEnemies(includeOverkill) {
+        normalizeColumns();
+        return state.enemies
+            .filter(e => e.row === 0 && (e.hp > 0 || (includeOverkill && e.overkill)))
+            .sort((a, b) => a.col - b.col);
+    }
+
+    function getFrontEnemyAtCol(col, includeOverkill) {
+        return getFrontEnemies(includeOverkill).find(e => e.col === col) || null;
+    }
+
+    function refreshFrontIntents(isNewTurn) {
+        normalizeColumns();
+        state.enemies.forEach(e => {
+            if (e.hp <= 0) {
+                e.hasIntent = false;
+                return;
+            }
+            if (isNewTurn) e.disarmed = false;
+            e.hasIntent = e.row === 0 && !e.disarmed && !e.stunned && (e.atk > 0 || e.attacksPerTurn > 0);
+        });
+    }
+
+    function getEnemyTargetPos(enemy) {
+        if (!enemy) return viewportPoint(0.5, 0.45);
+        return R.getEnemyScreenPos(enemy.uid);
     }
 
     function startEncounter(encId, enc, opts) {
@@ -1115,15 +1395,29 @@
         state.mana = state.maxMana;
         state.manaDrain = 0;
         state.shield = state.turn1Shield || 0;
+        state.comboCount = 0;
+        state.lastComboCost = null;
         state.combo = 1;
+        state.bossOverkillActive = false;
+        state.columnBurn = [0, 0, 0, 0, 0];
         state.pendingDrop = null;
-        state.enemies = enc.enemies.slice(0, D.MAX_ENEMIES_IN_COMBAT).map(kind => makeEnemy(kind, false));
-        state.targetUid = state.enemies[0].uid;
+
+        const formation = Array.isArray(enc.formation) && enc.formation.length > 0
+            ? enc.formation
+            : enc.enemies.map((kind, i) => ({ kind: kind, col: [2, 1, 3, 0, 4][i % 5], row: Math.floor(i / 5) }));
+        state.enemies = formation.slice(0, D.MAX_ENEMIES_IN_COMBAT)
+            .map(slot => makeEnemy(slot.kind, false, slot.col, slot.row));
+
+        refreshFrontIntents(true);
+        const fronts = getFrontEnemies(false);
+        state.targetUid = (fronts[0] || state.enemies[0]).uid;
 
         state.drawPile = shuffle(state.deck);
         state.discardPile = [];
+        state.destroyedPile = [];
         state.hand = [];
-        drawCards(4);
+        state.handReturnCounts = [];
+        drawCards(state.dealCount || B.dealCount);
 
         A.play('encounter');
         R.triggerShake(0.05, 0.22);
@@ -1164,37 +1458,90 @@
             }
             if (state.drawPile.length > 0) {
                 state.hand.push(state.drawPile.pop());
+                state.handReturnCounts.push(0);
             }
         }
     }
 
     function getTargetEnemy() {
-        const alive = state.enemies.filter(e => e.hp > 0);
-        if (alive.length === 0) return null;
-        let tgt = alive.find(e => e.uid === state.targetUid);
+        const fronts = getFrontEnemies(true);
+        const pool = fronts.length > 0 ? fronts : state.enemies.filter(e => e.hp > 0 || e.overkill);
+        if (pool.length === 0) return null;
+        let tgt = pool.find(e => e.uid === state.targetUid);
         if (!tgt) {
-            tgt = alive[0];
+            // Prefere inimigo vivo na frente ao selecionar alvo padrão
+            tgt = pool.find(e => e.hp > 0) || pool[0];
             state.targetUid = tgt.uid;
         }
         return tgt;
     }
 
-    function computeCardDamage(card) {
-        if (!card.damage) return 0;
-        return Math.round(card.damage * state.damageMult * D.getComboMult(state.combo));
+    function pickTargetForCard(card, hitIndex) {
+        const fronts = getFrontEnemies(true);
+        const pool = fronts.length > 0 ? fronts : state.enemies.filter(e => e.hp > 0 || e.overkill);
+        if (pool.length === 0) return null;
+
+        const attackers = pool.filter(e => e.hp > 0 && e.hasIntent && !e.disarmed && !e.stunned);
+        if (card && card.target === 'all' && card.amountScalesWithCombo) {
+            if (attackers.length > 0) return attackers[(hitIndex || 0) % attackers.length];
+            const living = pool.filter(e => e.hp > 0);
+            if (living.length > 0) return living[(hitIndex || 0) % living.length];
+            return pool[(hitIndex || 0) % pool.length];
+        }
+
+        const current = getTargetEnemy();
+        if (card && card.prioritizeAttackers) {
+            if (current && current.hp > 0 && current.hasIntent && !current.disarmed && !current.stunned) {
+                return current;
+            }
+            if (attackers.length > 0) return attackers[0];
+        }
+        return current;
     }
 
-    function comboBonusLabel(combo) {
-        const mult = D.getComboMult(combo);
-        return '+' + Math.round((mult - 1) * 100) + '%' + (mult >= B.comboMaxMult ? ' MAX' : '');
+    function comboBonusLabel(mult) {
+        const m = Math.max(1, mult || 1);
+        const nextReq = (state && state.lastComboCost !== null && state.lastComboCost !== undefined)
+            ? 'PRÓX: C' + (state.lastComboCost + 1) + ' ou WILD'
+            : 'INICIE C/ C0 ou WILD';
+        return 'COMBO ' + m + 'x • ' + nextReq;
     }
 
-    function applyDamageToEnemy(enemy, dmg, card, usedCombo) {
-        if (!enemy || enemy.hp <= 0) return { overkill: false };
-        const pos = R.getEnemyScreenPos(enemy.uid);
+    function applyDamageToEnemy(enemy, rawDmg, card, usedMult, opts) {
+        if (!enemy || (enemy.hp <= 0 && !enemy.overkill)) return { overkill: false, dealt: 0 };
+        const o = opts || {};
+        const pos = getEnemyTargetPos(enemy);
+
+        // Overkill ativo em Chefe: converte dano adicional diretamente em VR extra
+        if (enemy.overkill) {
+            const critRoll = (!o.isSplash && !o.isBurn && card && card.critChance > 0)
+                ? Math.random() < (card.critChance * getLuckMultiplier())
+                : false;
+            const dmg = critRoll ? Math.round(rawDmg * (card.critMult || 1.5)) : rawDmg;
+            const extraVr = Math.max(1, Math.ceil(dmg / 4));
+            state.vr += extraVr;
+            state.overkills += 1;
+            R.triggerEnemyHitAnim(enemy.uid, true);
+            R.triggerShake(0.055, 0.16);
+            A.play('overkill');
+            R.spawnBurst(pos.x, pos.y, ['#ffd147', '#fff2a8', '#ff6b4a'], 10, { speed: 150, life: 0.45, size: 5 });
+            spawnFloatingText(pos.x, pos.y - 16, (critRoll ? 'CRIT ' : '') + 'OVERKILL +' + extraVr + ' VR', 'combo big-hit');
+            spawnVrParticles(pos.x, pos.y + 8, extraVr);
+            return { overkill: true, dealt: dmg };
+        }
+
+        let dmg = rawDmg;
+        let isCrit = false;
+        if (!o.isSplash && !o.isBurn && card && card.critChance > 0) {
+            const effCrit = card.critChance * getLuckMultiplier();
+            if (Math.random() < effCrit) {
+                dmg = Math.round(dmg * (card.critMult || 1.5));
+                isCrit = true;
+            }
+        }
+
         let remaining = dmg;
-
-        if (!card.ignoreShield && enemy.shield > 0) {
+        if (!(card && card.ignoreShield) && !o.isBurn && enemy.shield > 0) {
             const blocked = Math.min(enemy.shield, remaining);
             enemy.shield -= blocked;
             remaining -= blocked;
@@ -1205,69 +1552,150 @@
         if (remaining > 0) {
             const prevHp = enemy.hp;
             enemy.hp = Math.max(0, enemy.hp - remaining);
-            R.triggerEnemyHitAnim(enemy.uid, usedCombo >= 2);
-            R.triggerShake(usedCombo >= 2 ? 0.065 : 0.035, 0.16);
-            spawnFloatingText(pos.x, pos.y - 10, '-' + remaining, '');
+            R.triggerEnemyHitAnim(enemy.uid, isCrit || usedMult >= 2);
+            R.triggerShake((isCrit || usedMult >= 2) ? 0.065 : 0.035, 0.16);
 
-            if (enemy.hp === 0) {
-                const excess = remaining - prevHp;
+            if (isCrit) {
+                spawnFloatingText(pos.x, pos.y - 14, 'CRIT! -' + remaining, 'combo big-hit');
+                R.spawnBurst(pos.x, pos.y, ['#ffd147', '#fff2a8'], 10, { speed: 140, life: 0.4, size: 5 });
+            } else if (o.isSplash) {
+                spawnFloatingText(pos.x, pos.y - 6, 'Área -' + remaining, 'shield');
+            } else if (o.isBurn) {
+                spawnFloatingText(pos.x, pos.y - 12, 'Burn -' + remaining, 'player-hit');
+            } else {
+                spawnFloatingText(pos.x, pos.y - 10, '-' + remaining, '');
+            }
+
+            if (enemy.hp === 0 && !enemy.killedOnce) {
+                enemy.killedOnce = true;
+                const excess = Math.max(0, remaining - prevHp);
                 let bonusXp = 0;
                 let bonusVr = 0;
-                if (excess >= 8 || (usedCombo >= 2 && excess >= 4)) {
+
+                if (enemy.isBoss) {
+                    // Chefe entra em estado OVERKILL pelo resto do turno atual para farmar VR extra
+                    enemy.overkill = true;
+                    enemy.hasIntent = false;
+                    enemy.disarmed = false;
+                    state.bossDefeated = true;
+                    state.bossOverkillActive = true;
+                    if (enemy.dropRelic) state.pendingDrop = enemy.dropRelic;
+                    bonusVr = Math.max(2, Math.ceil(excess / 3));
+                    overkill = true;
+                    state.overkills += 1;
+                    A.play('overkill');
+                    spawnFloatingText(pos.x, pos.y - 30, 'OVERKILL! +' + bonusVr + ' VR', 'combo big-hit');
+                } else if (excess >= 8 || (usedMult >= 2 && excess >= 4)) {
                     overkill = true;
                     state.overkills += 1;
                     bonusXp = B.overkillXp;
                     bonusVr = B.overkillVr;
                 }
+
                 state.kills += 1;
                 const gainedVr = enemy.vr + bonusVr;
                 state.vr += gainedVr;
-                if (enemy.isBoss) {
-                    state.bossDefeated = true;
-                    if (enemy.dropRelic) state.pendingDrop = enemy.dropRelic;
-                }
-                // Morte: o sprite treme/dissolve (renderer) e solta XP (azul) + VR (dourado)
                 A.play('death');
                 R.spawnBurst(pos.x, pos.y, ['#3cc8ff', '#b8f4ff', '#ffd147', '#fff2a8'], 16, { speed: 170, life: 0.55, size: 6 });
                 spawnXpParticles(pos.x, pos.y, enemy.xp + bonusXp);
                 spawnVrParticles(pos.x, pos.y + 12, gainedVr);
+
+                if (!enemy.overkill) {
+                    enemy.hasIntent = false;
+                    normalizeColumns();
+                }
             }
         }
-        return { overkill: overkill };
+
+        // Splash de Area (%) nas colunas vizinhas (col - 1 e col + 1)
+        const areaPct = (!o.isSplash && !o.isBurn && state.stats && state.stats.Area) ? state.stats.Area : 0;
+        if (areaPct > 0 && dmg > 0) {
+            const splashDmg = Math.max(1, Math.round(dmg * (areaPct / 100)));
+            [enemy.col - 1, enemy.col + 1].forEach(adjCol => {
+                if (adjCol < 0 || adjCol > 4) return;
+                const adjFront = getFrontEnemyAtCol(adjCol, true);
+                if (adjFront && adjFront.uid !== enemy.uid) {
+                    applyDamageToEnemy(adjFront, splashDmg, card, usedMult, { isSplash: true });
+                }
+            });
+        }
+
+        return { overkill: overkill, dealt: dmg };
     }
 
-    // Knockback: quem tem imunidade (chefes, exceto o Mensageiro) resiste; quem acabou de se
-    // recuperar fica [IMUNE 1t]; cartas em área têm chance por inimigo em vez de garantia.
+    // Knockback (Desarme): compara knockbackChance * LuckMultiplier > rand(); se passar, CANCELA intenção de ataque.
     function tryKnockback(enemy, card, pos) {
+        if (!enemy || enemy.hp <= 0 || enemy.overkill) return;
         if (enemy.immuneKnockback) {
             A.play('immune');
             spawnFloatingText(pos.x, pos.y + 16, 'IMUNE!', 'player-hit');
             return;
         }
-        if (enemy.stunned) return;
+        if (enemy.disarmed || enemy.stunned) return;
         if (enemy.stunImmune > 0) {
             A.play('immune');
             spawnFloatingText(pos.x, pos.y + 16, 'IMUNE 1t!', 'shield');
             return;
         }
-        const chance = typeof card.knockbackChance === 'number'
-            ? card.knockbackChance
-            : (card.target === 'all' ? B.areaStunChance : 1);
-        if (Math.random() < chance) {
-            enemy.stunned = true;
+        if (!enemy.hasIntent) return;
+        const baseChance = typeof card.knockbackChance === 'number' ? card.knockbackChance : 0.6;
+        const chance = Math.min(0.98, baseChance * getLuckMultiplier());
+        if (chance > Math.random()) {
+            enemy.disarmed = true;
+            enemy.hasIntent = false;
             A.play('stun');
-            spawnFloatingText(pos.x, pos.y + 16, 'KNOCKBACK!', 'shield');
+            spawnFloatingText(pos.x, pos.y + 16, 'DESARMADO!', 'shield');
         } else {
             spawnFloatingText(pos.x, pos.y + 16, 'RESISTIU!', 'player-hit');
         }
     }
 
     function checkCombatEnd() {
-        if (state.mode === 'combat' && state.enemies.every(e => e.hp <= 0)) {
+        if (state.mode !== 'combat') return false;
+        if (state.enemies.every(e => e.hp <= 0)) {
+            if (state.bossOverkillActive && state.hand.some(isUsefulCard)) {
+                setLog('CHEFE EM OVERKILL! Continue jogando cartas para converter dano em VR ou toque Fim do Turno.');
+                renderCombatControls();
+                return false;
+            }
+            state.bossOverkillActive = false;
+            state.enemies.forEach(e => { e.overkill = false; });
             finishEncounter();
             return true;
         }
         return false;
+    }
+
+    function applyBurnForCard(card, singleTarget) {
+        if (!card || !card.burn) return;
+        if (card.id === 'julgamento_final') {
+            for (let c = 0; c < 5; c++) {
+                state.columnBurn[c] += card.burn;
+            }
+            const cp = R.getColumnScreenPos(2);
+            spawnFloatingText(cp.x, cp.y - 34, '+' + card.burn + ' BURN (5 Colunas)', 'player-hit');
+            return;
+        }
+        if (card.target === 'all') {
+            const cols = [];
+            getFrontEnemies(true).forEach(e => {
+                if (!cols.includes(e.col)) cols.push(e.col);
+            });
+            if (cols.length === 0) {
+                for (let c = 0; c < 5; c++) cols.push(c);
+            }
+            cols.forEach(c => {
+                state.columnBurn[c] += card.burn;
+                const cp = R.getColumnScreenPos(c);
+                spawnFloatingText(cp.x, cp.y - 26, '+' + card.burn + ' BURN', 'player-hit');
+            });
+            return;
+        }
+        if (singleTarget) {
+            state.columnBurn[singleTarget.col] += card.burn;
+            const cp = R.getColumnScreenPos(singleTarget.col);
+            spawnFloatingText(cp.x, cp.y - 26, '+' + card.burn + ' BURN', 'player-hit');
+        }
     }
 
     function playCard(handIndex) {
@@ -1275,101 +1703,168 @@
         const cardId = state.hand[handIndex];
         if (!cardId) return false;
         const card = D.CARDS[cardId];
-        if (!card || state.mana < card.cost) return false;
+        const effCost = D.getEffectiveCost(card);
+        if (!card || state.mana < effCost) return false;
 
         A.unlock();
         R.setHoveredCard(null);
-        state.mana -= card.cost;
+        state.mana -= effCost;
         state.hand.splice(handIndex, 1);
+        const returnCount = state.handReturnCounts.splice(handIndex, 1)[0] || 0;
 
         if (card.purgeOnPlay) {
+            state.destroyedPile.push(cardId);
+            state.comboCount = 0;
+            state.lastComboCost = null;
+            state.combo = 1;
             A.play('card');
-            setLog(card.name + ' descartada!');
+            setLog(card.name + ' queimada da luta!');
             R.syncState(state);
             renderAll();
+            checkCombatEnd();
             return true;
         }
 
-        state.discardPile.push(cardId);
-
-        if (card.shield > 0) {
-            state.shield += card.shield;
-            const p = viewportPoint(0.5, 0.72);
-            spawnFloatingText(p.x, p.y, '+' + card.shield + ' Escudo', 'shield');
+        // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild (custo 0, continua a cadeia)
+        const chained = state.lastComboCost !== null && D.canCardCombo(card, state.lastComboCost);
+        state.comboCount = chained ? state.comboCount + 1 : 0;
+        const isWild = !!(card.isWild || card.type === 'wild');
+        if (isWild) {
+            if (state.lastComboCost === null) state.lastComboCost = 0;
+        } else {
+            state.lastComboCost = effCost;
         }
-        if (card.heal > 0) {
-            state.hp = Math.min(state.maxHp, state.hp + card.heal);
+        const usedMult = D.getComboMult(state.comboCount);
+        state.combo = usedMult;
+
+        // Destino da carta jogada: Destroy / Return / Discard
+        let returnedToHand = false;
+        if (card.destroy) {
+            state.destroyedPile.push(cardId);
+            if (card.permMaxHp > 0) {
+                state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
+                state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
+            }
+            if (card.permGrowth > 0) {
+                state.stats.Growth += card.permGrowth;
+            }
+            if (card.permMaxHp > 0 || card.permGrowth > 0) {
+                const p = viewportPoint(0.5, 0.56);
+                spawnFloatingText(p.x, p.y, '+' + (card.permMaxHp || 0) + ' HP Máx / +' + (card.permGrowth || 0) + '% Grw', 'combo');
+                if (!state.passives.some(item => item.label && item.label.indexOf(card.name) === 0)) {
+                    state.passives.push({
+                        label: card.name + ': +' + (card.permMaxHp || 0) + ' HP Máx, +' + (card.permGrowth || 0) + '% Growth',
+                        icon: card.icon
+                    });
+                }
+            }
+        } else if (card.returnTimes && returnCount < card.returnTimes && state.hand.length < 7) {
+            state.hand.push(cardId);
+            state.handReturnCounts.push(returnCount + 1);
+            returnedToHand = true;
+        } else {
+            state.discardPile.push(cardId);
+        }
+
+        const pv = getCardPreviewValues(card, usedMult);
+
+        if (pv.shield > 0) {
+            state.shield += pv.shield;
+            const p = viewportPoint(0.5, 0.72);
+            spawnFloatingText(p.x, p.y, '+' + pv.shield + ' Escudo', 'shield');
+        }
+        if (pv.heal > 0) {
+            state.hp = Math.min(state.maxHp, state.hp + pv.heal);
             const p = viewportPoint(0.5, 0.65);
-            spawnFloatingText(p.x, p.y, '+' + card.heal + ' Sanidade', 'heal');
+            spawnFloatingText(p.x, p.y, '+' + pv.heal + ' Sanidade', 'heal');
         }
         if (card.manaGain > 0) {
             state.mana += card.manaGain;
+            const p = viewportPoint(0.45, 0.6);
+            spawnFloatingText(p.x, p.y, '+' + card.manaGain + ' Cafeína', 'combo');
         }
 
-        const usedCombo = state.combo;
-        const dmg = computeCardDamage(card);
-        const totalHits = card.hits || 1;
-
-        if (totalHits > 1) {
-            // Golpes múltiplos no mesmo alvo: todos usam o combo atual e a carta sobe o Combo 1 vez.
+        const totalHits = pv.hits > 0 ? pv.hits : 1;
+        if (pv.damage > 0 && totalHits > 1) {
             state.busy = true;
             let hitNum = 0;
             let anyOverkill = false;
+            let burnApplied = false;
+            if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
+
             const runHit = () => {
                 if (state.mode !== 'combat') {
                     state.busy = false;
                     return;
                 }
-                const target = getTargetEnemy();
+                const target = pickTargetForCard(card, hitNum);
                 if (!target || hitNum >= totalHits) {
                     state.busy = false;
-                    state.combo += 1;
                     if (anyOverkill) triggerOverkillBanner();
-                    setLog(card.name + ': ' + hitNum + ' golpes!' + (usedCombo > 1 ? ' [COMBO x' + usedCombo + ' ' + comboBonusLabel(usedCombo) + ']' : ''));
+                    let msg = card.name + ': ' + hitNum + ' golpes!' +
+                        (usedMult > 1 ? ' [COMBO ' + usedMult + 'x]' : '');
+                    if (returnedToHand) msg += ' [RETURN]';
+                    if (card.destroy) msg += ' [DESTROY]';
+                    setLog(msg);
                     getTargetEnemy();
                     R.syncState(state);
                     renderAll(true);
                     checkCombatEnd();
                     return;
                 }
+                if (!burnApplied && card.burn > 0) {
+                    applyBurnForCard(card, target);
+                    burnApplied = true;
+                }
                 A.play(card.sfx);
-                if (applyDamageToEnemy(target, dmg, card, usedCombo).overkill) anyOverkill = true;
+                if (applyDamageToEnemy(target, pv.damage, card, usedMult).overkill) anyOverkill = true;
+                if (card.knockback && target.hp > 0) {
+                    tryKnockback(target, card, getEnemyTargetPos(target));
+                }
                 hitNum++;
                 R.syncState(state);
                 renderAll();
-                later(165, runHit);
+                later(155, runHit);
             };
             runHit();
             return true;
         }
 
         A.play(card.sfx);
-        if (usedCombo > 1) setTimeout(() => A.play('combo', usedCombo), 60);
+        if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
 
         let targets = [];
-        if (card.target === 'single') {
-            const t = getTargetEnemy();
+        if (card.target === 'all') {
+            targets = getFrontEnemies(true);
+        } else if (card.target === 'single') {
+            const t = pickTargetForCard(card, 0);
             if (t) targets = [t];
-        } else if (card.target === 'all') {
-            targets = state.enemies.filter(e => e.hp > 0);
+        }
+
+        if (card.burn > 0) {
+            applyBurnForCard(card, targets[0] || null);
         }
 
         let logMsg = card.name;
-        if (usedCombo > 1) logMsg += ' [COMBO x' + usedCombo + ' ' + comboBonusLabel(usedCombo) + ']';
+        if (usedMult > 1) logMsg += ' [COMBO ' + usedMult + 'x]';
+        else if (isWild) logMsg += ' [WILD]';
+        if (returnedToHand) logMsg += ' [RETURN]';
+        if (card.destroy) logMsg += ' [DESTROY]';
 
         let overkillTriggered = false;
         targets.forEach(enemy => {
-            const pos = R.getEnemyScreenPos(enemy.uid);
-            if (dmg > 0 && applyDamageToEnemy(enemy, dmg, card, usedCombo).overkill) overkillTriggered = true;
+            const pos = getEnemyTargetPos(enemy);
+            if (pv.damage > 0 && applyDamageToEnemy(enemy, pv.damage, card, usedMult).overkill) {
+                overkillTriggered = true;
+            }
             if (card.knockback && enemy.hp > 0) tryKnockback(enemy, card, pos);
         });
 
         if (overkillTriggered) {
             triggerOverkillBanner();
-            logMsg += ' — OVERKILL! (+' + B.overkillXp + ' XP, +' + B.overkillVr + ' VR)';
+            logMsg += ' — OVERKILL!';
         }
 
-        state.combo += 1;
         setLog(logMsg);
         getTargetEnemy();
         R.syncState(state);
@@ -1380,7 +1875,56 @@
 
     function isUsefulCard(id) {
         const c = D.CARDS[id];
-        return !c.purgeOnPlay && c.cost <= state.mana;
+        if (!c || c.purgeOnPlay) return false;
+        if (D.getEffectiveCost(c) > state.mana) return false;
+        const hasTarget = state.enemies.some(e => e.hp > 0 || e.overkill);
+        if (c.damage > 0 || c.knockback || c.burn > 0) return hasTarget;
+        return c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.destroy || c.permMaxHp > 0 || c.permGrowth > 0;
+    }
+
+    // Ordena os índices da mão começando em targetCost = 0 (ou lastComboCost + 1) e seguindo +1 / Wild.
+    function sortCardsByCombo(indices, currentLastCost, availableMana) {
+        const remaining = (indices || state.hand.map((_, i) => i)).filter(idx => isUsefulCard(state.hand[idx]));
+        const ordered = [];
+        let simLastCost = currentLastCost !== undefined ? currentLastCost : state.lastComboCost;
+        let simMana = availableMana !== undefined ? availableMana : state.mana;
+
+        while (remaining.length > 0) {
+            const feasible = remaining.filter(idx => D.getEffectiveCost(D.CARDS[state.hand[idx]]) <= simMana);
+            if (feasible.length === 0) break;
+
+            const targetCost = (simLastCost === null || simLastCost === undefined) ? 0 : simLastCost + 1;
+
+            let chosenIdx = feasible.find(idx => {
+                const c = D.CARDS[state.hand[idx]];
+                return !c.isWild && c.type !== 'wild' && D.getEffectiveCost(c) === targetCost;
+            });
+
+            if (chosenIdx === undefined) {
+                chosenIdx = feasible.find(idx => {
+                    const c = D.CARDS[state.hand[idx]];
+                    return c.isWild || c.type === 'wild';
+                });
+            }
+
+            if (chosenIdx === undefined) {
+                feasible.sort((a, b) => D.getEffectiveCost(D.CARDS[state.hand[a]]) - D.getEffectiveCost(D.CARDS[state.hand[b]]));
+                chosenIdx = feasible[0];
+            }
+
+            const chosenCard = D.CARDS[state.hand[chosenIdx]];
+            ordered.push(chosenIdx);
+            remaining.splice(remaining.indexOf(chosenIdx), 1);
+
+            const effCost = D.getEffectiveCost(chosenCard);
+            simMana = Math.max(0, simMana - effCost + (chosenCard.manaGain || 0));
+            if (chosenCard.isWild || chosenCard.type === 'wild') {
+                if (simLastCost === null || simLastCost === undefined) simLastCost = 0;
+            } else {
+                simLastCost = effCost;
+            }
+        }
+        return ordered;
     }
 
     function playAllCards() {
@@ -1391,6 +1935,7 @@
         }
         state.autoPlaying = true;
         renderCombatControls();
+        let stepsPlayed = 0;
 
         const stepNext = () => {
             if (state.mode !== 'combat' || !state.autoPlaying) {
@@ -1401,14 +1946,16 @@
                 later(120, stepNext);
                 return;
             }
-            const idx = state.hand.findIndex(isUsefulCard);
-            if (idx < 0 || state.enemies.every(e => e.hp <= 0)) {
+            const hasActiveTargets = state.enemies.some(e => e.hp > 0 || e.overkill);
+            const ordered = sortCardsByCombo();
+            if (ordered.length === 0 || !hasActiveTargets || stepsPlayed >= 20) {
                 state.autoPlaying = false;
                 renderAll();
                 return;
             }
-            playCard(idx);
-            if (state.mode === 'combat' && state.enemies.some(e => e.hp > 0)) {
+            playCard(ordered[0]);
+            stepsPlayed++;
+            if (state.mode === 'combat' && state.enemies.some(e => e.hp > 0 || e.overkill)) {
                 later(state.busy ? 620 : 240, stepNext);
             } else {
                 state.autoPlaying = false;
@@ -1422,21 +1969,44 @@
         state.mana = Math.max(1, state.maxMana - (state.manaDrain || 0));
         const drained = state.manaDrain || 0;
         state.manaDrain = 0;
+        state.comboCount = 0;
+        state.lastComboCost = null;
         state.combo = 1;
         // O Escudo acumulado expira no início do turno do jogador.
         state.shield = 0;
-        while (state.hand.length > 0) {
-            state.discardPile.push(state.hand.pop());
+
+        // Cartas com Retain permanecem na mão; demais vão para o descarte.
+        const retainedIds = [];
+        const retainedReturns = [];
+        for (let i = 0; i < state.hand.length; i++) {
+            const cid = state.hand[i];
+            const c = D.CARDS[cid];
+            if (c && c.retain) {
+                retainedIds.push(cid);
+                retainedReturns.push(0);
+            } else {
+                state.discardPile.push(cid);
+            }
         }
-        drawCards(4);
+        state.hand = retainedIds;
+        state.handReturnCounts = retainedReturns;
+
+        drawCards(state.dealCount || B.dealCount);
         pendingCurses.forEach(curseId => {
-            if (state.hand.length < 5) state.hand.push(curseId);
+            if (state.hand.length < 7) {
+                state.hand.push(curseId);
+                state.handReturnCounts.push(0);
+            }
         });
+        refreshFrontIntents(true);
+        getTargetEnemy();
         state.busy = false;
         A.play('card');
         setLog(drained > 0
             ? 'Novo turno! O Senhor das Horas drenou ' + drained + ' de Cafeína.'
-            : 'Novo turno! Escudo expirou, Cafeína recarregada e Combo reiniciado.');
+            : retainedIds.length > 0
+                ? 'Novo turno! Cartas Retain mantidas na mão e combo reiniciado.'
+                : 'Novo turno! Escudo expirou, 4 cartas compradas e combo reiniciado.');
         R.syncState(state);
         renderAll();
     }
@@ -1444,14 +2014,14 @@
     // Habilidades de suporte antes do golpe. Retorna o tempo (ms) da animação de salto.
     function runEnemySupport(enemy, pendingCurses) {
         let wait = 0;
-        const pos = R.getEnemyScreenPos(enemy.uid);
+        const pos = getEnemyTargetPos(enemy);
 
         if (enemy.buffAllies > 0) {
             R.triggerEnemyBuffAnim(enemy.uid, 'purple');
             A.play('buff');
             state.enemies.filter(e => e.hp > 0).forEach(ally => {
                 ally.atk += enemy.buffAllies;
-                const apos = R.getEnemyScreenPos(ally.uid);
+                const apos = getEnemyTargetPos(ally);
                 spawnFloatingText(apos.x, apos.y - 30, '+' + enemy.buffAllies + ' ATK!', 'buff');
                 R.spawnBurst(apos.x, apos.y, ['#c084fc', '#e9d5ff', '#ffd147'], 8, { upward: true, speed: 130, life: 0.5, size: 5 });
             });
@@ -1477,7 +2047,14 @@
         if (enemy.summonKind && enemy.summonEvery > 0 && enemy.turns % enemy.summonEvery === 0) {
             if (state.enemies.filter(e => e.hp > 0).length < D.MAX_ENEMIES_IN_COMBAT) {
                 state.enemies = state.enemies.filter(e => e.hp > 0);
-                state.enemies.push(makeEnemy(enemy.summonKind, true));
+                const counts = [0, 0, 0, 0, 0];
+                state.enemies.forEach(e => { counts[Math.max(0, Math.min(4, e.col || 0))]++; });
+                let bestCol = 2;
+                [2, 1, 3, 0, 4].forEach(c => {
+                    if (counts[c] < counts[bestCol]) bestCol = c;
+                });
+                state.enemies.push(makeEnemy(enemy.summonKind, true, bestCol, counts[bestCol]));
+                normalizeColumns();
                 R.triggerEnemyBuffAnim(enemy.uid, 'gold');
                 A.play('buff');
                 spawnFloatingText(pos.x, pos.y - 30, 'INVOCAÇÃO!', 'buff');
@@ -1538,7 +2115,47 @@
         state.busy = true;
         renderCombatControls();
 
-        const alive = state.enemies.filter(e => e.hp > 0);
+        // Se o Chefe estava apenas em OVERKILL aguardando o fim do turno, encerra a luta agora.
+        if (state.enemies.every(e => e.hp <= 0)) {
+            state.bossOverkillActive = false;
+            state.enemies.forEach(e => { e.overkill = false; });
+            finishEncounter();
+            return;
+        }
+
+        // Encerra estado OVERKILL se ainda restarem lacaios vivos ao fim do turno.
+        state.bossOverkillActive = false;
+        state.enemies.forEach(e => { e.overkill = false; });
+
+        // Tick de Burn por Coluna (0..4) no fim do turno do jogador, antes dos inimigos agirem.
+        let burnTicked = false;
+        let anyBurnOverkill = false;
+        for (let col = 0; col < 5; col++) {
+            const stacks = state.columnBurn[col] || 0;
+            if (stacks <= 0) continue;
+            const front = getFrontEnemyAtCol(col, false);
+            if (front && front.hp > 0) {
+                burnTicked = true;
+                if (applyDamageToEnemy(front, stacks, null, 1, { isBurn: true }).overkill) {
+                    anyBurnOverkill = true;
+                }
+            }
+            state.columnBurn[col] = Math.max(0, stacks - 1);
+        }
+        if (burnTicked) {
+            A.play('hit');
+            if (anyBurnOverkill) triggerOverkillBanner();
+            R.syncState(state);
+            renderAll();
+        }
+        if (state.enemies.every(e => e.hp <= 0)) {
+            state.bossOverkillActive = false;
+            state.enemies.forEach(e => { e.overkill = false; });
+            later(burnTicked ? 350 : 0, finishEncounter);
+            return;
+        }
+
+        const frontActors = getFrontEnemies(false);
         const pendingCurses = [];
         const timings = R.getAttackTimings();
         let idx = 0;
@@ -1574,21 +2191,41 @@
                 later(150, nextEnemyAction);
                 return;
             }
-            if (idx >= alive.length) {
+            if (idx >= frontActors.length) {
                 startPlayerTurn(pendingCurses);
                 return;
             }
-            const enemy = alive[idx++];
-            const pos = R.getEnemyScreenPos(enemy.uid);
+            const enemy = frontActors[idx++];
+            if (!enemy || enemy.hp <= 0) {
+                nextEnemyAction();
+                return;
+            }
+            const pos = getEnemyTargetPos(enemy);
+
+            if (enemy.disarmed) {
+                enemy.disarmed = false;
+                enemy.hasIntent = false;
+                spawnFloatingText(pos.x, pos.y, 'DESARMADO!', 'shield');
+                setLog(enemy.name + ' teve o ataque desarmado!');
+                R.syncState(state);
+                later(380, nextEnemyAction);
+                return;
+            }
 
             if (enemy.stunned) {
-                // Perde o turno, se recupera e fica imune a novo atordoamento por 1 turno
                 enemy.stunned = false;
+                enemy.hasIntent = false;
                 enemy.stunImmune = 1;
                 spawnFloatingText(pos.x, pos.y, 'ATORDOADO!', 'shield');
-                setLog(enemy.name + ' perdeu o turno! Agora está [IMUNE 1t].');
+                setLog(enemy.name + ' perdeu o turno!');
                 R.syncState(state);
                 later(420, nextEnemyAction);
+                return;
+            }
+
+            if (!enemy.hasIntent) {
+                spawnFloatingText(pos.x, pos.y, 'AVANÇOU!', 'shield');
+                later(260, nextEnemyAction);
                 return;
             }
 
@@ -1598,7 +2235,7 @@
             later(supportWait, () => attackOnce(enemy, enemy.attacksPerTurn, nextEnemyAction));
         };
 
-        nextEnemyAction();
+        later(burnTicked ? 360 : 0, nextEnemyAction);
     }
 
     // Fim do combate: espera a animação de morte, volta à exploração e deixa a fila de modais
@@ -1606,6 +2243,7 @@
     function finishEncounter() {
         state.busy = true;
         state.autoPlaying = false;
+        state.bossOverkillActive = false;
         R.setHoveredCard(null);
         const enc = state.encounters.find(e => e.id === state.currentEncounterId);
         if (enc) enc.alive = false;
@@ -1616,6 +2254,9 @@
             if (state.mode === 'gameover') return;
             state.mode = 'explore';
             state.enemies = [];
+            state.columnBurn = [0, 0, 0, 0, 0];
+            state.comboCount = 0;
+            state.lastComboCost = null;
             state.combo = 1;
             state.shield = 0;
             state.busy = false;
@@ -1693,6 +2334,12 @@
         els.statVr.textContent = String(state.vr);
         els.clockTime.textContent = state.finalVictory ? D.FLOOR_CLOCKS.victory : (D.FLOOR_CLOCKS[state.floor] || '08:17');
 
+        if (els.statMight) els.statMight.textContent = '+' + ((state.stats && state.stats.Might) || 0) + '%';
+        if (els.statAmount) els.statAmount.textContent = '+' + ((state.stats && state.stats.Amount) || 0);
+        if (els.statArea) els.statArea.textContent = '+' + ((state.stats && state.stats.Area) || 0) + '%';
+        if (els.statLuck) els.statLuck.textContent = '+' + ((state.stats && state.stats.Luck) || 0) + '%';
+        if (els.statGrowth) els.statGrowth.textContent = '+' + ((state.stats && state.stats.Growth) || 0) + '%';
+
         els.hpText.textContent = state.hp + '/' + state.maxHp;
         if (state.shield > 0) {
             els.shieldVal.textContent = String(state.shield);
@@ -1714,6 +2361,21 @@
         });
     }
 
+    function buildCardKeywordsHtml(card, idx) {
+        const pills = [];
+        if (card.isWild || card.type === 'wild') pills.push('<span class="card-kw-pill kw-wild">WILD</span>');
+        if (card.critChance > 0) pills.push('<span class="card-kw-pill kw-crit">CRIT</span>');
+        if (card.knockback) pills.push('<span class="card-kw-pill kw-kb">DESARME</span>');
+        if (card.burn > 0) pills.push('<span class="card-kw-pill kw-burn">BURN</span>');
+        if (card.returnTimes > 0) {
+            const rem = Math.max(0, card.returnTimes - ((state.handReturnCounts && state.handReturnCounts[idx]) || 0));
+            if (rem > 0) pills.push('<span class="card-kw-pill kw-return">RET</span>');
+        }
+        if (card.retain) pills.push('<span class="card-kw-pill kw-retain">RETAIN</span>');
+        if (card.destroy) pills.push('<span class="card-kw-pill kw-destroy">DESTROY</span>');
+        return pills.length > 0 ? '<div class="card-kw-row">' + pills.slice(0, 3).join('') + '</div>' : '';
+    }
+
     function renderCombatControls(popCombo) {
         const inCombat = state.mode === 'combat';
         els.explorePanel.classList.toggle('hidden', inCombat);
@@ -1726,9 +2388,10 @@
             return;
         }
 
+        const currentMult = D.getComboMult(state.comboCount);
         els.comboBadge.classList.remove('hidden');
-        els.comboNum.textContent = 'x' + state.combo;
-        els.comboBonus.textContent = comboBonusLabel(state.combo);
+        els.comboNum.textContent = 'x' + currentMult;
+        els.comboBonus.textContent = comboBonusLabel(currentMult);
         if (popCombo) {
             els.comboBadge.classList.remove('pop');
             void els.comboBadge.offsetWidth;
@@ -1743,25 +2406,38 @@
         els.handGrid.setAttribute('data-count', String(state.hand.length));
         state.hand.forEach((cardId, idx) => {
             const card = D.CARDS[cardId];
-            const dmg = computeCardDamage(card);
-            const desc = card.desc.replace('{DMG}', String(dmg));
+            const effCost = D.getEffectiveCost(card);
+            const isWild = !!(card.isWild || card.type === 'wild');
+            const willCombo = !card.purgeOnPlay && state.lastComboCost !== null && D.canCardCombo(card, state.lastComboCost);
+            const nextMult = willCombo ? (state.comboCount + 2) : 1;
+            const pv = getCardPreviewValues(card, nextMult);
+            const desc = formatCardDesc(card, pv);
+            const lvl = getCardLevel(card.id);
+
             let powerTag = '';
-            if (dmg > 0) powerTag = card.hits ? dmg + 'x' + card.hits : String(dmg);
-            else if (card.shield > 0) powerTag = '+' + card.shield;
+            if (pv.damage > 0) powerTag = pv.hits > 1 ? pv.damage + 'x' + pv.hits : String(pv.damage);
+            else if (pv.shield > 0) powerTag = '+' + pv.shield;
+            else if (pv.heal > 0) powerTag = '+' + pv.heal + ' HP';
 
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'card-btn ' + card.type + (card.evolved ? ' evolved' : '');
-            btn.disabled = locked || state.mana < card.cost;
+            btn.className = 'card-btn ' + card.type +
+                (isWild ? ' wild' : '') +
+                (card.evolved ? ' evolved' : '') +
+                (willCombo ? ' combo-ready' : '');
+            btn.disabled = locked || state.mana < effCost;
             btn.innerHTML =
-                '<span class="card-cost">' + card.cost + '</span>' +
+                '<span class="card-cost">' + effCost + '</span>' +
                 (powerTag ? '<span class="card-power-tag">' + powerTag + '</span>' : '') +
-                '<div class="card-banner"><span class="card-name">' + card.name + '</span></div>' +
+                '<div class="card-banner"><span class="card-name">' + card.name +
+                (lvl >= B.maxCardLevel && card.evolvesTo && !card.evolved ? ' ★MÁX' : '') +
+                '</span></div>' +
                 '<div class="card-art"><img src="' + S.getIconUrl(card.icon) + '" alt="" /></div>' +
                 '<div class="card-textbox"><div class="card-origin">' + card.origin + '</div>' +
+                buildCardKeywordsHtml(card, idx) +
                 '<div class="card-desc">' + desc + '</div></div>';
             btn.addEventListener('mouseenter', () => {
-                if (!btn.disabled && (card.damage > 0 || card.knockback)) R.setHoveredCard(card);
+                if (!btn.disabled && (card.damage > 0 || card.knockback || card.burn > 0)) R.setHoveredCard(card);
             });
             btn.addEventListener('mouseleave', () => R.setHoveredCard(null));
             btn.addEventListener('click', () => playCard(idx));
@@ -1838,6 +2514,44 @@
     els.btnCloseSpreadsheet.addEventListener('click', toggleBossKey);
     els.btnStartDaydream.addEventListener('click', confirmStartDaydream);
 
+    if (els.btnLvlReroll) {
+        els.btnLvlReroll.addEventListener('click', () => {
+            if (!activeModal || activeModal.type !== 'levelup' || modalActionLocked || state.rerollsLeft <= 0) return;
+            A.unlock();
+            state.rerollsLeft -= 1;
+            state.banishMode = false;
+            A.play('card');
+            activeModal.choices = buildLevelUpChoices();
+            renderLevelUpModal();
+            renderHud();
+        });
+    }
+    if (els.btnLvlSkip) {
+        els.btnLvlSkip.addEventListener('click', () => {
+            if (!activeModal || activeModal.type !== 'levelup' || modalActionLocked || state.skipsLeft <= 0) return;
+            modalActionLocked = true;
+            A.unlock();
+            A.play('xpTick');
+            const skipXp = Math.max(2, Math.round(state.xpNext * 0.20));
+            state.skipsLeft -= 1;
+            state.pendingLevelUps = Math.max(0, state.pendingLevelUps - 1);
+            state.banishMode = false;
+            setLog('Level Up pulado! +' + skipXp + ' XP.');
+            gainXp(skipXp);
+            closeActiveModal();
+        });
+    }
+    if (els.btnLvlBanish) {
+        els.btnLvlBanish.addEventListener('click', () => {
+            if (!activeModal || activeModal.type !== 'levelup' || modalActionLocked) return;
+            if (!state.banishMode && state.banishesLeft <= 0) return;
+            A.unlock();
+            A.play('card');
+            state.banishMode = !state.banishMode;
+            renderLevelUpModal();
+        });
+    }
+
     els.btnRestClose.addEventListener('click', () => {
         if (!activeModal || activeModal.type !== 'rest') return;
         A.unlock();
@@ -1910,7 +2624,7 @@
             }
         } else if (state.mode === 'combat') {
             if (state.autoPlaying) return;
-            if (ev.key >= '1' && ev.key <= '5') {
+            if (ev.key >= '1' && ev.key <= '6') {
                 ev.preventDefault();
                 playCard(Number(ev.key) - 1);
             } else if (ev.key === ' ') {
@@ -1921,10 +2635,10 @@
                 endTurn();
             } else if (ev.key === 'Tab') {
                 ev.preventDefault();
-                const alive = state.enemies.filter(e => e.hp > 0);
-                if (alive.length > 1) {
-                    const cur = alive.findIndex(e => e.uid === state.targetUid);
-                    state.targetUid = alive[(cur + 1) % alive.length].uid;
+                const fronts = getFrontEnemies(true);
+                if (fronts.length > 1) {
+                    const cur = fronts.findIndex(e => e.uid === state.targetUid);
+                    state.targetUid = fronts[(cur + 1) % fronts.length].uid;
                     R.syncState(state);
                 }
             }
@@ -1937,7 +2651,17 @@
         miniCanvas: els.miniCanvas,
         onSelectEnemy: uid => {
             if (state.mode !== 'combat') return;
-            state.targetUid = uid;
+            const clicked = state.enemies.find(e => e.uid === uid && (e.hp > 0 || e.overkill));
+            if (!clicked) return;
+            if (clicked.row > 0) {
+                const frontInCol = getFrontEnemyAtCol(clicked.col, true);
+                if (frontInCol) {
+                    state.targetUid = frontInCol.uid;
+                    setLog('Alvo ajustado para a linha de frente da coluna ' + (clicked.col + 1) + '!');
+                }
+            } else {
+                state.targetUid = clicked.uid;
+            }
             A.play('card');
             R.syncState(state);
         }

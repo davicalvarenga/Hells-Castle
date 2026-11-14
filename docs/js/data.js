@@ -17,9 +17,9 @@
             dept: 'Relatórios & Planilhas',
             badgeCode: 'HC-0402',
             icon: 'hero_valter',
-            maxHp: 60,
+            maxHp: 50,
             turn1Shield: 4,
-            desc: 'Sozinho contra os próprios devaneios: começa cada combate com +4 de Escudo (Sanidade 60).'
+            desc: 'Sozinho contra os próprios devaneios: Sanidade 50, Mana 3, 4 cartas por turno e +4 Escudo no Turno 1.'
         }
     ];
 
@@ -41,93 +41,172 @@
         'O teclado continua ali. O devaneio também.'
     ];
 
-    // ---------- ECONOMIA & REGRAS DE BALANCEAMENTO ----------
+    // ---------- ECONOMIA & REGRAS DE BALANCEAMENTO (Vampire Crawlers v1.6.1a) ----------
+    const XP_TABLE = [10, 20, 35, 55, 80, 110, 145, 185, 230, 280, 340, 410];
+
     const BALANCE = {
-        comboStep: 0.25,       // +25% de dano por nível de combo acima de x1
-        comboMaxMult: 2.5,     // teto do multiplicador de combo
-        areaStunChance: 0.5,   // chance de Knockback por inimigo em cartas de área
-        maxHpCap: 75,          // teto de Sanidade Máxima
-        maxManaCap: 5,         // Cafeína máx.: 4 com Cálice Duplo, 5 só com relíquia rara
+        baseHealth: 50,
+        baseMana: 3,
+        dealCount: 4,
+        maxCardLevel: 2,
+        maxHpCap: 85,          // teto de Sanidade Máxima
+        maxManaCap: 5,         // Cafeína máx.
         ambushDamage: 4,       // dano da EMBOSCADA antes do Turno 1
         aggroRange: 2,         // tiles de linha de visão que iniciam o combate
         patrolRadius: 4,       // raio (tiles) em que os encontros perseguem o jogador
         patrolEverySteps: 2,   // encontros andam 1 casa a cada N passos do jogador
-        xpFirstLevel: 68,      // XP do 1º nível (+35% sobre os 50 anteriores)
-        xpGrowth: 1.45,
-        overkillVr: 1,
+        xpFirstLevel: XP_TABLE[0],
+        overkillVr: 2,
         overkillXp: 6,
         minDeckSize: 5,
         rest: { healPrice: 25, healAmount: 20, removePrice: 30, relicPrice: 45 }
     };
 
-    function getComboMult(combo) {
-        return Math.min(BALANCE.comboMaxMult, 1 + BALANCE.comboStep * (Math.max(1, combo) - 1));
+    function getXpForLevel(level) {
+        const idx = Math.max(0, (level || 1) - 1);
+        if (idx < XP_TABLE.length) return XP_TABLE[idx];
+        return XP_TABLE[XP_TABLE.length - 1] + (idx - XP_TABLE.length + 1) * 80;
+    }
+
+    function getEffectiveCost(card) {
+        if (!card) return 0;
+        return Math.max(0, card.cost || 0);
+    }
+
+    function canCardCombo(card, lastComboCost) {
+        if (!card || card.type === 'curse' || card.purgeOnPlay) return false;
+        if (lastComboCost === null || lastComboCost === undefined) return false;
+        if (card.isWild || card.type === 'wild') return true;
+        return (getEffectiveCost(card) - 1) === lastComboCost;
+    }
+
+    function getComboMult(comboCount) {
+        return Math.max(0, comboCount || 0) + 1;
     }
 
     // Cartas: fantasia épica de Valter, com micro-referência ao escritório no subtítulo (origin).
     const CARDS = {
+        golpe_furtivo: {
+            id: 'golpe_furtivo',
+            name: 'Adaga do Crepúsculo',
+            origin: 'Estilete do Almoxarifado',
+            cost: 0, type: 'atk', target: 'single',
+            damage: 6, baseAmount: 1, amountScalesWithCombo: true,
+            critChance: 0.10, critMult: 1.5, returnTimes: 1, prioritizeAttackers: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_dagger', sfx: 'stapler',
+            desc: 'Return (1x). Dispara {HITS} golpe(s) de {DMG} dano. Crit 10% (1.5x). Prioriza Atacantes.'
+        },
+        moeda_destino: {
+            id: 'moeda_destino',
+            name: 'Runa do Acaso',
+            origin: 'Moeda do Café',
+            cost: 0, type: 'wild', isWild: true, target: 'single',
+            damage: 5, baseAmount: 1, amountScalesWithCombo: true,
+            prioritizeAttackers: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_wild', sfx: 'card',
+            desc: 'Wild (Coringa): sempre comba! Dispara {HITS} projétil(is) de {DMG} dano em Atacantes.'
+        },
+        atestado_arcano: {
+            id: 'atestado_arcano',
+            name: 'Bênção do Curandeiro',
+            origin: 'Atestado Médico',
+            cost: 0, type: 'wild', isWild: true, target: 'self',
+            damage: 0, shield: 5, heal: 6, manaGain: 1, scalesWithCombo: true,
+            knockback: false,
+            icon: 'c_bless', sfx: 'shield',
+            desc: 'Wild (Coringa): sempre comba! Cura {HEAL} HP, +{SHIELD} Escudo (xCombo) e +1 Cafeína.'
+        },
         mordida_ferro: {
             id: 'mordida_ferro',
             name: 'Lâmina do Devaneio',
             origin: 'Abridor de Cartas',
             cost: 1, type: 'atk', target: 'single',
-            damage: 15, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            damage: 8, baseAmount: 1, amountScalesWithCombo: true,
+            critChance: 0.10, critMult: 1.5, prioritizeAttackers: true,
+            evolvesTo: 'mandibula_ferro',
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_sword', sfx: 'stapler',
-            desc: 'Causa {DMG} de dano em 1 alvo.'
+            desc: 'Golpeia {HITS}x causando {DMG} dano. Crit 10% (1.5x). Prioriza Atacantes.'
         },
         pocao_fogo: {
             id: 'pocao_fogo',
             name: 'Sopro de Brasas',
             origin: 'Café Pelando',
             cost: 1, type: 'atk', target: 'all',
-            damage: 10, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            damage: 7, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            burn: 3, evolvesTo: 'vulcao_expresso',
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_flask', sfx: 'coffee',
-            desc: 'Causa {DMG} de dano em TODOS os inimigos.'
-        },
-        chicote_dados: {
-            id: 'chicote_dados',
-            name: 'Chicote Relâmpago',
-            origin: 'Cabo de Rede',
-            cost: 2, type: 'ctrl', target: 'all',
-            damage: 12, shield: 0, heal: 0, manaGain: 0, knockback: true,
-            icon: 'c_bolt', sfx: 'whip',
-            desc: 'Causa {DMG} em TODOS + 50% de chance de Knockback em cada um.'
+            desc: 'Onda: {DMG} dano em TODOS (escala c/ Combo e Amount) + {BURN} Burn por coluna.'
         },
         escudo_burocratico: {
             id: 'escudo_burocratico',
             name: 'Égide do Viajante',
             origin: 'Pasta de Arquivo',
             cost: 1, type: 'def', target: 'single',
-            damage: 0, shield: 8, heal: 0, manaGain: 0, knockback: true,
+            damage: 0, shield: 7, scalesWithCombo: true, retain: true,
+            knockback: true, knockbackChance: 0.65, prioritizeAttackers: true,
+            evolvesTo: 'muralha_juridica',
+            heal: 0, manaGain: 0,
             icon: 'c_aegis', sfx: 'shield',
-            desc: 'Ganha 8 de Escudo + Knockback em 1 inimigo.'
+            desc: 'Retain. +{SHIELD} Escudo (xCombo) e 65% Knockback (Desarme) em 1 atacante.'
         },
         demissao_silenciosa: {
             id: 'demissao_silenciosa',
             name: 'Passo das Sombras',
             origin: 'Saída à Francesa',
             cost: 1, type: 'atk', target: 'single',
-            damage: 22, shield: 6, heal: 0, manaGain: 0, knockback: false,
+            damage: 9, baseAmount: 1, amountScalesWithCombo: true,
+            shield: 4, scalesWithCombo: true, returnTimes: 1,
+            critChance: 0.15, critMult: 1.5, prioritizeAttackers: true,
+            heal: 0, manaGain: 0, knockback: false,
             icon: 'c_shadow', sfx: 'stapler',
-            desc: 'Causa {DMG} de dano em 1 alvo e ganha 6 de Escudo.'
+            desc: 'Return (1x). {HITS} golpe(s) de {DMG} dano + {SHIELD} Escudo. Crit 15% (1.5x).'
+        },
+        chicote_dados: {
+            id: 'chicote_dados',
+            name: 'Chicote Relâmpago',
+            origin: 'Cabo de Rede',
+            cost: 2, type: 'ctrl', target: 'all',
+            damage: 8, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            knockback: true, knockbackChance: 0.50, prioritizeAttackers: true,
+            shield: 0, heal: 0, manaGain: 0,
+            icon: 'c_bolt', sfx: 'whip',
+            desc: 'Onda: {DMG} em TODOS (escala c/ Combo e Amount) + 50% Knockback (Desarme).'
         },
         tempestade_cc: {
             id: 'tempestade_cc',
             name: 'Tempestade de Corvos',
             origin: 'Cópia para Todos',
             cost: 2, type: 'ctrl', target: 'all',
-            damage: 18, shield: 0, heal: 0, manaGain: 0, knockback: true,
+            damage: 7, baseAmount: 2, amountScalesWithCombo: true,
+            knockback: true, knockbackChance: 0.45, prioritizeAttackers: true,
+            shield: 0, heal: 0, manaGain: 0,
             icon: 'c_crows', sfx: 'whip',
-            desc: 'Causa {DMG} em TODOS + 50% de chance de Knockback em cada um.'
+            desc: 'Revoada: {HITS} corvos de {DMG} dano em Atacantes + 45% Knockback (Desarme).'
         },
-        atestado_arcano: {
-            id: 'atestado_arcano',
-            name: 'Bênção do Curandeiro',
-            origin: 'Atestado Médico',
-            cost: 0, type: 'def', target: 'self',
-            damage: 0, shield: 8, heal: 12, manaGain: 1, knockback: false,
-            icon: 'c_bless', sfx: 'shield',
-            desc: 'Cura 12 Sanidade, +8 Escudo e +1 Cafeína.'
+        pacto_hora_extra: {
+            id: 'pacto_hora_extra',
+            name: 'Cálice da Vigília',
+            origin: 'Dose Extra das 17h',
+            cost: 2, type: 'def', target: 'self',
+            destroy: true, damage: 0, shield: 6, heal: 6, scalesWithCombo: true,
+            permMaxHp: 3, permGrowth: 15, manaGain: 0, knockback: false,
+            icon: 'c_chalice', sfx: 'shield',
+            desc: 'Destroy: +3 HP Máx e +15% Growth permanentes, +{SHIELD} Escudo e cura {HEAL}.'
+        },
+        julgamento_final: {
+            id: 'julgamento_final',
+            name: 'Cometa do Abismo',
+            origin: 'Fechamento Mensal',
+            cost: 3, type: 'atk', target: 'all',
+            damage: 13, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            burn: 5, knockback: true, knockbackChance: 0.75,
+            shield: 0, heal: 0, manaGain: 0,
+            icon: 'c_comet', sfx: 'coffee',
+            desc: 'Cataclismo: {DMG} dano em TODOS + {BURN} Burn nas 5 colunas + 75% Desarme.'
         },
         // ---------- CARTAS EVOLUÍDAS ----------
         vulcao_expresso: {
@@ -135,30 +214,32 @@
             name: 'Erupção Solar',
             origin: 'Garrafa Térmica',
             cost: 1, type: 'atk', target: 'all',
-            damage: 18, ignoreShield: true, evolved: true,
+            damage: 12, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            burn: 5, ignoreShield: true, evolved: true,
             shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_sun', sfx: 'coffee',
-            desc: 'EVOLUÍDA: {DMG} de dano em TODOS (ignora escudo).'
+            desc: 'EVOLUÍDA: {DMG} dano em TODOS (ignora escudo, escala Combo/Amount) + {BURN} Burn.'
         },
         mandibula_ferro: {
             id: 'mandibula_ferro',
             name: 'Dança das Lâminas',
             origin: 'Grampeador Industrial',
             cost: 1, type: 'atk', target: 'single',
-            damage: 8, hits: 3, evolved: true,
+            damage: 8, baseAmount: 2, amountScalesWithCombo: true,
+            critChance: 0.20, critMult: 1.5, prioritizeAttackers: true, evolved: true,
             shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_blades', sfx: 'stapler',
-            desc: 'EVOLUÍDA: {DMG} de dano 3x seguidas no alvo.'
+            desc: 'EVOLUÍDA: {HITS} cortes de {DMG} dano. Crit 20% (1.5x). Prioriza Atacantes.'
         },
         muralha_juridica: {
             id: 'muralha_juridica',
             name: 'Muralha do Guardião',
             origin: 'Cópia Oculta',
             cost: 1, type: 'def', target: 'all',
-            damage: 0, shield: 18, evolved: true,
-            heal: 0, manaGain: 0, knockback: true, knockbackChance: 0.6,
+            damage: 0, shield: 14, scalesWithCombo: true, retain: true, evolved: true,
+            heal: 0, manaGain: 0, knockback: true, knockbackChance: 0.75, prioritizeAttackers: true,
             icon: 'c_wall', sfx: 'shield',
-            desc: 'EVOLUÍDA: +18 de Escudo e 60% de chance de atordoar cada inimigo.'
+            desc: 'EVOLUÍDA: Retain. +{SHIELD} Escudo (xCombo) e 75% Desarme em TODOS.'
         },
         // ---------- CARTA-LIXO DO DEVORADOR DAS MARÉS ----------
         folha_presa: {
@@ -167,21 +248,21 @@
             origin: 'Atolamento de Papel',
             cost: 1, type: 'curse', target: 'self',
             damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
-            purgeOnPlay: true,
+            purgeOnPlay: true, destroy: true,
             icon: 'ata', sfx: 'card',
-            desc: 'Inútil. Pague 1 Cafeína para descartar.'
+            desc: 'Inútil (Destroy). Pague 1 Cafeína para queimar da luta.'
         }
     };
 
     const STARTING_DECK = [
+        'golpe_furtivo',
+        'moeda_destino',
         'mordida_ferro',
         'mordida_ferro',
         'pocao_fogo',
-        'pocao_fogo',
-        'chicote_dados',
-        'chicote_dados',
         'escudo_burocratico',
-        'escudo_burocratico'
+        'chicote_dados',
+        'chicote_dados'
     ];
 
     const EVOLUTIONS = [
@@ -192,7 +273,7 @@
             icon: 'thermos',
             fromCard: 'pocao_fogo',
             toCard: 'vulcao_expresso',
-            desc: 'Evolui Sopro de Brasas -> Erupção Solar (18 de dano em TODOS, ignora escudo).'
+            desc: 'Evolui Sopro de Brasas (Nv.MÁX) -> Erupção Solar.'
         },
         {
             passiveId: 'rel_grampos',
@@ -201,7 +282,7 @@
             icon: 'staple_box',
             fromCard: 'mordida_ferro',
             toCard: 'mandibula_ferro',
-            desc: 'Evolui Lâmina do Devaneio -> Dança das Lâminas (8 de dano 3x seguidas).'
+            desc: 'Evolui Lâmina do Devaneio (Nv.MÁX) -> Dança das Lâminas.'
         },
         {
             passiveId: 'rel_cco',
@@ -210,7 +291,7 @@
             icon: 'cco_shield',
             fromCard: 'escudo_burocratico',
             toCard: 'muralha_juridica',
-            desc: 'Evolui Égide do Viajante -> Muralha do Guardião (+18 Escudo, 60% de atordoar cada inimigo).'
+            desc: 'Evolui Égide do Viajante (Nv.MÁX) -> Muralha do Guardião.'
         }
     ];
 
@@ -220,13 +301,13 @@
             id: 'foto_parque',
             title: 'Foto no Parque',
             icon: 'r_photo',
-            desc: '+15% de dano e +5 de Sanidade no início de cada combate.'
+            desc: '+15% Might e +5 Sanidade no início de cada combate.'
         },
         bilhete_cinema: {
             id: 'bilhete_cinema',
             title: 'Bilhete de Cinema',
             icon: 'r_ticket',
-            desc: 'Relíquia de memória: +10% de dano.'
+            desc: 'Relíquia de memória: +10% Might.'
         },
         chave_bicicleta: {
             id: 'chave_bicicleta',
@@ -247,57 +328,57 @@
 
     const ENEMIES = {
         // ---- Fase 1: Praia do Crepúsculo ----
-        crab: enemy('crab', 'Caranguejo de Tinta', 'Cartucho Vazando', 32, 4, 14, 4,
-            { enemyShield: 6, quip: '"Clac-clac... substitua o cartucho ciano!"' }),
-        gull: enemy('gull', 'Gaivota Ladrã', 'Folha Voando', 26, 5, 14, 4,
+        crab: enemy('crab', 'Caranguejo de Tinta', 'Cartucho Vazando', 24, 4, 7, 4,
+            { enemyShield: 4, quip: '"Clac-clac... substitua o cartucho ciano!"' }),
+        gull: enemy('gull', 'Gaivota Ladrã', 'Folha Voando', 20, 5, 7, 4,
             { quip: '"Minha folha! Minha! MINHA!"' }),
-        specter: enemy('specter', 'Espectro da Maré', 'Fila de Impressão', 28, 4, 15, 4,
+        specter: enemy('specter', 'Espectro da Maré', 'Fila de Impressão', 22, 4, 8, 4,
             { buffAllies: 2, attackStyle: 'wave', quip: '"A fila de impressão nunca acaba..."' }),
-        kraken: enemy('kraken', 'Devorador das Marés', 'A Impressora Faminta — Chefe', 115, 9, 50, 16,
+        kraken: enemy('kraken', 'Devorador das Marés', 'A Impressora Faminta — Chefe', 95, 8, 25, 16,
             { isBoss: true, immuneKnockback: true, curseCard: 'folha_presa', attackStyle: 'paper',
               quip: '"PAPEL. PRESO. NA. BANDEJA. DOIS."' }),
 
         // ---- Fase 2: Cidade Gótica Amaldiçoada ----
-        hunter: enemy('hunter', 'Caçador Frenético', 'Mensagem Urgente', 50, 8, 18, 5,
+        hunter: enemy('hunter', 'Caçador Frenético', 'Mensagem Urgente', 38, 7, 10, 5,
             { quip: '"Viu minha mensagem? Viu? VIU?"' }),
-        crow: enemy('crow', 'Corvo dos Sinos', 'Notificação', 44, 6, 18, 5,
+        crow: enemy('crow', 'Corvo dos Sinos', 'Notificação', 34, 6, 10, 5,
             { buffAllies: 2, attackStyle: 'wave', quip: '"Plim! Plim! Plim!"' }),
-        herald: enemy('herald', 'Arauto da Vigília', 'Lembrete Agendado', 58, 7, 19, 5,
-            { enemyShield: 10, attackStyle: 'orb', quip: '"Lembrete: você tem 14 pendências."' }),
-        mensageiro: enemy('mensageiro', 'Mensageiro do Sino Veloz', 'O Corredor Sem Fim — Chefe', 150, 6, 65, 20,
+        herald: enemy('herald', 'Arauto da Vigília', 'Lembrete Agendado', 44, 6, 11, 5,
+            { enemyShield: 8, attackStyle: 'orb', quip: '"Lembrete: você tem 14 pendências."' }),
+        mensageiro: enemy('mensageiro', 'Mensageiro do Sino Veloz', 'O Corredor Sem Fim — Chefe', 130, 6, 35, 20,
             { isBoss: true, immuneKnockback: false, attacksPerTurn: 2, attackStyle: 'lunge',
               quip: '"Uma coisa de cada vez? Nesta cidade, nunca."' }),
 
         // ---- Fase 3: Pico Nevado & Fortaleza de Gelo ----
-        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 68, 10, 22, 6,
+        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 54, 9, 14, 6,
             { quip: '"Auuu... para ontem!"' }),
-        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 62, 9, 22, 6,
-            { enemyShield: 12, attackStyle: 'orb', quip: '"Ssssegundo o gráfico, estamos atrasssados."' }),
-        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 85, 8, 24, 6,
-            { enemyShield: 16, quip: '"Este item fica para a próxima reunião."' }),
-        estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 185, 12, 80, 24,
-            { isBoss: true, immuneKnockback: true, shieldPerTurn: 18, attackStyle: 'orb',
+        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 48, 8, 14, 6,
+            { enemyShield: 10, attackStyle: 'orb', quip: '"Ssssegundo o gráfico, estamos atrasssados."' }),
+        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 66, 7, 15, 6,
+            { enemyShield: 14, quip: '"Este item fica para a próxima reunião."' }),
+        estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 165, 11, 45, 24,
+            { isBoss: true, immuneKnockback: true, shieldPerTurn: 16, attackStyle: 'orb',
               quip: '"Tudo é prioridade máxima. Tudo."' }),
 
         // ---- Fase 4: Dungeon Subterrânea ----
-        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 85, 11, 26, 7,
+        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 68, 10, 18, 7,
             { quip: '"Protocolo... em três vias..."' }),
-        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 95, 13, 27, 7,
+        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 76, 12, 19, 7,
             { quip: '"NHAC! Faltou o carimbo!"' }),
-        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 110, 10, 28, 7,
-            { enemyShield: 18, attackStyle: 'orb', quip: '"Nada sai daqui. Nada."' }),
-        guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 230, 14, 95, 28,
+        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 88, 9, 20, 7,
+            { enemyShield: 16, attackStyle: 'orb', quip: '"Nada sai daqui. Nada."' }),
+        guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 200, 13, 60, 28,
             { isBoss: true, immuneKnockback: true, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
               dropRelic: 'foto_parque', quip: '"Você guardou tudo... menos o que importava."' }),
 
         // ---- Fase 5: O Abismo Estrelado ----
-        horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 300, 16, 0, 0,
+        horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 250, 14, 0, 0,
             { isBoss: true, immuneKnockback: true, drainMana: 1, attackStyle: 'orb',
               quip: '"Tic. Tac. O seu tempo é meu."' })
     };
 
-    // Máximo de inimigos vivos simultâneos (limite da formação e das invocações).
-    const MAX_ENEMIES_IN_COMBAT = 4;
+    // Máximo de inimigos vivos simultâneos (5 colunas x Frente + Retaguarda).
+    const MAX_ENEMIES_IN_COMBAT = 10;
 
     function getEnemyStats(kind) {
         return ENEMIES[kind] || null;
@@ -310,10 +391,58 @@
             title: 'Elmo do Silêncio',
             origin: 'Fones Anti-Ruído',
             icon: 'headphones',
-            desc: 'Passiva: +20% de dano em TODAS as cartas pelo resto do dia.',
+            desc: 'Passiva: +20% Might (multiplica todo dano causado).',
             apply: function (state) {
-                state.damageMult += 0.2;
-                state.passives.push({ label: 'Elmo do Silêncio (+20% Dano)', icon: 'headphones' });
+                state.stats.Might += 20;
+                state.passives.push({ label: 'Elmo do Silêncio (+20% Might)', icon: 'headphones' });
+            }
+        },
+        {
+            id: 'aljava_grampos',
+            kind: 'passiva',
+            title: 'Aljava de Ferro',
+            origin: 'Cartucho Duplo',
+            icon: 'p_amount',
+            desc: 'Passiva: +1 Amount (projétil extra ou +100% em cartas de onda).',
+            apply: function (state) {
+                state.stats.Amount += 1;
+                state.passives.push({ label: 'Aljava de Ferro (+1 Amount)', icon: 'p_amount' });
+            }
+        },
+        {
+            id: 'lente_prismatica',
+            kind: 'passiva',
+            title: 'Prisma da Maré',
+            origin: 'Lupa de Revisão',
+            icon: 'p_area',
+            desc: 'Passiva: +30% Area (acertos causam splash nas colunas vizinhas).',
+            apply: function (state) {
+                state.stats.Area += 30;
+                state.passives.push({ label: 'Prisma da Maré (+30% Area)', icon: 'p_area' });
+            }
+        },
+        {
+            id: 'trevo_ponto',
+            kind: 'passiva',
+            title: 'Moeda de Prata',
+            origin: 'Vale-Brinde',
+            icon: 'p_luck',
+            desc: 'Passiva: +30% Luck (mais Crit, Knockback e 4ª opção no Level Up).',
+            apply: function (state) {
+                state.stats.Luck += 30;
+                state.passives.push({ label: 'Moeda de Prata (+30% Luck)', icon: 'p_luck' });
+            }
+        },
+        {
+            id: 'manual_horas',
+            kind: 'passiva',
+            title: 'Tomo do Crepúsculo',
+            origin: 'Banco de Horas',
+            icon: 'p_growth',
+            desc: 'Passiva: +25% Growth (multiplica todo XP ganho).',
+            apply: function (state) {
+                state.stats.Growth += 25;
+                state.passives.push({ label: 'Tomo do Crepúsculo (+25% Growth)', icon: 'p_growth' });
             }
         },
         {
@@ -332,12 +461,80 @@
             }
         },
         {
+            id: 'reajuste_vr',
+            kind: 'passiva',
+            title: 'Bolsa de Moedas',
+            origin: 'Reajuste de VR',
+            icon: 'vr_boost',
+            desc: '+5 Sanidade Máxima (teto 85), cura 12 e +10 VR.',
+            apply: function (state) {
+                state.maxHp = Math.min(BALANCE.maxHpCap, state.maxHp + 5);
+                state.hp = Math.min(state.maxHp, state.hp + 12);
+                state.vr += 10;
+                state.passives.push({ label: 'Bolsa de Moedas (+5 HP Máx)', icon: 'vr_boost' });
+            }
+        },
+        {
+            id: 'up_mordida_ferro',
+            kind: 'carta',
+            title: 'Lâmina do Devaneio (MÁX)',
+            origin: 'Afiar Lâmina',
+            icon: 'c_sword',
+            once: true,
+            desc: 'Eleva Lâmina do Devaneio ao Nível Máximo (pronta p/ Evolução) + 1 cópia.',
+            apply: function (state) {
+                state.cardLevels.mordida_ferro = BALANCE.maxCardLevel;
+                state.deck.push('mordida_ferro');
+                state.discardPile.push('mordida_ferro');
+            }
+        },
+        {
+            id: 'up_pocao_fogo',
+            kind: 'carta',
+            title: 'Sopro de Brasas (MÁX)',
+            origin: 'Destilar Brasas',
+            icon: 'c_flask',
+            once: true,
+            desc: 'Eleva Sopro de Brasas ao Nível Máximo (pronta p/ Evolução) + 1 cópia.',
+            apply: function (state) {
+                state.cardLevels.pocao_fogo = BALANCE.maxCardLevel;
+                state.deck.push('pocao_fogo');
+                state.discardPile.push('pocao_fogo');
+            }
+        },
+        {
+            id: 'up_escudo_burocratico',
+            kind: 'carta',
+            title: 'Égide do Viajante (MÁX)',
+            origin: 'Reforçar Arquivo',
+            icon: 'c_aegis',
+            once: true,
+            desc: 'Eleva Égide do Viajante ao Nível Máximo (pronta p/ Evolução) + 1 cópia.',
+            apply: function (state) {
+                state.cardLevels.escudo_burocratico = BALANCE.maxCardLevel;
+                state.deck.push('escudo_burocratico');
+                state.discardPile.push('escudo_burocratico');
+            }
+        },
+        {
+            id: 'add_golpe_furtivo',
+            kind: 'carta',
+            title: 'Adaga do Crepúsculo',
+            origin: 'Estilete do Almoxarifado',
+            icon: 'c_dagger',
+            desc: 'Carta Custo 0 (Return): 6 dano (escala Combo) + Crit 10% (1.5x).',
+            apply: function (state) {
+                state.deck.push('golpe_furtivo');
+                state.discardPile.push('golpe_furtivo');
+            }
+        },
+        {
             id: 'add_demissao_silenciosa',
             kind: 'carta',
             title: 'Passo das Sombras',
             origin: 'Saída à Francesa',
             icon: 'c_shadow',
-            desc: 'Adiciona ao deck: Custo 1 — 22 de dano em 1 alvo + 6 de Escudo.',
+            desc: 'Carta Custo 1 (Return): 9 dano (escala Combo) + 4 Escudo + Crit 15%.',
             apply: function (state) {
                 state.deck.push('demissao_silenciosa');
                 state.discardPile.push('demissao_silenciosa');
@@ -349,7 +546,7 @@
             title: 'Tempestade de Corvos',
             origin: 'Cópia para Todos',
             icon: 'c_crows',
-            desc: 'Adiciona ao deck: Custo 2 — 18 de dano em TODOS + 50% de Knockback.',
+            desc: 'Carta Custo 2: 2+ corvos de 7 dano (escala Combo) + 45% Knockback.',
             apply: function (state) {
                 state.deck.push('tempestade_cc');
                 state.discardPile.push('tempestade_cc');
@@ -361,24 +558,34 @@
             title: 'Bênção do Curandeiro',
             origin: 'Atestado Médico',
             icon: 'c_bless',
-            desc: 'Adiciona ao deck: Custo 0 — Cura 12 Sanidade, +8 Escudo e +1 Cafeína.',
+            desc: 'Carta Wild (Custo 0): Sempre comba! Cura 6 HP, +5 Escudo e +1 Cafeína.',
             apply: function (state) {
                 state.deck.push('atestado_arcano');
                 state.discardPile.push('atestado_arcano');
             }
         },
         {
-            id: 'reajuste_vr',
-            kind: 'passiva',
-            title: 'Bolsa de Moedas',
-            origin: 'Reajuste de VR',
-            icon: 'vr_boost',
-            desc: '+5 Sanidade Máxima (teto 75), cura 15 e +10 VR.',
+            id: 'add_pacto_hora_extra',
+            kind: 'carta',
+            title: 'Cálice da Vigília',
+            origin: 'Dose Extra das 17h',
+            icon: 'c_chalice',
+            desc: 'Carta Destroy (Custo 2): +3 HP Máx e +15% Growth permanentes.',
             apply: function (state) {
-                state.maxHp = Math.min(BALANCE.maxHpCap, state.maxHp + 5);
-                state.hp = Math.min(state.maxHp, state.hp + 15);
-                state.vr += 10;
-                state.passives.push({ label: 'Bolsa de Moedas (+5 Sanidade Máx)', icon: 'vr_boost' });
+                state.deck.push('pacto_hora_extra');
+                state.discardPile.push('pacto_hora_extra');
+            }
+        },
+        {
+            id: 'add_julgamento_final',
+            kind: 'carta',
+            title: 'Cometa do Abismo',
+            origin: 'Fechamento Mensal',
+            icon: 'c_comet',
+            desc: 'Carta Custo 3: 13 dano (escala Combo/Amount) + 5 Burn + 75% Desarme.',
+            apply: function (state) {
+                state.deck.push('julgamento_final');
+                state.discardPile.push('julgamento_final');
             }
         }
     ];
@@ -558,10 +765,51 @@
                 '#########'
             ],
             encounters: {
-                '1': { zone: 'Arrebentação Oeste', intro: 'Um Caranguejo de Tinta e uma Gaivota Ladrã disputam uma folha!', enemies: ['crab', 'gull'] },
-                '2': { zone: 'Poças do Leste', intro: 'A maré traz um Espectro e uma Gaivota!', enemies: ['gull', 'specter'] },
-                '3': { zone: 'Banco de Areia', intro: 'Três criaturas da maré cercam o banco de areia!', enemies: ['crab', 'specter', 'gull'] },
-                'B': { zone: 'Olho da Maré', intro: 'CHEFE: O DEVORADOR DAS MARÉS emerge cuspindo Folhas Presas!', isBoss: true, enemies: ['gull', 'kraken', 'crab'] }
+                '1': {
+                    zone: 'Arrebentação Oeste',
+                    intro: 'Um Caranguejo de Tinta e uma Gaivota avançam, com reforço na retaguarda!',
+                    enemies: ['crab', 'gull', 'crab'],
+                    formation: [
+                        { kind: 'crab', col: 1, row: 0 },
+                        { kind: 'gull', col: 3, row: 0 },
+                        { kind: 'crab', col: 1, row: 1 }
+                    ]
+                },
+                '2': {
+                    zone: 'Poças do Leste',
+                    intro: 'A maré traz um Espectro e uma Gaivota com cobertura atrás!',
+                    enemies: ['gull', 'specter', 'gull'],
+                    formation: [
+                        { kind: 'gull', col: 1, row: 0 },
+                        { kind: 'specter', col: 3, row: 0 },
+                        { kind: 'gull', col: 3, row: 1 }
+                    ]
+                },
+                '3': {
+                    zone: 'Banco de Areia',
+                    intro: 'Criaturas da maré se alinham em colunas de frente e retaguarda!',
+                    enemies: ['crab', 'specter', 'gull', 'crab', 'gull'],
+                    formation: [
+                        { kind: 'crab', col: 0, row: 0 },
+                        { kind: 'specter', col: 2, row: 0 },
+                        { kind: 'gull', col: 4, row: 0 },
+                        { kind: 'crab', col: 0, row: 1 },
+                        { kind: 'gull', col: 2, row: 1 }
+                    ]
+                },
+                'B': {
+                    zone: 'Olho da Maré',
+                    intro: 'CHEFE: O DEVORADOR DAS MARÉS emerge cuspindo Folhas Presas!',
+                    isBoss: true,
+                    enemies: ['gull', 'kraken', 'crab', 'specter', 'crab'],
+                    formation: [
+                        { kind: 'gull', col: 1, row: 0 },
+                        { kind: 'kraken', col: 2, row: 0 },
+                        { kind: 'crab', col: 3, row: 0 },
+                        { kind: 'specter', col: 1, row: 1 },
+                        { kind: 'crab', col: 3, row: 1 }
+                    ]
+                }
             }
         },
         {
@@ -595,10 +843,50 @@
                 '#########'
             ],
             encounters: {
-                '1': { zone: 'Beco dos Sinos', intro: 'Um Caçador Frenético e um Corvo dos Sinos avançam pela rua!', enemies: ['hunter', 'crow'] },
-                '2': { zone: 'Praça da Vigília', intro: 'O Arauto da Vigília lê sua lista de pendências!', enemies: ['herald', 'hunter', 'crow'] },
-                '3': { zone: 'Cruzamento Central', intro: 'Dois Caçadores escoltam um Arauto no cruzamento!', enemies: ['hunter', 'herald', 'hunter'] },
-                'B': { zone: 'Torre do Sino', intro: 'CHEFE: O MENSAGEIRO DO SINO VELOZ ataca duas vezes por turno — use Escudo e Knockback!', isBoss: true, enemies: ['crow', 'mensageiro', 'hunter'] }
+                '1': {
+                    zone: 'Beco dos Sinos',
+                    intro: 'Um Caçador Frenético e um Corvo avançam, com outro Caçador na retaguarda!',
+                    enemies: ['hunter', 'crow', 'hunter'],
+                    formation: [
+                        { kind: 'hunter', col: 1, row: 0 },
+                        { kind: 'crow', col: 3, row: 0 },
+                        { kind: 'hunter', col: 1, row: 1 }
+                    ]
+                },
+                '2': {
+                    zone: 'Praça da Vigília',
+                    intro: 'O Arauto da Vigília lê sua lista de pendências na praça!',
+                    enemies: ['herald', 'hunter', 'crow'],
+                    formation: [
+                        { kind: 'herald', col: 1, row: 0 },
+                        { kind: 'hunter', col: 3, row: 0 },
+                        { kind: 'crow', col: 3, row: 1 }
+                    ]
+                },
+                '3': {
+                    zone: 'Cruzamento Central',
+                    intro: 'Vanguarda e retaguarda cercam o cruzamento sob os sinos!',
+                    enemies: ['hunter', 'herald', 'crow', 'hunter', 'crow'],
+                    formation: [
+                        { kind: 'hunter', col: 0, row: 0 },
+                        { kind: 'herald', col: 2, row: 0 },
+                        { kind: 'crow', col: 4, row: 0 },
+                        { kind: 'hunter', col: 2, row: 1 },
+                        { kind: 'crow', col: 4, row: 1 }
+                    ]
+                },
+                'B': {
+                    zone: 'Torre do Sino',
+                    intro: 'CHEFE: O MENSAGEIRO DO SINO VELOZ ataca duas vezes — use Escudo e Knockback!',
+                    isBoss: true,
+                    enemies: ['crow', 'mensageiro', 'hunter', 'herald'],
+                    formation: [
+                        { kind: 'crow', col: 1, row: 0 },
+                        { kind: 'mensageiro', col: 2, row: 0 },
+                        { kind: 'hunter', col: 3, row: 0 },
+                        { kind: 'herald', col: 2, row: 1 }
+                    ]
+                }
             }
         },
         {
@@ -632,10 +920,51 @@
                 '#########'
             ],
             encounters: {
-                '1': { zone: 'Encosta Leste', intro: 'Uma matilha da nevasca e uma Serpente de Cristal descem a encosta!', enemies: ['wolf', 'serpent', 'wolf'] },
-                '2': { zone: 'Passo Oeste', intro: 'Um Sentinela Congelado guarda o passo com uma Serpente!', enemies: ['sentinel', 'serpent'] },
-                '3': { zone: 'Pátio da Fortaleza', intro: 'A guarda completa da fortaleza fecha o pátio!', enemies: ['wolf', 'sentinel', 'serpent', 'wolf'] },
-                'B': { zone: 'Sala do Véu Branco', intro: 'CHEFE: A ESTRATEGISTA DO VÉU BRANCO ergue um Escudo de Cristal a cada turno!', isBoss: true, enemies: ['serpent', 'estrategista', 'sentinel'] }
+                '1': {
+                    zone: 'Encosta Leste',
+                    intro: 'Uma matilha da nevasca e uma Serpente descem a encosta!',
+                    enemies: ['wolf', 'serpent', 'wolf'],
+                    formation: [
+                        { kind: 'wolf', col: 1, row: 0 },
+                        { kind: 'serpent', col: 3, row: 0 },
+                        { kind: 'wolf', col: 1, row: 1 }
+                    ]
+                },
+                '2': {
+                    zone: 'Passo Oeste',
+                    intro: 'Um Sentinela Congelado guarda o passo com reforços atrás!',
+                    enemies: ['sentinel', 'serpent', 'wolf'],
+                    formation: [
+                        { kind: 'sentinel', col: 1, row: 0 },
+                        { kind: 'serpent', col: 3, row: 0 },
+                        { kind: 'wolf', col: 3, row: 1 }
+                    ]
+                },
+                '3': {
+                    zone: 'Pátio da Fortaleza',
+                    intro: 'A guarda completa da fortaleza fecha as 5 colunas do pátio!',
+                    enemies: ['wolf', 'sentinel', 'serpent', 'wolf', 'serpent'],
+                    formation: [
+                        { kind: 'wolf', col: 0, row: 0 },
+                        { kind: 'sentinel', col: 2, row: 0 },
+                        { kind: 'serpent', col: 4, row: 0 },
+                        { kind: 'wolf', col: 0, row: 1 },
+                        { kind: 'serpent', col: 4, row: 1 }
+                    ]
+                },
+                'B': {
+                    zone: 'Sala do Véu Branco',
+                    intro: 'CHEFE: A ESTRATEGISTA DO VÉU BRANCO ergue um Escudo de Cristal a cada turno!',
+                    isBoss: true,
+                    enemies: ['serpent', 'estrategista', 'sentinel', 'wolf', 'serpent'],
+                    formation: [
+                        { kind: 'serpent', col: 1, row: 0 },
+                        { kind: 'estrategista', col: 2, row: 0 },
+                        { kind: 'sentinel', col: 3, row: 0 },
+                        { kind: 'wolf', col: 1, row: 1 },
+                        { kind: 'serpent', col: 3, row: 1 }
+                    ]
+                }
             }
         },
         {
@@ -670,10 +999,50 @@
                 '#########'
             ],
             encounters: {
-                '1': { zone: 'Galeria das Pastas', intro: 'Esqueletos do Arquivo e um Mímico de Gaveta despertam!', enemies: ['skeleton', 'mimic', 'skeleton'] },
-                '2': { zone: 'Cripta Leste', intro: 'Uma Gárgula de Pedra desce do pilar com sua escolta!', enemies: ['gargoyle', 'skeleton', 'mimic'] },
-                '3': { zone: 'Salão das Gavetas', intro: 'O salão inteiro range: quatro guardiões do arquivo!', enemies: ['skeleton', 'gargoyle', 'mimic', 'skeleton'] },
-                'B': { zone: 'Câmara das Catacumbas', intro: 'CHEFE: A GUARDIÃ DAS CATACUMBAS convoca Esqueletos do Arquivo!', isBoss: true, enemies: ['skeleton', 'guardia', 'gargoyle'] }
+                '1': {
+                    zone: 'Galeria das Pastas',
+                    intro: 'Esqueletos do Arquivo e um Mímico de Gaveta despertam!',
+                    enemies: ['skeleton', 'mimic', 'skeleton'],
+                    formation: [
+                        { kind: 'skeleton', col: 1, row: 0 },
+                        { kind: 'mimic', col: 3, row: 0 },
+                        { kind: 'skeleton', col: 1, row: 1 }
+                    ]
+                },
+                '2': {
+                    zone: 'Cripta Leste',
+                    intro: 'Uma Gárgula de Pedra desce do pilar com sua escolta!',
+                    enemies: ['gargoyle', 'skeleton', 'mimic'],
+                    formation: [
+                        { kind: 'gargoyle', col: 1, row: 0 },
+                        { kind: 'skeleton', col: 3, row: 0 },
+                        { kind: 'mimic', col: 3, row: 1 }
+                    ]
+                },
+                '3': {
+                    zone: 'Salão das Gavetas',
+                    intro: 'O salão inteiro range: vanguarda e retaguarda das catacumbas!',
+                    enemies: ['skeleton', 'gargoyle', 'mimic', 'skeleton', 'mimic'],
+                    formation: [
+                        { kind: 'skeleton', col: 0, row: 0 },
+                        { kind: 'gargoyle', col: 2, row: 0 },
+                        { kind: 'mimic', col: 4, row: 0 },
+                        { kind: 'skeleton', col: 0, row: 1 },
+                        { kind: 'mimic', col: 2, row: 1 }
+                    ]
+                },
+                'B': {
+                    zone: 'Câmara das Catacumbas',
+                    intro: 'CHEFE: A GUARDIÃ DAS CATACUMBAS convoca Esqueletos do Arquivo!',
+                    isBoss: true,
+                    enemies: ['skeleton', 'guardia', 'gargoyle', 'mimic'],
+                    formation: [
+                        { kind: 'skeleton', col: 1, row: 0 },
+                        { kind: 'guardia', col: 2, row: 0 },
+                        { kind: 'gargoyle', col: 3, row: 0 },
+                        { kind: 'mimic', col: 2, row: 1 }
+                    ]
+                }
             }
         },
         {
@@ -707,7 +1076,13 @@
                 '#########'
             ],
             encounters: {
-                'B': { zone: 'Centro do Abismo', intro: 'CHEFE FINAL: O SENHOR DAS HORAS! Bloqueie os golpes ou ele drena sua Cafeína!', isBoss: true, enemies: ['horas'] }
+                'B': {
+                    zone: 'Centro do Abismo',
+                    intro: 'CHEFE FINAL: O SENHOR DAS HORAS! Bloqueie os golpes ou ele drena sua Cafeína!',
+                    isBoss: true,
+                    enemies: ['horas'],
+                    formation: [{ kind: 'horas', col: 2, row: 0 }]
+                }
             }
         }
     ];
@@ -821,11 +1196,18 @@
             });
             Object.keys(fl.encounters).forEach(ch => {
                 if (!L.some(row => row.includes(ch))) problems.push(tag + 'encontro "' + ch + '" sem tile no mapa');
-                const list = fl.encounters[ch].enemies;
+                const enc = fl.encounters[ch];
+                const list = enc.enemies;
                 if (list.length > MAX_ENEMIES_IN_COMBAT) problems.push(tag + 'encontro "' + ch + '" com inimigos demais');
                 list.forEach(kind => {
                     if (!ENEMIES[kind]) problems.push(tag + 'inimigo desconhecido "' + kind + '"');
                 });
+                if (enc.formation) {
+                    enc.formation.forEach(slot => {
+                        if (!ENEMIES[slot.kind]) problems.push(tag + 'formação com inimigo inválido "' + slot.kind + '"');
+                        if (slot.col < 0 || slot.col > 4) problems.push(tag + 'formação fora das 5 colunas em "' + ch + '"');
+                    });
+                }
             });
         });
         return problems;
@@ -842,6 +1224,7 @@
         CHARACTERS: CHARACTERS,
         FLOOR_CLOCKS: FLOOR_CLOCKS,
         REALITY_FLASH_QUIPS: REALITY_FLASH_QUIPS,
+        XP_TABLE: XP_TABLE,
         CARDS: CARDS,
         STARTING_DECK: STARTING_DECK,
         EVOLUTIONS: EVOLUTIONS,
@@ -850,6 +1233,9 @@
         BALANCE: BALANCE,
         MAX_ENEMIES_IN_COMBAT: MAX_ENEMIES_IN_COMBAT,
         getEnemyStats: getEnemyStats,
+        getXpForLevel: getXpForLevel,
+        getEffectiveCost: getEffectiveCost,
+        canCardCombo: canCardCombo,
         isWalkableTile: isWalkableTile,
         validateFloors: validateFloors,
         getComboMult: getComboMult,
