@@ -7,6 +7,8 @@
     const S = window.GameSprites;
     const A = window.GameAudio;
 
+    const B = D.BALANCE;
+
     const DIR_DX = [0, 1, 0, -1];
     const DIR_DY = [-1, 0, 1, 0];
 
@@ -75,6 +77,17 @@
         btnPlayAgain: document.getElementById('btn-play-again')
     };
 
+    els.comboBonus = document.createElement('span');
+    els.comboBonus.id = 'combo-bonus';
+    els.comboBonus.className = 'combo-bonus';
+    els.comboNum.parentElement.appendChild(els.comboBonus);
+
+    els.ambushBanner = document.createElement('div');
+    els.ambushBanner.id = 'ambush-banner';
+    els.ambushBanner.className = 'overkill-banner ambush-banner';
+    els.ambushBanner.textContent = 'EMBOSCADA!';
+    els.viewport.appendChild(els.ambushBanner);
+
     let state = null;
     let selectedHeroId = 'valter';
     let bossKeyOpen = false;
@@ -110,6 +123,42 @@
 
     function scaleVr(amount) {
         return Math.round(amount * (hasAlly('ally_claudia') ? 1.5 : 1));
+    }
+
+    // Agenda uma etapa de animação; é descartada se o jogo foi reiniciado nesse meio tempo.
+    function later(ms, fn) {
+        const owner = state;
+        setTimeout(() => {
+            if (state !== owner) return;
+            fn();
+        }, ms);
+    }
+
+    // Encontros viram entidades móveis no mapa (patrulha), em vez de tiles fixos.
+    function buildEncounters(fl) {
+        const list = [];
+        for (let y = 0; y < fl.layout.length; y++) {
+            for (let x = 0; x < fl.layout[y].length; x++) {
+                const ch = fl.layout[y][x];
+                const enc = fl.encounters[ch];
+                if (!enc) continue;
+                // Nunca nasce em parede/fora do mapa nem empilhado com outro encontro
+                if (!D.isWalkableTile(fl.layout, x, y) || list.some(e => e.x === x && e.y === y)) continue;
+                list.push({
+                    id: 'enc_' + fl.floor + '_' + ch,
+                    x: x,
+                    y: y,
+                    enc: enc,
+                    isBoss: !!enc.isBoss,
+                    alive: true
+                });
+            }
+        }
+        return list;
+    }
+
+    function encounterAt(x, y) {
+        return state.encounters.find(e => e.alive && e.x === x && e.y === y) || null;
     }
 
     function findStartPos(layout) {
@@ -169,7 +218,9 @@
             discardPile: [],
             enemies: [],
             targetUid: null,
-            currentEncounterTile: null,
+            currentEncounterId: null,
+            encounters: buildEncounters(fl),
+            steps: 0,
             bossDefeated: false,
             kills: 0,
             overkills: 0,
@@ -204,6 +255,8 @@
         state.bossDefeated = false;
         state.exploredTiles = new Set();
         state.clearedTiles = new Set();
+        state.encounters = buildEncounters(fl);
+        state.steps = 0;
         revealAround(state, start.x, start.y, fl.layout);
 
         R.setHoveredCard(null);
@@ -256,6 +309,20 @@
         A.play('overkill');
         R.triggerShake(0.09, 0.3);
         R.triggerScreenFlash('#f3c552', 0.28, 0.25);
+    }
+
+    function triggerAmbushBanner() {
+        els.ambushBanner.classList.remove('show');
+        void els.ambushBanner.offsetWidth;
+        els.ambushBanner.classList.add('show');
+    }
+
+    function pulseHeart() {
+        const heartEl = els.hpText.parentElement;
+        if (!heartEl) return;
+        heartEl.classList.remove('hit-pulse');
+        void heartEl.offsetWidth;
+        heartEl.classList.add('hit-pulse');
     }
 
     function triggerEvolutionBanner(cardName) {
@@ -313,51 +380,67 @@
         }
     }
 
-    function spawnXpParticles(fromX, fromY, totalXp) {
-        const trackRect = els.xpTrack.getBoundingClientRect();
-        const targetX = trackRect.left + trackRect.width * 0.5;
-        const targetY = trackRect.top + trackRect.height * 0.5;
-        const count = Math.min(12, Math.max(6, Math.round(totalXp / 6)));
-        const xpPerOrb = Math.floor(totalXp / count);
-        let remainder = totalXp - xpPerOrb * count;
+    // Orbes voando em curva até um elemento da barra do topo.
+    function spawnOrbs(fromX, fromY, targetEl, className, count, onArrive) {
+        const rect = targetEl.getBoundingClientRect();
+        const targetX = rect.left + rect.width * 0.5;
+        const targetY = rect.top + rect.height * 0.5;
 
         for (let i = 0; i < count; i++) {
             const orb = document.createElement('div');
-            orb.className = 'xp-orb';
+            orb.className = className;
             const startX = fromX + (Math.random() - 0.5) * 44;
             const startY = fromY + (Math.random() - 0.5) * 44;
             const ctrlX = (startX + targetX) / 2 + (Math.random() - 0.5) * 140;
             const ctrlY = Math.min(startY, targetY) - 60 - Math.random() * 60;
             const dur = 460 + i * 35;
             const startTime = performance.now() + i * 28;
-            const orbXp = xpPerOrb + (remainder > 0 ? 1 : 0);
-            if (remainder > 0) remainder--;
 
             orb.style.left = startX + 'px';
             orb.style.top = startY + 'px';
             els.xpParticlesLayer.appendChild(orb);
 
-            function tick(now) {
+            const tick = (now) => {
                 if (now < startTime) {
                     requestAnimationFrame(tick);
                     return;
                 }
                 const p = Math.min(1, (now - startTime) / dur);
                 const inv = 1 - p;
-                const x = inv * inv * startX + 2 * inv * p * ctrlX + p * p * targetX;
-                const y = inv * inv * startY + 2 * inv * p * ctrlY + p * p * targetY;
-                orb.style.left = x + 'px';
-                orb.style.top = y + 'px';
+                orb.style.left = (inv * inv * startX + 2 * inv * p * ctrlX + p * p * targetX) + 'px';
+                orb.style.top = (inv * inv * startY + 2 * inv * p * ctrlY + p * p * targetY) + 'px';
 
                 if (p < 1) {
                     requestAnimationFrame(tick);
                 } else {
                     orb.remove();
-                    gainXp(orbXp);
+                    if (onArrive) onArrive(i);
                 }
-            }
+            };
             requestAnimationFrame(tick);
         }
+    }
+
+    function spawnXpParticles(fromX, fromY, totalXp) {
+        const count = Math.min(12, Math.max(6, Math.round(totalXp / 6)));
+        const xpPerOrb = Math.floor(totalXp / count);
+        const remainder = totalXp - xpPerOrb * count;
+        const owner = state;
+        spawnOrbs(fromX, fromY, els.xpTrack, 'xp-orb', count, i => {
+            if (state !== owner) return;
+            gainXp(xpPerOrb + (i < remainder ? 1 : 0));
+        });
+    }
+
+    // Moedas de VR (douradas) voando até o contador de VR. O valor já foi creditado; é só feedback.
+    function spawnVrParticles(fromX, fromY, totalVr) {
+        const count = Math.min(8, Math.max(3, Math.round(totalVr / 5)));
+        const vrBox = els.statVr.parentElement;
+        spawnOrbs(fromX, fromY, els.statVr, 'xp-orb vr-orb', count, () => {
+            vrBox.classList.remove('vr-pulse');
+            void vrBox.offsetWidth;
+            vrBox.classList.add('vr-pulse');
+        });
     }
 
     function gainXp(amount) {
@@ -437,113 +520,148 @@
         els.shopModal.classList.remove('hidden');
     }
 
+    function buyRelic(relic) {
+        state.vr -= B.shop.relicPrice;
+        state.relics.push(relic.passiveId);
+        state.passives.push({ label: relic.title + ' (Evolucao)', icon: relic.icon });
+        A.play('levelup');
+        checkAndTriggerEvolutions(true);
+        setLog('Reliquia obtida: ' + relic.title + '!');
+    }
+
     function renderShopModal() {
         els.shopVrVal.textContent = String(state.vr);
         els.shopItemsGrid.innerHTML = '';
+        const shop = B.shop;
 
-        // 1) Café Expresso (15 VR)
+        // Limite de aliados atingido: escolher qual aliado será substituído
+        if (state.pendingAllyHire) {
+            const incoming = D.ALLIES.find(a => a.id === state.pendingAllyHire);
+            state.allies.forEach(allyId => {
+                const current = D.ALLIES.find(a => a.id === allyId);
+                if (!current) return;
+                addShopItem({
+                    title: 'Dispensar ' + current.name,
+                    desc: 'Sai da equipe para dar lugar a ' + incoming.name + '. Perde: ' + current.desc,
+                    icon: current.icon,
+                    allyOffer: true,
+                    disabled: state.vr < incoming.cost,
+                    priceText: 'SUBSTITUIR (' + incoming.cost + ' VR)',
+                    onBuy: () => {
+                        state.vr -= incoming.cost;
+                        state.allies[state.allies.indexOf(allyId)] = incoming.id;
+                        state.pendingAllyHire = null;
+                        A.play('levelup');
+                        setLog(incoming.name + ' substituiu ' + current.name + ' na equipe!');
+                    }
+                });
+            });
+            addShopItem({
+                title: 'Cancelar',
+                desc: 'Manter a equipe atual (máximo de ' + B.maxAllies + ' aliados por expediente).',
+                icon: incoming.icon,
+                disabled: false,
+                priceText: 'VOLTAR',
+                onBuy: () => {
+                    state.pendingAllyHire = null;
+                    A.play('card');
+                }
+            });
+            return;
+        }
+
+        // 1) Café Expresso
         const needHeal = state.hp < state.maxHp;
         addShopItem({
             title: 'Café Expresso',
-            desc: 'Cura +25 de Sanidade para Sir Valter imediatamente.',
+            desc: 'Cura +' + shop.coffeeHeal + ' de Sanidade imediatamente.',
             icon: 'coffee',
-            price: 15,
-            disabled: state.vr < 15 || !needHeal,
-            priceText: needHeal ? '15 VR' : 'SANIDADE CHEIA',
+            disabled: state.vr < shop.coffeePrice || !needHeal,
+            priceText: needHeal ? shop.coffeePrice + ' VR' : 'SANIDADE CHEIA',
             onBuy: () => {
-                state.vr -= 15;
-                state.hp = Math.min(state.maxHp, state.hp + 25);
+                state.vr -= shop.coffeePrice;
+                state.hp = Math.min(state.maxHp, state.hp + shop.coffeeHeal);
                 A.play('chest');
-                setLog('Sir Valter tomou um Expresso quente! +25 Sanidade.');
+                setLog('Um Expresso quente! +' + shop.coffeeHeal + ' Sanidade.');
             }
         });
 
-        // 2) Relíquia de Evolução disponível (25 VR)
+        // 2) Relíquia de Evolução disponível (ou Tônico quando todas já foram obtidas)
         const availRelic = D.EVOLUTIONS.find(ev => !state.relics.includes(ev.passiveId));
         if (availRelic) {
             addShopItem({
                 title: availRelic.title,
                 desc: availRelic.desc,
                 icon: availRelic.icon,
-                price: 25,
-                disabled: state.vr < 25,
-                priceText: '25 VR',
-                onBuy: () => {
-                    state.vr -= 25;
-                    state.relics.push(availRelic.passiveId);
-                    state.passives.push({ label: availRelic.title + ' (Evolucao)', icon: availRelic.icon });
-                    A.play('levelup');
-                    checkAndTriggerEvolutions(true);
-                    setLog('Reliquia obtida: ' + availRelic.title + '!');
-                }
+                disabled: state.vr < shop.relicPrice,
+                priceText: shop.relicPrice + ' VR',
+                onBuy: () => buyRelic(availRelic)
             });
         } else {
+            const atCap = state.maxHp >= B.maxHpCap;
             addShopItem({
                 title: 'Tônico de Cafeína',
-                desc: '+10 Sanidade Máxima e cura +10 Sanidade.',
+                desc: '+5 Sanidade Máxima (teto ' + B.maxHpCap + ') e cura +10 Sanidade.',
                 icon: 'espresso',
-                price: 25,
-                disabled: state.vr < 25,
-                priceText: '25 VR',
+                disabled: state.vr < shop.tonicPrice || atCap,
+                priceText: atCap ? 'TETO ATINGIDO' : shop.tonicPrice + ' VR',
                 onBuy: () => {
-                    state.vr -= 25;
-                    state.maxHp += 10;
+                    state.vr -= shop.tonicPrice;
+                    state.maxHp = Math.min(B.maxHpCap, state.maxHp + 5);
                     state.hp = Math.min(state.maxHp, state.hp + 10);
                     A.play('levelup');
                 }
             });
         }
 
-        // 3) Carta extra Demissão Silenciosa ou Relíquia 2
+        // 3) Segunda relíquia ou carta Atestado Arcano
         const secondRelic = D.EVOLUTIONS.find(ev => ev !== availRelic && !state.relics.includes(ev.passiveId));
         if (secondRelic) {
             addShopItem({
                 title: secondRelic.title,
                 desc: secondRelic.desc,
                 icon: secondRelic.icon,
-                price: 25,
-                disabled: state.vr < 25,
-                priceText: '25 VR',
-                onBuy: () => {
-                    state.vr -= 25;
-                    state.relics.push(secondRelic.passiveId);
-                    state.passives.push({ label: secondRelic.title + ' (Evolucao)', icon: secondRelic.icon });
-                    A.play('levelup');
-                    checkAndTriggerEvolutions(true);
-                }
+                disabled: state.vr < shop.relicPrice,
+                priceText: shop.relicPrice + ' VR',
+                onBuy: () => buyRelic(secondRelic)
             });
         } else {
             addShopItem({
                 title: 'Atestado Arcano',
                 desc: 'Adiciona ao deck: Custo 0 — Cura 12, +8 Escudo e +1 Cafeína.',
                 icon: 'medical',
-                price: 20,
-                disabled: state.vr < 20,
-                priceText: '20 VR',
+                disabled: state.vr < shop.cardPrice,
+                priceText: shop.cardPrice + ' VR',
                 onBuy: () => {
-                    state.vr -= 20;
+                    state.vr -= shop.cardPrice;
                     state.deck.push('atestado_arcano');
                     A.play('card');
                 }
             });
         }
 
-        // 4..6) Recrutamento de Aliados (35 VR)
+        // 4..6) Recrutamento de Aliados (máximo de 2 ativos; o 3º substitui um deles)
+        const teamFull = state.allies.length >= B.maxAllies;
         D.ALLIES.forEach(ally => {
             const hired = hasAlly(ally.id);
             addShopItem({
                 title: ally.name,
                 desc: ally.role + ': ' + ally.desc,
                 icon: ally.icon,
-                price: ally.cost,
                 allyOffer: true,
                 disabled: hired || state.vr < ally.cost,
-                priceText: hired ? 'RECRUTADO' : ally.cost + ' VR',
+                priceText: hired ? 'RECRUTADO' : ally.cost + ' VR' + (teamFull ? ' (SUBSTITUI)' : ''),
                 onBuy: () => {
+                    if (state.allies.length >= B.maxAllies) {
+                        state.pendingAllyHire = ally.id;
+                        A.play('card');
+                        setLog('Equipe cheia (' + B.maxAllies + ' aliados). Escolha quem ' + ally.name + ' vai substituir.');
+                        return;
+                    }
                     state.vr -= ally.cost;
                     state.allies.push(ally.id);
                     A.play('levelup');
-                    setLog(ally.name + ' entrou para a equipe de Sir Valter!');
+                    setLog(ally.name + ' entrou para a equipe!');
                 }
             });
         });
@@ -570,6 +688,7 @@
 
     function closeShopModal() {
         els.shopModal.classList.add('hidden');
+        state.pendingAllyHire = null;
         state.mode = 'explore';
         renderAll();
         flushPendingEvolutionBanner();
@@ -593,7 +712,7 @@
             addXp: function (amt) { gainXp(amt); },
             triggerAmbush: function (enemies, intro) {
                 els.eventModal.classList.add('hidden');
-                startEncounter(tileKey, {
+                startEncounter(null, {
                     zone: 'Emboscada no Corredor',
                     intro: intro,
                     enemies: enemies
@@ -646,20 +765,45 @@
 
         if (ny < 0 || ny >= layout.length || nx < 0 || nx >= layout[0].length) return;
         const tile = layout[ny][nx];
-        if (tile === '#') {
+        if (!D.isWalkableTile(layout, nx, ny)) {
             A.play('hit');
             R.triggerShake(0.03, 0.12);
             setLog('Sir Valter esbarrou na divisoria de uma baia sombria.');
             return;
         }
 
+        // O jogador nunca pisa no tile de um inimigo: o combate começa à distância.
+        const blocker = encounterAt(nx, ny);
+        if (blocker) {
+            beginAggro(blocker, dirTo(nx - state.player.x, ny - state.player.y), false);
+            return;
+        }
+
         state.player.x = nx;
         state.player.y = ny;
+        state.steps += 1;
         revealAround(state, nx, ny, layout);
         A.play('step');
         R.triggerStepBob();
+
+        const key = nx + ',' + ny;
+        if (tile === 'C' && !state.clearedTiles.has(key)) {
+            collectChest(key);
+        }
+
+        // 1) Linha de visão do jogador; 2) a cada N passos, os encontros próximos avançam.
+        let contact = findAggroContact();
+        if (!contact && state.steps % B.patrolEverySteps === 0) {
+            contact = patrolEncounters();
+        }
+
         R.syncState(state);
         renderAll();
+
+        if (contact) {
+            beginAggro(contact.enc, contact.dir, contact.ambush);
+            return;
+        }
 
         handleTileEvent(nx, ny, tile);
     }
@@ -671,6 +815,149 @@
         A.play('turn');
         R.turnCamera(deltaDir);
         R.syncState(state);
+
+        const contact = findAggroContact();
+        if (contact) beginAggro(contact.enc, contact.dir, false);
+    }
+
+    function dirTo(dx, dy) {
+        if (dy < 0) return 0;
+        if (dx > 0) return 1;
+        if (dy > 0) return 2;
+        return 3;
+    }
+
+    // Linha de visão: raycast tile a tile, só nas 4 direções cardeais (mesmo corredor, mesma
+    // linha/coluna). O raio para na primeira parede, então nunca enxerga através de paredes
+    // nem em diagonal por quinas. Olha primeiro para frente, depois lados e costas.
+    function findAggroContact() {
+        const layout = currentFloor().layout;
+        const order = [0, 1, 3, 2].map(off => (state.player.dir + off) % 4);
+        for (const d of order) {
+            for (let dist = 1; dist <= B.aggroRange; dist++) {
+                const x = state.player.x + DIR_DX[d] * dist;
+                const y = state.player.y + DIR_DY[d] * dist;
+                if (!D.isWalkableTile(layout, x, y)) break;
+                const enc = encounterAt(x, y);
+                if (enc) return { enc: enc, dir: d, ambush: false };
+            }
+        }
+        return null;
+    }
+
+    function canEncounterStand(x, y, self) {
+        const layout = currentFloor().layout;
+        if (!D.isWalkableTile(layout, x, y)) return false;
+        const ch = layout[y][x];
+        if (ch === 'M' || ch === 'E') return false;
+        if ((ch === 'C' || ch === '?') && !state.clearedTiles.has(x + ',' + y)) return false;
+        const other = encounterAt(x, y);
+        return !other || other === self;
+    }
+
+    // Próximo passo do menor caminho (BFS) do encontro até o jogador; null se não houver caminho.
+    function nextStepToward(enc) {
+        const px = state.player.x;
+        const py = state.player.y;
+        const startKey = enc.x + ',' + enc.y;
+        const prev = new Map([[startKey, null]]);
+        const queue = [[enc.x, enc.y, 0]];
+        while (queue.length > 0) {
+            const cur = queue.shift();
+            if (cur[2] >= 10) continue;
+            for (let d = 0; d < 4; d++) {
+                const x = cur[0] + DIR_DX[d];
+                const y = cur[1] + DIR_DY[d];
+                const key = x + ',' + y;
+                if (prev.has(key)) continue;
+                const isGoal = x === px && y === py;
+                if (!isGoal && !canEncounterStand(x, y, enc)) continue;
+                prev.set(key, cur[0] + ',' + cur[1]);
+                if (isGoal) {
+                    let node = key;
+                    while (prev.get(node) !== startKey) node = prev.get(node);
+                    const parts = node.split(',');
+                    return { x: Number(parts[0]), y: Number(parts[1]) };
+                }
+                queue.push([x, y, cur[2] + 1]);
+            }
+        }
+        return null;
+    }
+
+    // Encontros (exceto chefes, que guardam suas salas) dentro do raio avançam 1 casa livre.
+    // Retorna o contato gerado (emboscada tem prioridade) ou null.
+    function patrolEncounters() {
+        const moved = [];
+        state.encounters.forEach(enc => {
+            if (!enc.alive || enc.isBoss) return;
+            const dist = Math.abs(enc.x - state.player.x) + Math.abs(enc.y - state.player.y);
+            if (dist > B.patrolRadius || dist <= 1) return;
+            const step = nextStepToward(enc);
+            if (!step || (step.x === state.player.x && step.y === state.player.y)) return;
+            // Só anda 1 casa cardeal para um tile livre validado
+            if (Math.abs(step.x - enc.x) + Math.abs(step.y - enc.y) !== 1 || !canEncounterStand(step.x, step.y, enc)) return;
+            enc.x = step.x;
+            enc.y = step.y;
+            moved.push(enc);
+        });
+
+        let normal = null;
+        for (const enc of moved) {
+            const dx = enc.x - state.player.x;
+            const dy = enc.y - state.player.y;
+            if (Math.abs(dx) + Math.abs(dy) !== 1) continue;
+            const d = dirTo(dx, dy);
+            if (d !== state.player.dir) {
+                return { enc: enc, dir: d, ambush: true };
+            }
+            normal = normal || { enc: enc, dir: d, ambush: false };
+        }
+        return normal || findAggroContact();
+    }
+
+    // Alerta "!" + som, câmera gira suavemente para encarar o inimigo e o combate começa.
+    function beginAggro(enc, dir, ambush) {
+        state.busy = true;
+        R.setHoveredCard(null);
+        let delta = (dir - state.player.dir + 4) % 4;
+        if (delta === 3) delta = -1;
+        state.player.dir = dir;
+        if (delta !== 0) R.turnCamera(delta, true);
+        R.syncState(state);
+        R.showEncounterAlert(enc.id, 0.75);
+        A.play('alert');
+
+        if (ambush) {
+            triggerAmbushBanner();
+            setLog('EMBOSCADA! O inimigo encostou sem voce estar olhando!');
+        } else {
+            setLog('Voce foi avistado! ' + enc.enc.zone + '.');
+        }
+        renderAll();
+
+        later(ambush ? 900 : 720, () => {
+            state.busy = false;
+            if (state.mode !== 'explore') return;
+            startEncounter(enc.id, enc.enc, { ambush: ambush });
+        });
+    }
+
+    function collectChest(key) {
+        state.clearedTiles.add(key);
+        const loot = D.CHEST_LOOT[chestIndex % D.CHEST_LOOT.length];
+        chestIndex++;
+        const gainedVr = scaleVr(loot.vr);
+        state.hp = Math.min(state.maxHp, state.hp + loot.hp);
+        state.vr += gainedVr;
+        A.play('chest');
+        setLog(loot.title + ': ' + loot.text);
+
+        const vpRect = els.viewport.getBoundingClientRect();
+        const cx = vpRect.left + vpRect.width / 2;
+        spawnFloatingText(cx, vpRect.top + vpRect.height * 0.45, '+' + loot.hp + ' Sanidade', 'heal');
+        spawnXpParticles(cx, vpRect.top + vpRect.height * 0.48, loot.xp);
+        spawnVrParticles(cx, vpRect.top + vpRect.height * 0.5, gainedVr);
     }
 
     function handleTileEvent(x, y, tile) {
@@ -685,29 +972,6 @@
         if (tile === '?' && !state.clearedTiles.has(key)) {
             state.clearedTiles.add(key);
             openEventModal(key);
-            return;
-        }
-
-        if (tile === 'C' && !state.clearedTiles.has(key)) {
-            state.clearedTiles.add(key);
-            const loot = D.CHEST_LOOT[chestIndex % D.CHEST_LOOT.length];
-            chestIndex++;
-            const gainedVr = scaleVr(loot.vr);
-            state.hp = Math.min(state.maxHp, state.hp + loot.hp);
-            state.vr += gainedVr;
-            A.play('chest');
-            setLog(loot.title + ': ' + loot.text);
-
-            const vpRect = els.viewport.getBoundingClientRect();
-            spawnFloatingText(vpRect.left + vpRect.width / 2, vpRect.top + vpRect.height * 0.45, '+' + loot.hp + ' Sanidade', 'heal');
-            spawnXpParticles(vpRect.left + vpRect.width / 2, vpRect.top + vpRect.height * 0.48, loot.xp);
-            R.syncState(state);
-            renderAll();
-            return;
-        }
-
-        if (fl.encounters[tile] && !state.clearedTiles.has(key)) {
-            startEncounter(key, fl.encounters[tile]);
             return;
         }
 
@@ -727,34 +991,54 @@
 
     // ---------- COMBATE TURBO ----------
 
-    function startEncounter(tileKey, enc) {
+    function makeEnemy(kind, summoned) {
+        const tpl = D.getEnemyStats(kind, state.floor);
+        return {
+            uid: 'e_' + (uidCounter++),
+            kind: tpl.kind,
+            name: tpl.name,
+            origin: tpl.origin,
+            hp: tpl.hp,
+            maxHp: tpl.hp,
+            shield: tpl.enemyShield || 0,
+            atk: tpl.atk,
+            xp: tpl.xp,
+            vr: tpl.vr,
+            immuneKnockback: !!tpl.immuneKnockback || !!tpl.isBoss,
+            buffAllies: tpl.buffAllies || 0,
+            curseCard: tpl.curseCard || null,
+            doubleIfUnshielded: !!tpl.doubleIfUnshielded,
+            summonKind: tpl.summonKind || null,
+            summonEvery: tpl.summonEvery || 0,
+            attackStyle: tpl.attackStyle || 'lunge',
+            isBoss: !!tpl.isBoss,
+            scale: tpl.scale,
+            summoned: !!summoned,
+            turns: 0,
+            stunned: false,
+            stunImmune: 0
+        };
+    }
+
+    function startEncounter(encId, enc, opts) {
+        const ambush = !!(opts && opts.ambush);
+        // A horda se forma no tile à frente: garante que o jogador encare um tile livre
+        // (combates de evento podem começar com o jogador de cara para a parede).
+        const layout = currentFloor().layout;
+        const facesFree = d => D.isWalkableTile(layout, state.player.x + DIR_DX[d], state.player.y + DIR_DY[d]);
+        if (!facesFree(state.player.dir)) {
+            const delta = [1, -1, 2].find(dl => facesFree((state.player.dir + dl + 4) % 4));
+            if (delta !== undefined) {
+                state.player.dir = (state.player.dir + delta + 4) % 4;
+                R.turnCamera(delta, true);
+            }
+        }
         state.mode = 'combat';
-        state.currentEncounterTile = tileKey;
+        state.currentEncounterId = encId;
         state.mana = state.maxMana;
         state.shield = (hasAlly('ally_jorge') ? 5 : 0) + (state.turn1Shield || 0);
         state.combo = 1;
-        state.enemies = enc.enemies.map(kind => {
-            const tpl = D.ENEMIES[kind];
-            return {
-                uid: 'e_' + (uidCounter++),
-                kind: tpl.kind,
-                name: tpl.name,
-                origin: tpl.origin,
-                hp: tpl.hp,
-                maxHp: tpl.hp,
-                shield: tpl.enemyShield || 0,
-                atk: tpl.atk,
-                xp: tpl.xp,
-                vr: tpl.vr,
-                immuneKnockback: !!tpl.immuneKnockback,
-                buffAllies: tpl.buffAllies || 0,
-                curseCard: tpl.curseCard || null,
-                doubleIfUnshielded: !!tpl.doubleIfUnshielded,
-                isBoss: !!tpl.isBoss,
-                scale: tpl.scale,
-                stunned: false
-            };
-        });
+        state.enemies = enc.enemies.map(kind => makeEnemy(kind, false));
         state.targetUid = state.enemies[0].uid;
 
         state.drawPile = shuffle(state.deck);
@@ -765,7 +1049,24 @@
         A.play('encounter');
         R.triggerShake(0.05, 0.22);
         setLog(enc.intro);
+
+        if (ambush) {
+            // Emboscada: dano direto na Sanidade antes do Turno 1 (não mata sozinho)
+            const dmg = Math.min(B.ambushDamage, state.hp - 1);
+            if (dmg > 0) {
+                state.hp -= dmg;
+                const vpRect = els.viewport.getBoundingClientRect();
+                spawnFloatingText(vpRect.left + vpRect.width * 0.5, vpRect.top + vpRect.height * 0.6, '-' + dmg, 'player-hit big-hit');
+                A.play('hurt');
+                R.triggerShake(0.09, 0.28);
+                R.triggerEdgeFlash('216,40,30', 0.85, 0.5);
+                pulseHeart();
+            }
+            setLog('EMBOSCADA! -' + dmg + ' de Sanidade antes do Turno 1!');
+        }
+
         R.syncState(state);
+        R.settleCamera();
         renderAll();
     }
 
@@ -796,7 +1097,7 @@
     function computeCardDamage(card) {
         if (!card.damage) return 0;
         const flatAlly = hasAlly('ally_claudia') ? 3 : 0;
-        return Math.round((card.damage + flatAlly) * state.damageMult * state.combo);
+        return Math.round((card.damage + flatAlly) * state.damageMult * D.getComboMult(state.combo));
     }
 
     function applyDamageToEnemy(enemy, dmg, card, usedCombo) {
@@ -829,19 +1130,55 @@
                 if (isOverkill) {
                     overkill = true;
                     state.overkills += 1;
-                    bonusXp = 15;
-                    bonusVr = 10;
+                    bonusXp = B.overkillXp;
+                    bonusVr = B.overkillVr;
                 }
 
                 state.kills += 1;
-                state.vr += scaleVr(enemy.vr + bonusVr);
+                const gainedVr = scaleVr(enemy.vr + bonusVr);
+                state.vr += gainedVr;
                 if (enemy.isBoss) state.bossDefeated = true;
 
+                // Morte: o sprite treme/dissolve (renderer) e solta XP (azul) + VR (dourado)
                 A.play('death');
+                R.spawnBurst(pos.x, pos.y, ['#3cc8ff', '#b8f4ff', '#ffd147', '#fff2a8'], 16, { speed: 170, life: 0.55, size: 6 });
                 spawnXpParticles(pos.x, pos.y, enemy.xp + bonusXp);
+                spawnVrParticles(pos.x, pos.y + 12, gainedVr);
             }
         }
         return { overkill: overkill };
+    }
+
+    function comboBonusLabel(combo) {
+        const mult = D.getComboMult(combo);
+        const pct = Math.round((mult - 1) * 100);
+        return '+' + pct + '%' + (mult >= B.comboMaxMult ? ' MAX' : '');
+    }
+
+    // Knockback: chefes são imunes; quem acabou de se recuperar de um atordoamento fica
+    // [IMUNE 1t]; cartas em área têm chance por inimigo em vez de garantia.
+    function tryKnockback(enemy, card, pos) {
+        if (enemy.isBoss || enemy.immuneKnockback) {
+            A.play('immune');
+            spawnFloatingText(pos.x, pos.y + 16, 'IMUNE!', 'player-hit');
+            return;
+        }
+        if (enemy.stunned) return;
+        if (enemy.stunImmune > 0) {
+            A.play('immune');
+            spawnFloatingText(pos.x, pos.y + 16, 'IMUNE 1t!', 'shield');
+            return;
+        }
+        const chance = typeof card.knockbackChance === 'number'
+            ? card.knockbackChance
+            : (card.target === 'all' ? B.areaStunChance : 1);
+        if (Math.random() < chance) {
+            enemy.stunned = true;
+            A.play('stun');
+            spawnFloatingText(pos.x, pos.y + 16, 'KNOCKBACK!', 'shield');
+        } else {
+            spawnFloatingText(pos.x, pos.y + 16, 'RESISTIU!', 'player-hit');
+        }
     }
 
     function playCard(handIndex) {
@@ -940,7 +1277,7 @@
         }
 
         let logMsg = card.name + ' (' + card.origin + ')';
-        if (usedCombo > 1) logMsg += ' [COMBO x' + usedCombo + ']';
+        if (usedCombo > 1) logMsg += ' [COMBO x' + usedCombo + ' ' + comboBonusLabel(usedCombo) + ']';
 
         let overkillTriggered = false;
         targets.forEach(enemy => {
@@ -950,20 +1287,13 @@
                 if (res.overkill) overkillTriggered = true;
             }
             if (card.knockback && enemy.hp > 0) {
-                if (enemy.immuneKnockback) {
-                    A.play('immune');
-                    spawnFloatingText(pos.x, pos.y + 16, 'IMUNE KB!', 'player-hit');
-                } else {
-                    enemy.stunned = true;
-                    A.play('stun');
-                    spawnFloatingText(pos.x, pos.y + 16, 'KNOCKBACK!', 'shield');
-                }
+                tryKnockback(enemy, card, pos);
             }
         });
 
         if (overkillTriggered) {
             triggerOverkillBanner();
-            logMsg += ' — OVERKILL! (+15 XP, +10 VR)';
+            logMsg += ' — OVERKILL! (+' + B.overkillXp + ' XP, +' + B.overkillVr + ' VR)';
         }
 
         state.combo += comboStep;
@@ -1018,6 +1348,124 @@
         stepNext();
     }
 
+    function startPlayerTurn(pendingCurses) {
+        state.mana = state.maxMana;
+        state.combo = 1;
+        // O Escudo acumulado expira no início do turno do jogador, antes das passivas.
+        state.shield = 0;
+        if (hasAlly('ally_jorge')) state.shield += 5;
+        while (state.hand.length > 0) {
+            state.discardPile.push(state.hand.pop());
+        }
+        drawCards(4);
+        pendingCurses.forEach(curseId => {
+            if (state.hand.length < 5) {
+                state.hand.push(curseId);
+            } else {
+                state.drawPile.push(curseId);
+            }
+        });
+        state.busy = false;
+        A.play('card');
+        setLog(hasAlly('ally_jorge')
+            ? 'Novo turno! Escudo anterior expirou; Seu Jorge do TI ativou +5 Escudo.'
+            : 'Novo turno! Escudo expirou, Cafeina recarregada e Combo reiniciado.');
+        R.syncState(state);
+        renderAll();
+    }
+
+    // Habilidades de suporte antes do golpe. Retorna o tempo (ms) da animação de salto.
+    function runEnemySupport(enemy, pendingCurses) {
+        let wait = 0;
+        const pos = R.getEnemyScreenPos(enemy.uid);
+
+        // Cultista: buffa o ATK de todo o grupo vivo (acumula a cada turno)
+        if (enemy.buffAllies > 0) {
+            R.triggerEnemyBuffAnim(enemy.uid, 'purple');
+            A.play('buff');
+            state.enemies.filter(e => e.hp > 0).forEach(ally => {
+                ally.atk += enemy.buffAllies;
+                const apos = R.getEnemyScreenPos(ally.uid);
+                spawnFloatingText(apos.x, apos.y - 30, '+' + enemy.buffAllies + ' ATK!', 'buff');
+                R.spawnBurst(apos.x, apos.y, ['#c084fc', '#e9d5ff', '#ffd147'], 8, { upward: true, speed: 130, life: 0.5, size: 5 });
+            });
+            wait = 520;
+        }
+
+        // Dona Carmem: coloca a carta-lixo "Ata de Reunião" na mão do próximo turno
+        if (enemy.curseCard) {
+            pendingCurses.push(enemy.curseCard);
+            R.triggerEnemyBuffAnim(enemy.uid, 'gold');
+            A.play('buff');
+            spawnFloatingText(pos.x, pos.y - 30, '+Ata de Reunião!', 'buff');
+            wait = 520;
+        }
+
+        // Lorde Valdemar: invoca 1 Estagiário a cada N turnos se houver espaço
+        if (enemy.summonKind && enemy.summonEvery > 0 && enemy.turns % enemy.summonEvery === 0) {
+            const aliveCount = state.enemies.filter(e => e.hp > 0).length;
+            if (aliveCount < D.MAX_ENEMIES_IN_COMBAT) {
+                state.enemies = state.enemies.filter(e => e.hp > 0);
+                const minion = makeEnemy(enemy.summonKind, true);
+                state.enemies.push(minion);
+                R.triggerEnemyBuffAnim(enemy.uid, 'gold');
+                A.play('buff');
+                spawnFloatingText(pos.x, pos.y - 30, 'INVOCOU ESTAGIÁRIO!', 'buff');
+                R.syncState(state);
+                wait = 620;
+            }
+        }
+        return wait;
+    }
+
+    // Impacto do golpe no jogador (chamado no fim da investida / chegada do projétil).
+    function resolveEnemyHit(enemy) {
+        const pos = R.getEnemyScreenPos(enemy.uid);
+        const vpRect = els.viewport.getBoundingClientRect();
+        const cx = vpRect.left + vpRect.width * 0.5;
+
+        let dmg = enemy.atk;
+        if (enemy.doubleIfUnshielded && state.shield <= 0) {
+            dmg = enemy.atk * 2;
+            spawnFloatingText(pos.x, pos.y - 26, 'CORTE EM DOBRO!', 'player-hit');
+        }
+
+        const absorbed = Math.min(state.shield, dmg);
+        state.shield -= absorbed;
+        dmg -= absorbed;
+
+        let realityTriggered = false;
+        if (dmg <= 0) {
+            // Escudo absorveu 100%: som metálico, flash azul e "BLOQUEADO!"
+            A.play('block');
+            R.triggerScreenFlash('#2f7dff', 0.3, 0.26);
+            R.triggerEdgeFlash('60,150,255', 0.75, 0.4);
+            R.triggerShake(0.025, 0.12);
+            spawnFloatingText(cx, vpRect.top + vpRect.height * 0.62, 'BLOQUEADO!', 'blocked');
+        } else {
+            if (absorbed > 0) {
+                A.play('block');
+                spawnFloatingText(cx, vpRect.top + vpRect.height * 0.74, 'Bloqueou ' + absorbed, 'shield');
+            }
+            state.hp = Math.max(0, state.hp - dmg);
+            A.play('hurt');
+            R.triggerShake(dmg >= 12 ? 0.13 : 0.09, 0.3);
+            R.triggerEdgeFlash('216,40,30', dmg >= 12 ? 1 : 0.85, 0.5);
+            spawnFloatingText(cx, vpRect.top + vpRect.height * 0.6, '-' + dmg, 'player-hit big-hit');
+            pulseHeart();
+            const lowSanity = state.hp > 0 && state.hp <= Math.ceil(state.maxHp * 0.3);
+            if (dmg >= 14 || lowSanity) {
+                realityTriggered = true;
+                triggerRealityFlash();
+            }
+        }
+
+        if (!realityTriggered) {
+            setLog(enemy.name + ' (' + enemy.origin + '): ' + D.ENEMIES[enemy.kind].quip);
+        }
+        renderHud();
+    }
+
     function endTurn() {
         if (state.mode !== 'combat' || state.busy || state.autoPlaying) return;
         A.unlock();
@@ -1027,6 +1475,7 @@
 
         const alive = state.enemies.filter(e => e.hp > 0);
         const pendingCurses = [];
+        const timings = R.getAttackTimings();
         let idx = 0;
 
         function nextEnemyAction() {
@@ -1035,109 +1484,57 @@
                 return;
             }
             if (bossKeyOpen) {
-                setTimeout(nextEnemyAction, 150);
+                later(150, nextEnemyAction);
                 return;
             }
             if (idx >= alive.length) {
-                state.mana = state.maxMana;
-                state.combo = 1;
-                state.shield = hasAlly('ally_jorge') ? 5 : 0;
-                while (state.hand.length > 0) {
-                    state.discardPile.push(state.hand.pop());
-                }
-                drawCards(4);
-                pendingCurses.forEach(curseId => {
-                    if (state.hand.length < 5) {
-                        state.hand.push(curseId);
-                    } else {
-                        state.drawPile.push(curseId);
-                    }
-                });
-                state.busy = false;
-                A.play('card');
-                setLog(hasAlly('ally_jorge')
-                    ? 'Seu Jorge do TI ativou +5 Escudo! Cafeina recarregada.'
-                    : 'Novo turno! Cafeina recarregada e Combo reiniciado.');
-                R.syncState(state);
-                renderAll();
+                startPlayerTurn(pendingCurses);
                 return;
             }
 
             const enemy = alive[idx++];
             const pos = R.getEnemyScreenPos(enemy.uid);
-            const vpRect = els.viewport.getBoundingClientRect();
 
             if (enemy.stunned) {
+                // Perde o turno, se recupera e fica imune a novo atordoamento por 1 turno
                 enemy.stunned = false;
+                enemy.stunImmune = 1;
                 spawnFloatingText(pos.x, pos.y, 'ATORDOADO!', 'shield');
-                setLog(enemy.name + ' perdeu o turno por Knockback!');
+                setLog(enemy.name + ' perdeu o turno por Knockback! Agora esta [IMUNE 1t].');
                 R.syncState(state);
-                setTimeout(nextEnemyAction, 380);
+                later(420, nextEnemyAction);
                 return;
             }
 
-            // Habilidade do Cultista: buffa ataque dos aliados vivos
-            if (enemy.buffAllies > 0) {
-                alive.forEach(allyEnemy => {
-                    if (allyEnemy.hp > 0) allyEnemy.atk += enemy.buffAllies;
+            enemy.stunImmune = 0;
+            enemy.turns += 1;
+            const supportWait = runEnemySupport(enemy, pendingCurses);
+
+            later(supportWait, () => {
+                if (state.mode !== 'combat') {
+                    state.busy = false;
+                    return;
+                }
+                // Antecipação (pisca + recuo) -> investida ou projétil -> impacto
+                R.triggerEnemyAttackAnim(enemy.uid, enemy.attackStyle);
+                A.play('windup');
+                later(timings.anticipation, () => {
+                    A.play(enemy.attackStyle === 'lunge' ? 'lunge' : 'projectile');
                 });
-                spawnFloatingText(pos.x, pos.y - 24, '+' + enemy.buffAllies + ' ATK Grupo!', 'heal');
-            }
-
-            // Habilidade da Dona Carmem: coloca Ata de Reunião na mão do próximo turno
-            if (enemy.curseCard) {
-                pendingCurses.push(enemy.curseCard);
-                spawnFloatingText(pos.x, pos.y - 24, '+Ata de Reuniao!', 'player-hit');
-            }
-
-            R.triggerEnemyAttackAnim(enemy.uid);
-            let dmg = enemy.atk;
-            if (enemy.doubleIfUnshielded && state.shield <= 0) {
-                dmg = enemy.atk * 2;
-                spawnFloatingText(pos.x, pos.y - 26, 'CORTE EM DOBRO!', 'player-hit');
-            }
-
-            const absorbed = Math.min(state.shield, dmg);
-            state.shield -= absorbed;
-            dmg -= absorbed;
-
-            if (absorbed > 0) {
-                A.play('block');
-                spawnFloatingText(vpRect.left + vpRect.width * 0.5, vpRect.top + vpRect.height * 0.7, 'Bloqueou ' + absorbed, 'shield');
-            }
-            let realityTriggered = false;
-            if (dmg > 0) {
-                state.hp = Math.max(0, state.hp - dmg);
-                A.play('hurt');
-                R.triggerShake(0.08, 0.25);
-                spawnFloatingText(vpRect.left + vpRect.width * 0.5, vpRect.top + vpRect.height * 0.62, '-' + dmg + ' Sanidade', 'player-hit');
-                const heartEl = els.hpText.parentElement;
-                if (heartEl) {
-                    heartEl.classList.remove('hit-pulse');
-                    void heartEl.offsetWidth;
-                    heartEl.classList.add('hit-pulse');
-                }
-                const lowSanity = state.hp > 0 && state.hp <= Math.ceil(state.maxHp * 0.3);
-                if (dmg >= 8 || lowSanity) {
-                    realityTriggered = true;
-                    triggerRealityFlash();
-                } else {
-                    R.triggerScreenFlash('#d8452f', 0.36, 0.26);
-                }
-            }
-
-            if (!realityTriggered) {
-                setLog(enemy.name + ' (' + enemy.origin + '): ' + D.ENEMIES[enemy.kind].quip);
-            }
-            renderHud();
-
-            if (state.hp <= 0) {
-                state.busy = false;
-                endGame(false);
-                return;
-            }
-
-            setTimeout(nextEnemyAction, 520);
+                later(timings.impact, () => {
+                    if (state.mode !== 'combat') {
+                        state.busy = false;
+                        return;
+                    }
+                    resolveEnemyHit(enemy);
+                    if (state.hp <= 0) {
+                        state.busy = false;
+                        endGame(false);
+                        return;
+                    }
+                    later(520, nextEnemyAction);
+                });
+            });
         }
 
         nextEnemyAction();
@@ -1146,10 +1543,12 @@
     function finishEncounter() {
         state.busy = true;
         R.setHoveredCard(null);
-        state.clearedTiles.add(state.currentEncounterTile);
-        state.currentEncounterTile = null;
+        const enc = state.encounters.find(e => e.id === state.currentEncounterId);
+        if (enc) enc.alive = false;
+        state.currentEncounterId = null;
 
-        setTimeout(() => {
+        // Espera a animação de morte (tremor + dissolução) terminar antes de voltar ao mapa
+        later(R.getAttackTimings().death + 260, () => {
             if (state.mode === 'gameover') return;
             state.mode = 'explore';
             state.enemies = [];
@@ -1174,9 +1573,15 @@
             renderAll();
 
             if (state.pendingLevelUps > 0) {
-                setTimeout(openLevelUpModal, 360);
+                later(360, openLevelUpModal);
+            } else {
+                // O combate pode ter interrompido o evento do tile onde o jogador está
+                const tile = fl.layout[state.player.y][state.player.x];
+                if (tile === 'M' || tile === '?') {
+                    handleTileEvent(state.player.x, state.player.y, tile);
+                }
             }
-        }, 520);
+        });
     }
 
     function endGame(victory) {
@@ -1266,6 +1671,7 @@
 
         els.comboBadge.classList.remove('hidden');
         els.comboNum.textContent = 'x' + state.combo;
+        els.comboBonus.textContent = comboBonusLabel(state.combo);
         if (popCombo) {
             els.comboBadge.classList.remove('pop');
             void els.comboBadge.offsetWidth;

@@ -34,7 +34,7 @@
             turn1Shield: 0,
             allyId: 'ally_vivi',
             extraCard: null,
-            desc: 'Combo sobe +2 por carta jogada em vez de +1 (Sanidade máx. 48).'
+            desc: 'Combo sobe +2 níveis por carta (+50% de dano) em vez de +1 (Sanidade máx. 48).'
         },
         {
             id: 'jorge',
@@ -128,7 +128,7 @@
             knockback: true,
             icon: 'whip',
             sfx: 'whip',
-            desc: 'Causa {DMG} em TODOS + Knockback (atordoa 1 turno).'
+            desc: 'Causa {DMG} em TODOS + 50% de chance de Knockback em cada um.'
         },
         escudo_burocratico: {
             id: 'escudo_burocratico',
@@ -176,7 +176,7 @@
             knockback: true,
             icon: 'cc',
             sfx: 'whip',
-            desc: 'Causa {DMG} em TODOS + Knockback.'
+            desc: 'Causa {DMG} em TODOS + 50% de chance de Knockback em cada um.'
         },
         atestado_arcano: {
             id: 'atestado_arcano',
@@ -202,7 +202,7 @@
             cost: 1,
             type: 'atk',
             target: 'all',
-            damage: 25,
+            damage: 22,
             ignoreShield: true,
             evolved: true,
             shield: 0,
@@ -220,7 +220,7 @@
             cost: 1,
             type: 'atk',
             target: 'single',
-            damage: 12,
+            damage: 10,
             hits: 3,
             evolved: true,
             shield: 0,
@@ -239,14 +239,15 @@
             type: 'def',
             target: 'all',
             damage: 0,
-            shield: 20,
+            shield: 18,
             evolved: true,
             heal: 0,
             manaGain: 0,
             knockback: true,
+            knockbackChance: 0.6,
             icon: 'muralha',
             sfx: 'shield',
-            desc: 'EVOLUÍDA: +20 de Escudo e atordoa TODOS os inimigos.'
+            desc: 'EVOLUÍDA: +18 de Escudo e 60% de chance de atordoar cada inimigo.'
         },
         // ---------- MALDIÇÃO DO RH ----------
         ata_reuniao: {
@@ -287,7 +288,7 @@
             icon: 'thermos',
             fromCard: 'pocao_fogo',
             toCard: 'vulcao_expresso',
-            desc: 'Evolui Poção de Fogo Líquido -> Vulcão de Expresso (25 dano em TODOS + ignora escudo).'
+            desc: 'Evolui Poção de Fogo Líquido -> Vulcão de Expresso (22 dano em TODOS + ignora escudo).'
         },
         {
             passiveId: 'rel_grampos',
@@ -296,7 +297,7 @@
             icon: 'staple_box',
             fromCard: 'mordida_ferro',
             toCard: 'mandibula_ferro',
-            desc: 'Evolui Mordida de Ferro -> Mandíbula de Ferro (12 de dano 3x seguidas!).'
+            desc: 'Evolui Mordida de Ferro -> Mandíbula de Ferro (10 de dano 3x seguidas!).'
         },
         {
             passiveId: 'rel_cco',
@@ -305,7 +306,7 @@
             icon: 'cco_shield',
             fromCard: 'escudo_burocratico',
             toCard: 'muralha_juridica',
-            desc: 'Evolui Escudo Burocrático -> Muralha Jurídica (+20 Escudo e atordoa TODOS).'
+            desc: 'Evolui Escudo Burocrático -> Muralha Jurídica (+18 Escudo e 60% de chance de atordoar cada inimigo).'
         }
     ];
 
@@ -314,7 +315,7 @@
             id: 'ally_jorge',
             name: 'Seu Jorge do TI',
             role: 'Guardião do Firewall',
-            cost: 35,
+            cost: 65,
             icon: 'ally_jorge',
             desc: '+5 de Escudo automático no início de todo turno.'
         },
@@ -322,20 +323,22 @@
             id: 'ally_vivi',
             name: 'Vivi da Arte',
             role: 'Maga do Layout',
-            cost: 35,
+            cost: 65,
             icon: 'ally_vivi',
-            desc: 'O multiplicador de Combo sobe +2 por carta em vez de +1.'
+            desc: 'O Combo sobe +2 níveis por carta (+50% de dano) em vez de +1.'
         },
         {
             id: 'ally_claudia',
             name: 'Cláudia do Financeiro',
             role: 'Alquimista do VR',
-            cost: 35,
+            cost: 65,
             icon: 'ally_claudia',
             desc: '+50% de VR ganho e +3 de dano extra em todas as cartas.'
         }
     ];
 
+    // Atributos base = Andar 1. "tiers" sobrescreve HP/ATK (e extras) nos Andares 2 e 3.
+    // attackStyle: 'lunge' (investida), 'paper' (projétil de planilha) ou 'wave' (onda sônica).
     const ENEMIES = {
         goblin: {
             kind: 'goblin',
@@ -344,9 +347,11 @@
             hp: 25,
             atk: 4,
             xp: 35,
-            vr: 15,
+            vr: 9,
             immuneKnockback: false,
+            attackStyle: 'lunge',
             scale: 1.0,
+            tiers: { 2: { hp: 55, atk: 7 }, 3: { hp: 85, atk: 10 } },
             quip: '"Ei, Valter, você tem 5 minutinhos?"'
         },
         slime: {
@@ -356,9 +361,11 @@
             hp: 30,
             atk: 5,
             xp: 40,
-            vr: 20,
+            vr: 12,
             immuneKnockback: false,
+            attackStyle: 'lunge',
             scale: 1.02,
+            tiers: { 2: { hp: 65, atk: 8 }, 3: { hp: 95, atk: 11 } },
             quip: '"Glub... esquecido no fundo da copa desde janeiro!"'
         },
         cultist: {
@@ -366,25 +373,29 @@
             name: 'Cultista do Mindset',
             origin: 'Coach Corporativo',
             hp: 28,
-            atk: 3,
+            atk: 4,
             xp: 45,
-            vr: 22,
+            vr: 13,
             immuneKnockback: false,
             buffAllies: 2,
+            attackStyle: 'wave',
             scale: 1.04,
-            quip: '"Trabalhe enquanto eles dormem! (+2 ATK nos aliados)"'
+            tiers: { 2: { hp: 60, atk: 7, buffAllies: 3 }, 3: { hp: 90, atk: 10, buffAllies: 3 } },
+            quip: '"Trabalhe enquanto eles dormem!"'
         },
         gorgon: {
             kind: 'gorgon',
             name: 'Górgona da Bandeja 2',
             origin: 'Impressora Possuída',
             hp: 40,
-            atk: 7,
+            atk: 6,
             xp: 52,
-            vr: 28,
+            vr: 17,
             immuneKnockback: false,
             enemyShield: 8,
+            attackStyle: 'paper',
             scale: 1.08,
+            tiers: { 2: { hp: 80, atk: 10, enemyShield: 12 }, 3: { hp: 120, atk: 15, enemyShield: 16 } },
             quip: '"PC LOAD LETTER! Cuspo folhas cortantes!"'
         },
         harpy: {
@@ -394,21 +405,24 @@
             hp: 35,
             atk: 6,
             xp: 45,
-            vr: 25,
+            vr: 15,
             immuneKnockback: false,
+            attackStyle: 'lunge',
             scale: 1.06,
+            tiers: { 2: { hp: 70, atk: 9 }, 3: { hp: 105, atk: 13 } },
             quip: '"Fiquei sabendo que vai ter reestruturação..."'
         },
         lich: {
             kind: 'lich',
             name: 'Lich das Planilhas',
             origin: 'Gerente - Chefe Andar 1',
-            hp: 85,
-            atk: 9,
+            hp: 110,
+            atk: 10,
             xp: 100,
-            vr: 65,
+            vr: 40,
             immuneKnockback: true,
             isBoss: true,
+            attackStyle: 'paper',
             scale: 1.2,
             quip: '"Preciso dessa PROCV pra ontem!"'
         },
@@ -416,13 +430,14 @@
             kind: 'carmem',
             name: 'Dona Carmem do RH',
             origin: 'Inquisidora do Feedback - Andar 2',
-            hp: 110,
-            atk: 10,
+            hp: 165,
+            atk: 13,
             xp: 140,
-            vr: 85,
-            immuneKnockback: false,
+            vr: 50,
+            immuneKnockback: true,
             curseCard: 'ata_reuniao',
             isBoss: true,
+            attackStyle: 'paper',
             scale: 1.22,
             quip: '"Assine já esta Ata de Reunião!"'
         },
@@ -430,17 +445,50 @@
             kind: 'valdemar',
             name: 'Lorde Valdemar, O CEO',
             origin: 'Soberano do C-Level - Chefe Final',
-            hp: 160,
-            atk: 14,
+            hp: 260,
+            atk: 16,
             xp: 220,
-            vr: 160,
+            vr: 95,
             immuneKnockback: true,
             doubleIfUnshielded: true,
+            summonKind: 'goblin',
+            summonEvery: 3,
             isBoss: true,
+            attackStyle: 'paper',
             scale: 1.26,
             quip: '"Sem escudo? Receba corte de verba em DOBRO!"'
         }
     };
+
+    // Máximo de inimigos vivos simultâneos (limite para invocações do CEO).
+    const MAX_ENEMIES_IN_COMBAT = 4;
+
+    function getEnemyStats(kind, floorNum) {
+        const tpl = ENEMIES[kind];
+        if (!tpl) return null;
+        const tier = (tpl.tiers && tpl.tiers[floorNum]) || null;
+        return tier ? Object.assign({}, tpl, tier) : tpl;
+    }
+
+    // ---------- ECONOMIA & REGRAS DE BALANCEAMENTO ----------
+    const BALANCE = {
+        comboStep: 0.25,       // +25% de dano por nível de combo acima de x1
+        comboMaxMult: 2.5,     // teto do multiplicador de combo
+        areaStunChance: 0.5,   // chance de Knockback por inimigo em cartas de área
+        maxHpCap: 75,          // teto de Sanidade Máxima
+        maxAllies: 2,          // aliados ativos por run
+        ambushDamage: 4,       // dano da EMBOSCADA antes do Turno 1
+        aggroRange: 2,         // tiles de linha de visão que iniciam o combate
+        patrolRadius: 4,       // raio (tiles) em que os encontros perseguem o jogador
+        patrolEverySteps: 2,   // encontros andam 1 casa a cada N passos do jogador
+        overkillVr: 6,
+        overkillXp: 15,
+        shop: { coffeePrice: 25, coffeeHeal: 20, relicPrice: 45, tonicPrice: 30, cardPrice: 35 }
+    };
+
+    function getComboMult(combo) {
+        return Math.min(BALANCE.comboMaxMult, 1 + BALANCE.comboStep * (Math.max(1, combo) - 1));
+    }
 
     const LEVEL_UP_REWARDS = [
         {
@@ -487,7 +535,7 @@
             title: 'Tempestade de CC',
             origin: 'Copiar a Diretoria',
             icon: 'cc',
-            desc: 'Adiciona ao deck: Custo 2 — 18 de dano em TODOS + Knockback.',
+            desc: 'Adiciona ao deck: Custo 2 — 18 de dano em TODOS + 50% de Knockback.',
             apply: function (state) {
                 state.deck.push('tempestade_cc');
                 state.discardPile.push('tempestade_cc');
@@ -511,12 +559,12 @@
             title: 'Reajuste de VR',
             origin: 'Acordo Coletivo',
             icon: 'vr_boost',
-            desc: '+15 Sanidade Máxima (cura 15) e +40 VR no bolso.',
+            desc: '+5 Sanidade Máxima (teto 75), cura 15 e +25 VR no bolso.',
             apply: function (state) {
-                state.maxHp += 15;
+                state.maxHp = Math.min(BALANCE.maxHpCap, state.maxHp + 5);
                 state.hp = Math.min(state.maxHp, state.hp + 15);
-                state.vr += 40;
-                state.passives.push({ label: 'Reajuste de VR (+15 HP Máx)', icon: 'vr_boost' });
+                state.vr += 25;
+                state.passives.push({ label: 'Reajuste de VR (+5 HP Máx)', icon: 'vr_boost' });
             }
         }
     ];
@@ -581,13 +629,13 @@
                 },
                 '4': {
                     zone: 'Arquivo Morto',
-                    intro: 'Uma Harpia fofoqueira e um Goblin vigiam o cofre do arquivo!',
-                    enemies: ['harpy', 'goblin']
+                    intro: 'Uma Harpia fofoqueira e dois Goblins vigiam o cofre do arquivo!',
+                    enemies: ['goblin', 'harpy', 'goblin']
                 },
                 '5': {
                     zone: 'Ala Leste de Reuniões',
-                    intro: 'Um Cultista e uma Harpia preparam uma dinâmica de grupo forçada!',
-                    enemies: ['cultist', 'harpy']
+                    intro: 'Um Cultista, uma Harpia e um Limo preparam uma dinâmica de grupo forçada!',
+                    enemies: ['slime', 'cultist', 'harpy']
                 },
                 'B': {
                     zone: 'Sala da Gerência',
@@ -620,13 +668,13 @@
             encounters: {
                 '1': {
                     zone: 'Pia das Marmitas',
-                    intro: 'Duas marmitas esquecidas de 2024 ganharam consciência!',
-                    enemies: ['slime', 'slime']
+                    intro: 'Duas marmitas esquecidas de 2024 ganharam consciência e um Goblin veio junto!',
+                    enemies: ['slime', 'goblin', 'slime']
                 },
                 '2': {
                     zone: 'Corredor do Micro-ondas',
-                    intro: 'Um Cultista do Mindset motiva uma Górgona da Bandeja 2!',
-                    enemies: ['cultist', 'gorgon']
+                    intro: 'Um Cultista do Mindset motiva uma Górgona da Bandeja 2 e um Limo!',
+                    enemies: ['slime', 'cultist', 'gorgon']
                 },
                 '3': {
                     zone: 'Ala Leste do Feedback',
@@ -635,13 +683,13 @@
                 },
                 '4': {
                     zone: 'Despensa Tóxica',
-                    intro: 'Um Limo gigante e uma Harpia protegem o estoque da copa!',
-                    enemies: ['slime', 'harpy']
+                    intro: 'Um Limo gigante, uma Harpia e um Goblin protegem o estoque da copa!',
+                    enemies: ['slime', 'harpy', 'goblin']
                 },
                 '5': {
                     zone: 'Sala de Dinâmica',
-                    intro: 'Dois Cultistas do Mindset tentam alinhar seus chakras corporativos!',
-                    enemies: ['cultist', 'cultist']
+                    intro: 'Dois Cultistas do Mindset alinham os chakras de uma Harpia e um Goblin!',
+                    enemies: ['goblin', 'cultist', 'harpy', 'cultist']
                 },
                 'B': {
                     zone: 'Inquisição do RH',
@@ -674,8 +722,8 @@
             encounters: {
                 '1': {
                     zone: 'Ala Leste Executiva',
-                    intro: 'Seguranças burocráticos do C-Level bloqueiam o tapete dourado!',
-                    enemies: ['gorgon', 'cultist']
+                    intro: 'Seguranças burocráticos de elite do C-Level bloqueiam o tapete dourado!',
+                    enemies: ['harpy', 'cultist', 'gorgon']
                 },
                 '2': {
                     zone: 'Galeria dos Acionistas',
@@ -684,22 +732,22 @@
                 },
                 '3': {
                     zone: 'Ante-sala da Copa VIP',
-                    intro: 'Górgonas guardam a máquina de café executiva!',
-                    enemies: ['gorgon', 'gorgon']
+                    intro: 'Górgonas de elite e um Limo guardam a máquina de café executiva!',
+                    enemies: ['gorgon', 'slime', 'gorgon']
                 },
                 '4': {
                     zone: 'Guarda Oeste da Presidência',
-                    intro: 'Uma Harpia e um Cultista protegem o flanco esquerdo do CEO!',
-                    enemies: ['harpy', 'cultist', 'goblin']
+                    intro: 'A guarda de elite protege o flanco esquerdo do CEO!',
+                    enemies: ['goblin', 'harpy', 'cultist', 'slime']
                 },
                 '5': {
                     zone: 'Guarda Leste da Presidência',
-                    intro: 'Última barreira no flanco direito: Górgonas em formação!',
-                    enemies: ['gorgon', 'cultist', 'gorgon']
+                    intro: 'Última barreira no flanco direito: Górgonas de elite em formação!',
+                    enemies: ['gorgon', 'cultist', 'harpy', 'gorgon']
                 },
                 'B': {
                     zone: 'Trono do CEO',
-                    intro: 'CHEFE FINAL: LORDE VALDEMAR, O CEO! Mantenha seu Escudo ou receba dano em DOBRO!',
+                    intro: 'CHEFE FINAL: LORDE VALDEMAR, O CEO! Sem Escudo o dano é em DOBRO e ele invoca Estagiários!',
                     isBoss: true,
                     enemies: ['cultist', 'valdemar', 'gorgon']
                 }
@@ -853,6 +901,70 @@
         }
     ];
 
+    // Validação estrita do grid: mapa retangular e murado, um único início, todo símbolo de
+    // encontro definido e todo tile especial (encontro, baú, evento, loja, elevador) em piso
+    // caminhável alcançável a partir do início. Retorna a lista de problemas (vazia = ok).
+    function isWalkableTile(layout, x, y) {
+        return y >= 0 && y < layout.length && x >= 0 && x < layout[y].length && layout[y][x] !== '#';
+    }
+
+    function validateFloors() {
+        const problems = [];
+        FLOORS.forEach(fl => {
+            const L = fl.layout;
+            const tag = 'Andar ' + fl.floor + ': ';
+            const cols = L[0].length;
+            let start = null;
+            L.forEach((row, y) => {
+                if (row.length !== cols) problems.push(tag + 'linha ' + y + ' com largura diferente');
+                for (let x = 0; x < row.length; x++) {
+                    const ch = row[x];
+                    const edge = y === 0 || y === L.length - 1 || x === 0 || x === row.length - 1;
+                    if (edge && ch !== '#') problems.push(tag + 'borda aberta em ' + x + ',' + y);
+                    if (ch === 'S') {
+                        if (start) problems.push(tag + 'mais de um início');
+                        start = { x: x, y: y };
+                    }
+                    if (!'#.SCM?E'.includes(ch) && !fl.encounters[ch]) {
+                        problems.push(tag + 'símbolo sem encontro definido "' + ch + '" em ' + x + ',' + y);
+                    }
+                }
+            });
+            if (!start) {
+                problems.push(tag + 'sem tile de início');
+                return;
+            }
+            const seen = new Set([start.x + ',' + start.y]);
+            const queue = [start];
+            while (queue.length > 0) {
+                const c = queue.shift();
+                [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(d => {
+                    const x = c.x + d[0];
+                    const y = c.y + d[1];
+                    if (!isWalkableTile(L, x, y) || seen.has(x + ',' + y)) return;
+                    seen.add(x + ',' + y);
+                    queue.push({ x: x, y: y });
+                });
+            }
+            L.forEach((row, y) => {
+                for (let x = 0; x < row.length; x++) {
+                    if (row[x] !== '#' && row[x] !== '.' && !seen.has(x + ',' + y)) {
+                        problems.push(tag + '"' + row[x] + '" inalcançável em ' + x + ',' + y);
+                    }
+                }
+            });
+            Object.keys(fl.encounters).forEach(ch => {
+                if (!L.some(row => row.includes(ch))) problems.push(tag + 'encontro "' + ch + '" sem tile no mapa');
+                fl.encounters[ch].enemies.forEach(kind => {
+                    if (!ENEMIES[kind]) problems.push(tag + 'inimigo desconhecido "' + kind + '"');
+                });
+            });
+        });
+        return problems;
+    }
+
+    validateFloors().forEach(msg => console.error('[Hells Castle] Mapa inválido — ' + msg));
+
     function getFloorConfig(floorNum) {
         return FLOORS[(floorNum || 1) - 1] || FLOORS[0];
     }
@@ -872,6 +984,12 @@
         EVOLUTIONS: EVOLUTIONS,
         ALLIES: ALLIES,
         ENEMIES: ENEMIES,
+        BALANCE: BALANCE,
+        MAX_ENEMIES_IN_COMBAT: MAX_ENEMIES_IN_COMBAT,
+        getEnemyStats: getEnemyStats,
+        isWalkableTile: isWalkableTile,
+        validateFloors: validateFloors,
+        getComboMult: getComboMult,
         LEVEL_UP_REWARDS: LEVEL_UP_REWARDS,
         FLOORS: FLOORS,
         MAP_LAYOUT: FLOORS[0].layout,

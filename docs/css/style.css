@@ -312,6 +312,33 @@ body.daydream-transition .viewport-frame {
 .float-dmg.player-hit { color: #ff6e5e; font-size: 32px; }
 .float-dmg.heal { color: #85db60; }
 .float-dmg.shield { color: #69c8f0; }
+.float-dmg.buff { color: #e0b3ff; font-size: 28px; }
+.float-dmg.blocked {
+    color: #8fd4ff;
+    font-size: clamp(40px, 6.4vh, 60px);
+    animation: float-slam 0.85s ease-out forwards;
+}
+.float-dmg.big-hit {
+    color: #fff1e6;
+    text-shadow: 3px 3px 0 #8a0d08, -3px -3px 0 #8a0d08, 3px -3px 0 #8a0d08, -3px 3px 0 #8a0d08, 0 5px 0 #2a0503, 0 0 22px #ff2a1a;
+    font-size: clamp(54px, 9vh, 84px);
+    animation: float-slam 0.85s ease-out forwards;
+}
+
+@keyframes float-slam {
+    0% { opacity: 1; transform: translate(-50%, 0) scale(2.1); }
+    18% { opacity: 1; transform: translate(-50%, -6px) scale(1); }
+    70% { opacity: 1; transform: translate(-50%, -22px) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -52px) scale(0.9); }
+}
+
+.ambush-banner {
+    top: 30%;
+    background: linear-gradient(180deg, #7a1fd1 0%, #3b0f14 100%);
+    box-shadow: inset 0 0 0 2px #ff5a3c, 0 6px 0 var(--ink), 0 0 34px rgba(255, 60, 40, 0.95);
+    color: #ffe9e2;
+    white-space: nowrap;
+}
 
 @keyframes float-up {
     0% { opacity: 1; transform: translate(-50%, 0) scale(1.25); }
@@ -446,6 +473,9 @@ body.daydream-transition .viewport-frame {
     align-items: center;
     justify-content: center;
     filter: drop-shadow(0 5px 0 rgba(0, 0, 0, 0.7));
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow: visible;
 }
 
 .heart-wrap.hit-pulse {
@@ -460,8 +490,10 @@ body.daydream-transition .viewport-frame {
 }
 
 .pixel-heart {
+    display: block;
     width: 100%;
     height: 100%;
+    overflow: visible;
 }
 
 .heart-val {
@@ -558,6 +590,15 @@ body.daydream-transition .viewport-frame {
     letter-spacing: 0.08em;
     color: #b8f4ff;
     text-shadow: 0 2px 0 #000;
+}
+
+.combo-bonus {
+    margin-top: 2px;
+    font-size: clamp(13px, 1.3vw, 17px);
+    line-height: 1;
+    color: #ffe08a;
+    text-shadow: 1px 1px 0 #05142e;
+    white-space: nowrap;
 }
 
 .combo-num {
@@ -931,6 +972,22 @@ body.daydream-transition .viewport-frame {
     border: 2px solid #09203d;
     box-shadow: 0 0 10px var(--xp-blue);
     transform: translate(-50%, -50%);
+}
+
+.xp-orb.vr-orb {
+    background: var(--gold);
+    border-color: #4a2f06;
+    box-shadow: 0 0 10px var(--gold);
+}
+
+.vr-pulse {
+    display: inline-block;
+    animation: vr-pulse 0.3s ease-out;
+}
+
+@keyframes vr-pulse {
+    0% { filter: brightness(2); transform: scale(1.25); }
+    100% { filter: brightness(1); transform: scale(1); }
 }
 
 .modal-overlay {
