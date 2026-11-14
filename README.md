@@ -2,7 +2,7 @@
 
 Protótipo 100% jogável no navegador (inspirado em **Vampire Crawlers**), com estética **2.5D Pixel Art em Primeira Pessoa** e tema **"Walter Mitty Corporativo + Dark Fantasy"**.
 
-Você interpreta um funcionário comum que, para sobreviver ao tédio e estresse do escritório, alucina todo o ambiente como uma masmorra sombria cheia de goblins estagiários, harpias fofoqueiras e o temível **Lich das Planilhas**.
+Você interpreta Valter Motta, um analista comum que, entre uma tarefa e outra, devaneia: a impressora vira uma praia ao crepúsculo, o corredor vira uma cidade gótica, a sala de reunião vira um pico nevado — até o relógio de ponto marcar 18:00.
 
 ## Jogar no GitHub Pages
 
@@ -12,24 +12,28 @@ O protótipo estático fica na pasta `/docs` e é publicado automaticamente pelo
 
 Para abrir localmente, basta servir a pasta `/docs` (por exemplo com `python -m http.server 8080 --directory docs`) ou abrir `docs/index.html` diretamente no navegador.
 
+## Campanha: "Entre Uma Reunião e Outra"
+
+Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Cada fase é um bioma 3D próprio, aberto por um card narrativo com o gatilho real do escritório:
+
+| Fase | Relógio | Bioma | Chefe |
+| --- | --- | --- | --- |
+| 1 | 08:17 | Praia do Crepúsculo | Devorador das Marés (coloca "Folha Presa" na mão) |
+| 2 | 11:30 | Cidade Gótica Amaldiçoada | Mensageiro do Sino Veloz (ataca 2x por turno) |
+| 3 | 14:45 | Pico Nevado | Estrategista do Véu Branco (Escudo de Cristal todo turno) |
+| 4 | 17:15 | Dungeon do Arquivo | Guardiã das Catacumbas (invoca; entrega a "Foto no Parque") |
+| 5 | 17:55 | O Abismo Estrelado | O Senhor das Horas (drena Cafeína se não for bloqueado) |
+
 ## Mecânicas
 
-- **Exploração em Grid 2.5D:** Use `WASD` / `Setas` ou os botões grandes na interface inferior para andar pelas baias, copa, sala de reunião e ala da diretoria, com minimapa 2D em tempo real no canto da tela.
-- **Status Corporativos:**
-  - **Sanidade (HP):** 60/60 inicial.
-  - **Cafeína (Mana):** 3/3 inicial, regenera todo turno.
-  - **Horas Extras (XP):** Barra no topo da tela; ao encher, abre o modal de **Level Up (1 de 3 recompensas)**.
-  - **VR (Vale-Refeição):** Ouro obtido em baús, combates e bônus de *Overkill*.
-- **Combate Deckbuilder Turbo:**
-  - **Mordida de Ferro** *(Grampeador Pesado)* — Custo 1 — 15 de dano em 1 alvo.
-  - **Poção de Fogo Líquido** *(Café Pelando)* — Custo 1 — 10 de dano em TODOS os inimigos.
-  - **Chicote de Dados** *(Cabo de Rede Cat6)* — Custo 2 — 12 de dano em TODOS + 50% de chance de Knockback em cada inimigo.
-  - **Escudo Burocrático** *(Responder 'Por E-mail')* — Custo 1 — +8 de Escudo + Knockback em 1 inimigo.
-  - **Combo (`x1`, `x2`, `x3`...)**: cada carta jogada no mesmo turno dá +25% de dano à próxima (teto de 2.5x).
-  - **Knockback justo:** quem perde o turno atordoado fica `[IMUNE 1t]` no turno seguinte; chefes são imunes. O Escudo expira no início de cada turno do jogador.
-- **Encontros e Patrulha:** o combate começa à distância (inimigo a 1–2 tiles na linha de visão, com alerta `!`); a cada 2 passos os encontros próximos avançam 1 casa na sua direção (visível no minimapa) e, se encostarem pelo lado ou por trás, causam uma **EMBOSCADA** (4 de dano antes do Turno 1).
-- **Economia:** Máquina de Café com Café Expresso (25 VR), Relíquias (45 VR) e Aliados (65 VR, máximo de 2 ativos).
-  - **Jogar Tudo (`Espaço`)** e **Encerrar Turno (`Enter`)**, além de números flutuantes, flash de impacto, banner **OVERKILL!**, partículas de XP voadoras e áudio retrô via Web Audio API (com botão de Mute).
+- **Exploração em Grid 2.5D:** `WASD` / `Setas` / `Q` `E` ou os botões na tela, com minimapa em tempo real. Mapas 9x9 abertos, sem corredores estreitos.
+- **Encontros e Patrulha:** o combate começa à distância (inimigo a 1–2 tiles na linha de visão, com alerta `!`); a cada 2 passos os encontros próximos avançam 1 casa e, se encostarem pelo lado ou por trás, causam uma **EMBOSCADA** (4 de dano antes do Turno 1).
+- **Status:** Sanidade (HP, teto 75), Cafeína (3 por turno; 4 com o Cálice Duplo, 5 só com relíquia rara), Horas Extras (XP) e VR.
+- **Combate por cartas:** Combo de +25% por carta jogada no turno (teto 2.5x), Knockback com imunidade de 1 turno após o atordoamento, Escudo que expira no início do turno do jogador, **Jogar Tudo** (`Espaço`) e **Fim do Turno** (`Enter`).
+- **Ponto de Pausa (fogueira de cada bioma):** gaste VR para recuperar Sanidade (25), remover 1 carta do baralho (30, 1 vez por fase) ou comprar 1 Relíquia de Evolução (45, 1 por fase).
+- **Fila única de modais:** level ups, pausas, eventos e cards narrativos nunca abrem ao mesmo tempo; o jogo só volta ao fluxo quando a fila zera.
+- **Celular:** layout dedicado em retrato (`100dvh`, sem scroll), com cartas e botões dimensionados para toque.
+- **Modo Planilha:** tecla `P` ou o botão no canto superior direito.
 
 ## Créditos
 

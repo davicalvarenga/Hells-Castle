@@ -1,11 +1,59 @@
-// Renderizador 2.5D Pixel Art em Primeira Pessoa (Three.js com fallback 2D) + Minimapa Pergaminho.
+// Renderizador 2.5D Pixel Art em Primeira Pessoa (Three.js) — 5 biomas de devaneio + Minimapa.
+// Unidades do mundo: 1 tile = TILE unidades. Chão em y = 0. Todo sprite fica com os pés em y = 0.
 (function () {
     'use strict';
 
     const INTERNAL_HEIGHT = 270;
-    const WALL_HEIGHT = 1.6;
+    const TILE = 2;                 // largura de um tile em unidades do mundo
+    const CAM_HEIGHT = 1.35;        // altura dos olhos do protagonista
+    const COMMON_HEIGHT = 1.5;      // altura visível de TODO inimigo comum
+    const BOSS_HEIGHT = 2.1;        // somente chefes são maiores
     const DIR_DX = [0, 1, 0, -1];
     const DIR_DY = [-1, 0, 1, 0];
+
+    // Tempos (s) da animação de ataque: antecipação -> investida/projétil -> retorno
+    const ATK_ANTICIPATION = 0.15;
+    const ATK_STRIKE = 0.2;
+    const ATK_RECOVER = 0.24;
+    const DEATH_DURATION = 0.72;
+
+    // Formação de combate: sempre sobre o chão do tile livre logo à frente do jogador
+    // (profundidade entre 1 e 3 unidades da câmera), lado a lado, com leve diferença só no eixo Z.
+    const FORMATION_DEPTH = 2.5;
+    const FORMATION_MIN_DEPTH = 1.25;
+    const FORMATION_MAX_DEPTH = 2.85;
+    const FORMATION_GAP = 0.14;
+    const WALL_MARGIN = 0.14;
+    const VIEW_HALF_WIDTH = 2.6;    // limite lateral visível na profundidade da formação
+
+    // Atmosfera de cada bioma.
+    const BIOMES = {
+        beach: {
+            clear: 0xff9a5a, fog: [0xf5a56c, 16, 70], sky: true, ceiling: false, wallH: 1.1,
+            ambient: [0xffe6c8, 1.7], hemi: [0x9fe0e8, 0xd9a066, 1.3], sun: [0xffb070, 1.8, [-8, 6, -12]],
+            player: [0xffd9a8, 0.8, 14], orb: '#3fb3b8'
+        },
+        city: {
+            clear: 0x0a0d16, fog: [0x1a2233, 3.5, 19], sky: true, ceiling: false, wallH: 6,
+            ambient: [0x7f92bd, 1.5], hemi: [0x8fa4d9, 0x1a1e2b, 1.0], sun: [0xb8c8ff, 0.8, [6, 10, -4]],
+            player: [0xa9c4ff, 3.0, 13], orb: '#9fe8ff'
+        },
+        snow: {
+            clear: 0xa9c9ee, fog: [0xa6c6ec, 9, 38], sky: true, ceiling: false, wallH: 3.2,
+            ambient: [0xd5e8ff, 1.9], hemi: [0xe2f0ff, 0x7fa3d0, 1.3], sun: [0xffffff, 1.3, [5, 9, 6]],
+            player: [0xdcecff, 0.9, 14], orb: '#9fd0ee'
+        },
+        dungeon: {
+            clear: 0x0b0a0e, fog: [0x0b0a0e, 3.5, 17], sky: false, ceiling: true, wallH: 3.2,
+            ambient: [0x8f84a0, 1.25], hemi: [0x9a8fb0, 0x2a2430, 0.9], sun: null,
+            player: [0xffc27a, 4.2, 14], orb: '#85db60'
+        },
+        abyss: {
+            clear: 0x020108, fog: null, sky: true, ceiling: false, wallH: 0,
+            ambient: [0xc3b4ff, 2.2], hemi: [0x9fe8ff, 0x3d2c73, 1.2], sun: null,
+            player: [0x9fe8ff, 2.0, 16], orb: '#ec6bff'
+        }
+    };
 
     let glCanvas = null;
     let hudCanvas = null;
@@ -25,65 +73,37 @@
     let mapGrid = [];
     let mapCols = 0;
     let mapRows = 0;
+    let biomeName = 'beach';
+    let biome = BIOMES.beach;
 
+    // Câmera em unidades de TILE (convertida para o mundo na hora de desenhar)
     let camX = 0;
     let camZ = 0;
     let camYaw = 0;
     let targetCamX = 0;
     let targetCamZ = 0;
     let targetCamYaw = 0;
+    let camTurnRate = 14;
     let ambientLight = null;
     let playerLight = null;
+    let skyMesh = null;
+    let waterTex = null;
+    let snowPoints = null;
     let stepBob = 0;
     let shakeMag = 0;
     let shakeTime = 0;
     let screenFlash = { color: '#ff3a2a', alpha: 0, maxAlpha: 0, time: 0, dur: 1 };
     let edgeFlash = { rgb: '216,40,30', alpha: 0, maxAlpha: 0, time: 0, dur: 1 };
-    let camTurnRate = 14;
-    let camY = 0.68;
-
-    const CAM_HEIGHT_EXPLORE = 0.68;
-    const CAM_HEIGHT_COMBAT = 0.52;   // câmera um pouco mais baixa: horda compacta fica na altura dos olhos
-    // Formação compacta em "V" / duas fileiras dentro do corredor (largura do corredor = 1 tile).
-    // x = deslocamento lateral, z = distância da câmera, w = largura do sprite (escala 1.0).
-    // O centro de cada sprite fica em |x| <= 0.29 e a borda nunca passa de CORRIDOR_HALF_SAFE.
-    const CORRIDOR_HALF_SAFE = 0.44;
-    const MAX_COMBAT_DEPTH = 1.42;    // < 1.5: nunca atrás da parede que fecha o tile à frente
-    const FORMATIONS = {
-        1: [{ x: 0, z: 1.05, w: 0.62 }],
-        2: [{ x: -0.2, z: 0.95, w: 0.44 }, { x: 0.2, z: 1.1, w: 0.44 }],
-        3: [{ x: -0.28, z: 0.78, w: 0.32 }, { x: 0, z: 1.28, w: 0.56 }, { x: 0.28, z: 0.78, w: 0.32 }],
-        4: [{ x: -0.29, z: 0.78, w: 0.3 }, { x: -0.15, z: 1.3, w: 0.4 }, { x: 0.15, z: 1.3, w: 0.4 }, { x: 0.29, z: 0.78, w: 0.3 }]
-    };
-
-    function getFormationSlot(count, idx) {
-        const f = FORMATIONS[count];
-        if (f) return f[idx];
-        // Fallback genérico (5+): zigue-zague em duas fileiras
-        const t = count === 1 ? 0 : (idx / (count - 1)) * 2 - 1;
-        return { x: t * 0.3, z: idx % 2 === 0 ? 0.78 : 1.3, w: Math.max(0.2, 0.9 / count) };
-    }
-
-    function isWallAt(x, z) {
-        const gx = Math.round(x);
-        const gy = Math.round(z);
-        if (gy < 0 || gy >= mapRows || gx < 0 || gx >= mapCols) return true;
-        return mapGrid[gy][gx] === '#';
-    }
-
-    // Tempos (s) da animação de ataque: antecipação -> investida/projétil -> retorno
-    const ATK_ANTICIPATION = 0.15;
-    const ATK_STRIKE = 0.2;
-    const ATK_RECOVER = 0.24;
-    const DEATH_DURATION = 0.72;
 
     const torches = [];
     const worldPickups = new Map();
     const combatSprites = new Map();
     const encounterSprites = new Map();
+    const epilogueSprites = [];
     const enemyHitboxes = [];
     const projectiles = [];
     const hudParticles = [];
+    const texCache = new Map();
     let encounterAlert = null;
 
     let currentState = null;
@@ -116,6 +136,46 @@
         return tex;
     }
 
+    // Texturas de sprites são compartilhadas (normal / branca / vermelha por tipo).
+    function sheetTextures(kind) {
+        if (!texCache.has(kind)) {
+            const sheet = window.GameSprites.getSheet(kind);
+            texCache.set(kind, {
+                sheet: sheet,
+                normal: makeTexture(sheet.normal),
+                white: makeTexture(sheet.white),
+                red: makeTexture(sheet.red)
+            });
+        }
+        return texCache.get(kind);
+    }
+
+    // Cria um billboard com os PÉS apoiados no ponto de ancoragem (y = 0 = chão) e com a
+    // altura VISÍVEL (pixels opacos) igual a targetH. maxW limita a largura visível.
+    function makeBillboard(kind, targetH, maxW, materialOpts) {
+        const THREE = window.THREE;
+        const tx = sheetTextures(kind);
+        const b = tx.sheet.bounds;
+        const visHpx = b.y1 - b.y0 + 1;
+        const visWpx = b.x1 - b.x0 + 1;
+        let visH = targetH;
+        let visW = targetH * visWpx / visHpx;
+        if (maxW && visW > maxW) {
+            visH *= maxW / visW;
+            visW = maxW;
+        }
+        const scale = visH * b.h / visHpx;   // tamanho do quad inteiro (sprite quadrado)
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial(Object.assign({
+            map: tx.normal,
+            transparent: true,
+            alphaTest: 0.1,
+            fog: true
+        }, materialOpts || {})));
+        sprite.center.set(((b.x0 + b.x1 + 1) / 2) / b.w, (b.h - 1 - b.y1) / b.h);
+        sprite.scale.set(scale, scale, 1);
+        return { sprite: sprite, tex: tx, scale: scale, visW: visW, visH: visH };
+    }
+
     function init(opts) {
         glCanvas = opts.glCanvas;
         hudCanvas = opts.hudCanvas;
@@ -133,11 +193,8 @@
                 });
                 renderer.setPixelRatio(1);
                 renderer.setClearColor(0x161224, 1);
-
                 scene = new window.THREE.Scene();
-                scene.fog = new window.THREE.Fog(0x161224, 2.8, 9.5);
-
-                camera = new window.THREE.PerspectiveCamera(72, 16 / 9, 0.08, 22);
+                camera = new window.THREE.PerspectiveCamera(70, 16 / 9, 0.1, 260);
                 camera.rotation.order = 'YXZ';
                 webglOk = true;
             } catch (e) {
@@ -167,11 +224,35 @@
         }
     }
 
+    function isWallAt(gx, gy) {
+        if (gy < 0 || gy >= mapRows || gx < 0 || gx >= mapCols) return true;
+        return mapGrid[gy][gx] === '#';
+    }
+
+    function isBorder(gx, gy) {
+        return gx === 0 || gy === 0 || gx === mapCols - 1 || gy === mapRows - 1;
+    }
+
+    function findAdjacentWallOffset(x, y) {
+        const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        for (const d of dirs) {
+            if (isWallAt(x + d[0], y + d[1])) return d;
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------------------------
+    // CONSTRUÇÃO DO BIOMA
+    // ---------------------------------------------------------------------------------
     function buildMap(layout, state) {
         mapGrid = layout;
         mapRows = layout.length;
         mapCols = layout[0].length;
         currentState = state;
+
+        const floorCfg = window.GameData.getFloorConfig(state.floor);
+        biomeName = floorCfg.biome || 'dungeon';
+        biome = BIOMES[biomeName] || BIOMES.dungeon;
 
         camX = state.player.x;
         camZ = state.player.y;
@@ -180,123 +261,243 @@
         camYaw = -state.player.dir * (Math.PI / 2);
         targetCamYaw = camYaw;
 
+        encounterSprites.clear();
+        combatSprites.clear();
+        worldPickups.clear();
+        epilogueSprites.length = 0;
+        projectiles.length = 0;
+        hudParticles.length = 0;
+        torches.length = 0;
+        encounterAlert = null;
+        skyMesh = null;
+        waterTex = null;
+        snowPoints = null;
+
         if (!webglOk) {
-            encounterSprites.clear();
-            encounterAlert = null;
             buildEncounterSprites(state);
             return;
         }
         const THREE = window.THREE;
-
-        const floorNum = (state && state.floor) || 1;
-        const floorColors = {
-            1: { bg: 0x161224, amb: 0xc8c2e8, hemiSky: 0xd0d8ff, hemiGnd: 0x3a2d4c, torch: 0xffaa44, player: 0xffe6c4 },
-            2: { bg: 0x0f1f18, amb: 0xaee6c4, hemiSky: 0xb6ffd4, hemiGnd: 0x223d2d, torch: 0x7eff9e, player: 0xd9ffe8 },
-            3: { bg: 0x220d12, amb: 0xf2c2b6, hemiSky: 0xffe1a8, hemiGnd: 0x451a22, torch: 0xffc644, player: 0xffe8ba }
-        };
-        const fc = floorColors[floorNum] || floorColors[1];
-        renderer.setClearColor(fc.bg, 1);
-        scene.fog = new THREE.Fog(fc.bg, 2.8, 9.5);
+        const SP = window.GameSprites;
 
         while (scene.children.length > 0) {
             scene.remove(scene.children[0]);
         }
-        torches.length = 0;
-        worldPickups.clear();
-        combatSprites.clear();
-        encounterSprites.clear();
-        projectiles.length = 0;
-        hudParticles.length = 0;
-        encounterAlert = null;
+        renderer.setClearColor(biome.clear, 1);
+        scene.fog = biome.fog ? new THREE.Fog(biome.fog[0], biome.fog[1], biome.fog[2]) : null;
 
-        ambientLight = new THREE.AmbientLight(fc.amb, 2.1);
+        ambientLight = new THREE.AmbientLight(biome.ambient[0], biome.ambient[1]);
         scene.add(ambientLight);
-        scene.add(new THREE.HemisphereLight(fc.hemiSky, fc.hemiGnd, 1.15));
-
-        playerLight = new THREE.PointLight(fc.player, 3.6, 7.5, 1.1);
-        playerLight.position.set(camX, 0.95, camZ);
+        scene.add(new THREE.HemisphereLight(biome.hemi[0], biome.hemi[1], biome.hemi[2]));
+        if (biome.sun) {
+            const sun = new THREE.DirectionalLight(biome.sun[0], biome.sun[1]);
+            sun.position.set(biome.sun[2][0], biome.sun[2][1], biome.sun[2][2]);
+            scene.add(sun);
+        }
+        playerLight = new THREE.PointLight(biome.player[0], biome.player[1], biome.player[2], 1.1);
         scene.add(playerLight);
 
-        const floorTex = makeTexture(window.GameSprites.makeFloorTexture(floorNum), mapCols, mapRows);
-        const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(mapCols, mapRows),
-            new THREE.MeshLambertMaterial({ map: floorTex })
-        );
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.set((mapCols - 1) / 2, 0, (mapRows - 1) / 2);
-        scene.add(floor);
+        const midX = (mapCols - 1) * TILE / 2;
+        const midZ = (mapRows - 1) * TILE / 2;
 
-        const ceilTex = makeTexture(window.GameSprites.makeCeilingTexture(floorNum), mapCols, mapRows);
-        const ceiling = new THREE.Mesh(
-            new THREE.PlaneGeometry(mapCols, mapRows),
-            new THREE.MeshLambertMaterial({ map: ceilTex })
-        );
-        ceiling.rotation.x = Math.PI / 2;
-        ceiling.position.set((mapCols - 1) / 2, WALL_HEIGHT, (mapRows - 1) / 2);
-        scene.add(ceiling);
+        // Céu aberto (esfera com textura pixelada); a dungeon tem teto fechado.
+        if (biome.sky) {
+            skyMesh = new THREE.Mesh(
+                new THREE.SphereGeometry(120, 32, 16),
+                new THREE.MeshBasicMaterial({
+                    map: makeTexture(SP.makeSkyTexture(biomeName)),
+                    side: THREE.BackSide,
+                    fog: false,
+                    depthWrite: false
+                })
+            );
+            skyMesh.renderOrder = -10;
+            scene.add(skyMesh);
+        }
 
-        const wallMats = [0, 1, 2, 3, 4, 5].map(v =>
-            new THREE.MeshLambertMaterial({ map: makeTexture(window.GameSprites.makeWallTexture(v, floorNum)) })
-        );
-        const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, 1);
+        // Chão
+        const floorCanvas = SP.makeFloorTexture(biomeName);
+        if (biomeName === 'abyss') {
+            // ladrilhos luminosos flutuando no vazio: só existem onde se pode pisar
+            const tileMat = new THREE.MeshBasicMaterial({ map: makeTexture(floorCanvas), fog: false });
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0x7ef0ff, transparent: true, opacity: 0.22, fog: false, depthWrite: false });
+            const tileGeo = new THREE.BoxGeometry(TILE * 0.92, 0.18, TILE * 0.92);
+            const glowGeo = new THREE.PlaneGeometry(TILE * 1.25, TILE * 1.25);
+            for (let y = 0; y < mapRows; y++) {
+                for (let x = 0; x < mapCols; x++) {
+                    if (layout[y][x] === '#') continue;
+                    const tile = new THREE.Mesh(tileGeo, tileMat);
+                    tile.position.set(x * TILE, -0.09, y * TILE);
+                    scene.add(tile);
+                    const glow = new THREE.Mesh(glowGeo, glowMat);
+                    glow.rotation.x = -Math.PI / 2;
+                    glow.position.set(x * TILE, -0.3, y * TILE);
+                    scene.add(glow);
+                }
+            }
+            const starGeo = new THREE.BufferGeometry();
+            const pts = [];
+            for (let i = 0; i < 420; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const h = Math.random() * 2 - 1;
+                const r = 55 + Math.random() * 30;
+                const k = Math.sqrt(1 - h * h);
+                pts.push(midX + Math.cos(a) * k * r, h * r, midZ + Math.sin(a) * k * r);
+            }
+            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+            scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.55, fog: false })));
+        } else {
+            const inner = biomeName === 'beach';
+            const fw = (inner ? mapCols - 2 : mapCols) * TILE;
+            const fh = (inner ? mapRows - 2 : mapRows) * TILE;
+            const floor = new THREE.Mesh(
+                new THREE.PlaneGeometry(fw, fh),
+                new THREE.MeshLambertMaterial({ map: makeTexture(floorCanvas, fw / TILE, fh / TILE) })
+            );
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(midX, 0, midZ);
+            scene.add(floor);
+        }
 
-        const torchFrames = [0, 1, 2].map(v => makeTexture(window.GameSprites.makeTorchCanvas(v)));
-        let torchCount = 0;
+        if (biomeName === 'beach') {
+            // mar escuro com reflexos ao redor da faixa de areia
+            waterTex = makeTexture(SP.makeWaterTexture(), 90, 90);
+            const water = new THREE.Mesh(
+                new THREE.PlaneGeometry(360, 360),
+                new THREE.MeshBasicMaterial({ map: waterTex, fog: true })
+            );
+            water.rotation.x = -Math.PI / 2;
+            water.position.set(midX, -0.14, midZ);
+            scene.add(water);
+            const foam = new THREE.Mesh(
+                new THREE.PlaneGeometry((mapCols - 2) * TILE + 0.7, (mapRows - 2) * TILE + 0.7),
+                new THREE.MeshBasicMaterial({ color: 0xf4fbf6, transparent: true, opacity: 0.55 })
+            );
+            foam.rotation.x = -Math.PI / 2;
+            foam.position.set(midX, -0.06, midZ);
+            scene.add(foam);
+        }
+
+        if (biome.ceiling) {
+            const ceiling = new THREE.Mesh(
+                new THREE.PlaneGeometry(mapCols * TILE, mapRows * TILE),
+                new THREE.MeshLambertMaterial({ map: makeTexture(SP.makeCeilingTexture(), mapCols, mapRows) })
+            );
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.set(midX, biome.wallH, midZ);
+            scene.add(ceiling);
+        }
+
+        if (biomeName === 'snow') {
+            // flocos de neve caindo em partículas 3D ao redor da câmera
+            const geo = new THREE.BufferGeometry();
+            const pos = [];
+            for (let i = 0; i < 520; i++) {
+                pos.push((Math.random() - 0.5) * 22, Math.random() * 8, (Math.random() - 0.5) * 22);
+            }
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            snowPoints = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.09, fog: false }));
+            snowPoints.frustumCulled = false;
+            scene.add(snowPoints);
+        }
+
+        // Paredes / obstáculos de cada bioma
+        const wallMats = {};
+        const wallMat = (kind, opts) => {
+            const key = kind + (opts && opts.transparent ? 't' : '');
+            if (!wallMats[key]) {
+                wallMats[key] = new THREE.MeshLambertMaterial(Object.assign({
+                    map: makeTexture(SP.makeWallTexture(biomeName, kind))
+                }, opts || {}));
+            }
+            return wallMats[key];
+        };
+        const torchFrames = [0, 1, 2].map(v => makeTexture(SP.makeTorchCanvas(v)));
+        let lightCount = 0;
 
         for (let y = 0; y < mapRows; y++) {
             for (let x = 0; x < mapCols; x++) {
                 const ch = layout[y][x];
+                const wx = x * TILE;
+                const wz = y * TILE;
                 if (ch === '#') {
-                    const mat = wallMats[(x * 7 + y * 13) % wallMats.length];
-                    const wall = new THREE.Mesh(wallGeo, mat);
-                    wall.position.set(x, WALL_HEIGHT / 2, y);
-                    scene.add(wall);
-                } else {
-                    const shouldTorch = ((x + y) % 4 === 0) && torchCount < 10;
-                    if (shouldTorch) {
-                        const adjWall = findAdjacentWallOffset(x, y);
-                        if (adjWall) {
-                            torchCount++;
-                            const flame = new THREE.Sprite(
-                                new THREE.SpriteMaterial({
-                                    map: torchFrames[0],
-                                    transparent: true,
-                                    alphaTest: 0.4,
-                                    fog: false
-                                })
-                            );
-                            flame.scale.set(0.24, 0.34, 1);
-                            flame.position.set(x + adjWall[0] * 0.42, 1.04, y + adjWall[1] * 0.42);
-                            scene.add(flame);
-
-                            const stick = new THREE.Mesh(
-                                new THREE.BoxGeometry(0.05, 0.22, 0.05),
-                                new THREE.MeshLambertMaterial({ color: 0x4b2f1b })
-                            );
-                            stick.position.set(x + adjWall[0] * 0.45, 0.84, y + adjWall[1] * 0.45);
-                            scene.add(stick);
-
-                            const light = new THREE.PointLight(fc.torch, 4.2, 6.0, 1.2);
-                            light.position.set(x + adjWall[0] * 0.22, 1.05, y + adjWall[1] * 0.22);
-                            scene.add(light);
-                            torches.push({
-                                flame: flame,
-                                light: light,
-                                frames: torchFrames,
-                                seed: x * 3.1 + y * 1.7
-                            });
+                    const border = isBorder(x, y);
+                    if (biomeName === 'beach') {
+                        if (border) continue;   // a borda é o próprio mar
+                        const rock = new THREE.Mesh(new THREE.BoxGeometry(TILE * 0.9, biome.wallH, TILE * 0.9), wallMat(0));
+                        rock.position.set(wx, biome.wallH / 2, wz);
+                        scene.add(rock);
+                        const palm = makeBillboard('palm', 4.6, 0);
+                        palm.sprite.position.set(wx, biome.wallH - 0.05, wz);
+                        scene.add(palm.sprite);
+                    } else if (biomeName === 'city') {
+                        const kind = (x * 7 + y * 13) % 4;
+                        const h = kind === 3 && !border ? 2.6 : biome.wallH;
+                        const house = new THREE.Mesh(new THREE.BoxGeometry(TILE, h, TILE), wallMat(kind));
+                        house.position.set(wx, h / 2, wz);
+                        scene.add(house);
+                    } else if (biomeName === 'snow') {
+                        const h = border ? 4.6 : biome.wallH;
+                        const ice = new THREE.Mesh(
+                            new THREE.BoxGeometry(TILE * (border ? 1 : 0.94), h, TILE * (border ? 1 : 0.94)),
+                            border ? wallMat(0) : wallMat(1, { transparent: true, opacity: 0.8 })
+                        );
+                        ice.position.set(wx, h / 2, wz);
+                        scene.add(ice);
+                        if (!border) {
+                            const spire = makeBillboard('icespire', 1.5, 0);
+                            spire.sprite.position.set(wx, h - 0.02, wz);
+                            scene.add(spire.sprite);
                         }
+                    } else if (biomeName === 'dungeon') {
+                        const kind = [0, 1, 2, 0, 0][(x * 7 + y * 13) % 5];
+                        const wall = new THREE.Mesh(new THREE.BoxGeometry(TILE, biome.wallH, TILE), wallMat(kind));
+                        wall.position.set(wx, biome.wallH / 2, wz);
+                        scene.add(wall);
                     }
+                    continue;
+                }
 
-                    if (ch === 'C') {
-                        addWorldSprite(x, y, 'chest', 0.68);
-                    } else if (ch === 'M') {
-                        addWorldSprite(x, y, 'vending', 0.9);
-                    } else if (ch === '?') {
-                        addWorldSprite(x, y, 'event_q', 0.78);
-                    } else if (ch === 'E') {
-                        addWorldSprite(x, y, 'exit', 0.94);
+                // Luzes de ambiente presas às paredes: tochas (dungeon) e lampiões (cidade)
+                const adj = findAdjacentWallOffset(x, y);
+                if (adj && (x + y) % 3 === 0 && lightCount < 9) {
+                    if (biomeName === 'dungeon') {
+                        lightCount++;
+                        const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: torchFrames[0], transparent: true, alphaTest: 0.4, fog: false }));
+                        flame.scale.set(0.42, 0.6, 1);
+                        flame.position.set(wx + adj[0] * 0.86, 2.0, wz + adj[1] * 0.86);
+                        scene.add(flame);
+                        const stick = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.4, 0.09), new THREE.MeshLambertMaterial({ color: 0x4b2f1b }));
+                        stick.position.set(wx + adj[0] * 0.9, 1.6, wz + adj[1] * 0.9);
+                        scene.add(stick);
+                        const light = new THREE.PointLight(0xffa040, 5.5, 11, 1.2);
+                        light.position.set(wx + adj[0] * 0.5, 2.0, wz + adj[1] * 0.5);
+                        scene.add(light);
+                        torches.push({ flame: flame, light: light, frames: torchFrames, seed: x * 3.1 + y * 1.7, base: 5.5 });
+                    } else if (biomeName === 'city' && ch === '.') {
+                        lightCount++;
+                        const lamp = makeBillboard('lamp', 3.3, 0, { fog: false });
+                        lamp.sprite.position.set(wx + adj[0] * 0.8, 0, wz + adj[1] * 0.8);
+                        scene.add(lamp.sprite);
+                        const light = new THREE.PointLight(lightCount % 2 ? 0x8fd4ff : 0xffb057, 5.0, 10, 1.2);
+                        light.position.set(wx + adj[0] * 0.6, 2.9, wz + adj[1] * 0.6);
+                        scene.add(light);
+                        torches.push({ flame: null, light: light, frames: null, seed: x * 2.3 + y * 1.1, base: 5.0 });
                     }
+                }
+
+                if (ch === 'C') {
+                    addWorldSprite(x, y, 'chest', 0.95);
+                } else if (ch === 'M') {
+                    addWorldSprite(x, y, biomeName === 'city' ? 'restlamp' : 'campfire', biomeName === 'city' ? 1.9 : 1.25);
+                    const glow = new THREE.PointLight(0xffa64a, 3.2, 8, 1.3);
+                    glow.position.set(wx, 1.0, wz);
+                    scene.add(glow);
+                    torches.push({ flame: null, light: glow, frames: null, seed: x + y, base: 3.2 });
+                } else if (ch === '?') {
+                    addWorldSprite(x, y, 'event_q', 1.2);
+                } else if (ch === 'E') {
+                    addWorldSprite(x, y, 'exit', 2.2);
                 }
             }
         }
@@ -304,32 +505,32 @@
         buildEncounterSprites(state);
     }
 
+    function addWorldSprite(x, y, kind, height) {
+        if (!webglOk) return;
+        const bb = makeBillboard(kind, height, TILE * 0.9);
+        bb.sprite.position.set(x * TILE, 0, y * TILE);
+        scene.add(bb.sprite);
+        worldPickups.set(x + ',' + y, { sprite: bb.sprite, kind: kind, visW: bb.visW, baseScale: bb.scale });
+    }
+
     // Encontros são entidades móveis (patrulha): um sprite por encontro, com posição interpolada.
     function buildEncounterSprites(state) {
         const list = (state && state.encounters) || [];
         list.forEach(enc => {
-            const kinds = enc.enc && enc.enc.enemies ? enc.enc.enemies : ['goblin'];
+            const kinds = enc.enc && enc.enc.enemies ? enc.enc.enemies : ['crab'];
             const previewKind = enc.isBoss ? kinds[Math.floor(kinds.length / 2)] : kinds[0];
-            // largura < 1 tile para o billboard nunca entrar nas paredes laterais
-            const baseScale = enc.isBoss ? 0.95 : 0.88;
-            let sprite = null;
+            let bb = null;
             if (webglOk) {
-                const THREE = window.THREE;
-                const sheet = window.GameSprites.getSheet(previewKind);
-                sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-                    map: makeTexture(sheet.normal),
-                    transparent: true,
-                    alphaTest: 0.1,
-                    fog: false
-                }));
-                sprite.center.set(0.5, 0);
-                sprite.scale.set(baseScale, baseScale, 1);
-                sprite.position.set(enc.x, 0.02, enc.y);
-                scene.add(sprite);
+                // largura < 1 tile para o billboard nunca entrar em paredes vizinhas
+                bb = makeBillboard(previewKind, enc.isBoss ? BOSS_HEIGHT : COMMON_HEIGHT, TILE * 0.9);
+                bb.sprite.position.set(enc.x * TILE, 0, enc.y * TILE);
+                scene.add(bb.sprite);
             }
             encounterSprites.set(enc.id, {
-                sprite: sprite,
-                baseScale: baseScale,
+                sprite: bb ? bb.sprite : null,
+                baseScale: bb ? bb.scale : 1,
+                visW: bb ? bb.visW : 1,
+                visH: bb ? bb.visH : COMMON_HEIGHT,
                 isBoss: !!enc.isBoss,
                 x: enc.x,
                 z: enc.y,
@@ -342,34 +543,26 @@
         });
     }
 
-    function findAdjacentWallOffset(x, y) {
-        const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-        for (const d of dirs) {
-            const nx = x + d[0];
-            const ny = y + d[1];
-            if (ny >= 0 && ny < mapRows && nx >= 0 && nx < mapCols && mapGrid[ny][nx] === '#') {
-                return d;
-            }
-        }
-        return null;
-    }
-
-    function addWorldSprite(x, y, kind, scale) {
+    // Epílogo: chefes anteriores abrem caminho até o relógio de ponto.
+    function showEpilogue(cfg) {
         if (!webglOk) return;
-        const THREE = window.THREE;
-        const sheet = window.GameSprites.getSheet(kind);
-        const mat = new THREE.SpriteMaterial({
-            map: makeTexture(sheet.normal),
-            transparent: true,
-            alphaTest: 0.1,
-            fog: false
+        epilogueSprites.forEach(e => scene.remove(e.sprite));
+        epilogueSprites.length = 0;
+        (cfg.bosses || []).forEach((b, i) => {
+            const bb = makeBillboard(b.kind, BOSS_HEIGHT, TILE * 0.9, { fog: false });
+            bb.sprite.position.set(b.x * TILE, 0, b.y * TILE);
+            scene.add(bb.sprite);
+            epilogueSprites.push({ sprite: bb.sprite, scale: bb.scale, phase: i * 1.7, visW: bb.visW });
         });
-        const sp = new THREE.Sprite(mat);
-        sp.center.set(0.5, 0);
-        sp.scale.set(scale, scale, 1);
-        sp.position.set(x, 0.02, y);
-        scene.add(sp);
-        worldPickups.set(x + ',' + y, { sprite: sp, kind: kind, baseScale: scale });
+        if (cfg.clock) {
+            const bb = makeBillboard('timeclock', 1.7, 0, { fog: false });
+            bb.sprite.position.set(cfg.clock.x * TILE, 0, cfg.clock.y * TILE);
+            scene.add(bb.sprite);
+            epilogueSprites.push({ sprite: bb.sprite, scale: bb.scale, phase: 0, visW: bb.visW, still: true });
+            const light = new window.THREE.PointLight(0xffd27a, 6, 14, 1.2);
+            light.position.set(cfg.clock.x * TILE, 2, cfg.clock.y * TILE);
+            scene.add(light);
+        }
     }
 
     function syncState(state) {
@@ -379,11 +572,8 @@
 
         for (const [key, obj] of worldPickups.entries()) {
             const cleared = state.clearedTiles.has(key);
-            if (obj.kind === 'vending') {
-                obj.sprite.visible = state.mode !== 'combat';
-            } else {
-                obj.sprite.visible = !cleared && state.mode !== 'combat';
-            }
+            const permanent = obj.kind === 'campfire' || obj.kind === 'restlamp' || obj.kind === 'exit';
+            obj.sprite.visible = (permanent || !cleared) && state.mode !== 'combat';
         }
 
         (state.encounters || []).forEach(enc => {
@@ -409,8 +599,7 @@
         if (smooth) camTurnRate = 6.5;
     }
 
-    // Assenta a câmera no alvo (usado ao iniciar o combate, para a formação já nascer alinhada
-    // ao corredor mesmo se o giro ainda não tiver terminado em máquinas lentas).
+    // Assenta a câmera no alvo (ao iniciar o combate a formação já nasce alinhada).
     function settleCamera() {
         camYaw = targetCamYaw;
         camX = targetCamX;
@@ -420,6 +609,23 @@
 
     function showEncounterAlert(encId, dur) {
         encounterAlert = { id: encId, time: dur || 0.7, dur: dur || 0.7 };
+    }
+
+    function triggerStepBob() {
+        stepBob = 1;
+    }
+
+    function triggerShake(mag, dur) {
+        shakeMag = Math.max(shakeMag, (mag || 0.06) * 1.6);
+        shakeTime = Math.max(shakeTime, dur || 0.2);
+    }
+
+    function triggerScreenFlash(color, alpha, dur) {
+        screenFlash.color = color || '#ff3a2a';
+        screenFlash.maxAlpha = alpha || 0.35;
+        screenFlash.alpha = screenFlash.maxAlpha;
+        screenFlash.dur = dur || 0.26;
+        screenFlash.time = screenFlash.dur;
     }
 
     function triggerEdgeFlash(rgb, alpha, dur) {
@@ -460,29 +666,12 @@
         spawnBurstLocal(clientX - rect.left, clientY - rect.top, colors, count, opts);
     }
 
-    function enemyLocalPos(entry, height) {
+    function enemyLocalPos(entry, heightFrac) {
         if (webglOk && entry) {
-            const p = project3D(entry.curX, height, entry.curZ);
+            const p = project3D(entry.curX, entry.visH * heightFrac, entry.curZ);
             if (p) return p;
         }
         return { x: viewW / 2, y: viewH * 0.45, s: viewH * 0.3 };
-    }
-
-    function triggerStepBob() {
-        stepBob = 1;
-    }
-
-    function triggerShake(mag, dur) {
-        shakeMag = Math.max(shakeMag, mag || 0.06);
-        shakeTime = Math.max(shakeTime, dur || 0.2);
-    }
-
-    function triggerScreenFlash(color, alpha, dur) {
-        screenFlash.color = color || '#ff3a2a';
-        screenFlash.maxAlpha = alpha || 0.35;
-        screenFlash.alpha = screenFlash.maxAlpha;
-        screenFlash.dur = dur || 0.26;
-        screenFlash.time = screenFlash.dur;
     }
 
     function triggerEnemyHitAnim(enemyId, isCrit) {
@@ -493,7 +682,7 @@
         entry.anim.shake = 0.25;
     }
 
-    // style: 'lunge' (investida até a câmera), 'paper' (planilha arremessada) ou 'wave' (onda sônica)
+    // style: 'lunge' (investida até a câmera), 'paper' (folha), 'wave' (onda) ou 'orb' (energia)
     function triggerEnemyAttackAnim(enemyId, style) {
         const entry = combatSprites.get(enemyId);
         if (!entry) return;
@@ -502,15 +691,17 @@
         entry.anim.projFired = false;
     }
 
-    // Salto com partículas (buff do Cultista, Ata da Carmem, invocação do CEO)
+    // Salto com partículas (buff, carta-lixo, invocação, escudo de cristal)
     function triggerEnemyBuffAnim(enemyId, palette) {
         const entry = combatSprites.get(enemyId);
         if (!entry) return;
         entry.anim.buff = 1;
-        const p = enemyLocalPos(entry, 0.1 + 0.5 * entry.scale);
+        const p = enemyLocalPos(entry, 0.5);
         const colors = palette === 'gold'
             ? ['#ffd147', '#fff2a8', '#f59e0b', '#c084fc']
-            : ['#c084fc', '#a855f7', '#e9d5ff', '#ffd147'];
+            : palette === 'ice'
+                ? ['#9fd0ee', '#e6f6ff', '#69c8f0', '#ffffff']
+                : ['#c084fc', '#a855f7', '#e9d5ff', '#ffd147'];
         spawnBurstLocal(p.x, p.y, colors, 22, { upward: true, speed: 210, life: 0.7, size: 7, spread: 60, gravity: 160 });
     }
 
@@ -523,13 +714,17 @@
         };
     }
 
+    // ---------------------------------------------------------------------------------
+    // FORMAÇÃO DE COMBATE (sempre no chão aberto à frente da câmera)
+    // ---------------------------------------------------------------------------------
     function syncCombatSprites(state) {
         if (!webglOk) return;
         const THREE = window.THREE;
 
         if (state.mode !== 'combat') {
             for (const entry of combatSprites.values()) {
-                scene.remove(entry.group);
+                scene.remove(entry.sprite);
+                scene.remove(entry.shadow);
             }
             combatSprites.clear();
             return;
@@ -538,108 +733,113 @@
         const activeIds = new Set(state.enemies.map(e => e.uid));
         for (const [uid, entry] of combatSprites.entries()) {
             if (!activeIds.has(uid)) {
-                scene.remove(entry.group);
+                scene.remove(entry.sprite);
+                scene.remove(entry.shadow);
                 combatSprites.delete(uid);
             }
         }
 
-        const count = state.enemies.length;
         const dir = state.player.dir;
         const fx = DIR_DX[dir];
         const fz = DIR_DY[dir];
         const rx = -fz;
         const rz = fx;
 
-        state.enemies.forEach((enemy, idx) => {
-            let entry = combatSprites.get(enemy.uid);
-            if (!entry) {
-                const sheet = window.GameSprites.getSheet(enemy.kind);
-                const group = new THREE.Group();
+        state.enemies.forEach(enemy => {
+            if (combatSprites.has(enemy.uid)) return;
+            // Comuns: mesma altura visível. Chefes: maiores. Pés sempre em y = 0.
+            const bb = makeBillboard(enemy.kind, enemy.isBoss ? BOSS_HEIGHT : COMMON_HEIGHT, 0);
+            const shadow = new THREE.Mesh(
+                new THREE.CircleGeometry(0.5, 14),
+                new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false, fog: false })
+            );
+            shadow.rotation.x = -Math.PI / 2;
+            shadow.scale.setScalar(bb.visW * 0.85);
+            scene.add(shadow, bb.sprite);
+            combatSprites.set(enemy.uid, {
+                sprite: bb.sprite,
+                shadow: shadow,
+                tex: bb.tex,
+                scale: bb.scale,
+                visW: bb.visW,
+                visH: bb.visH,
+                isBoss: !!enemy.isBoss,
+                slotX: 0,
+                slotZ: FORMATION_DEPTH,
+                roomL: 0,
+                roomR: 0,
+                curX: null,
+                curZ: null,
+                drawW: bb.visW,
+                anim: {
+                    hurt: 0, white: 0, shake: 0, death: 0, buff: 0,
+                    atk: -1, atkStyle: 'lunge', projFired: false,
+                    spawn: enemy.summoned ? 1 : 0,
+                    // fase e ritmo aleatórios para os inimigos não respirarem em sincronia
+                    phase: Math.random() * Math.PI * 2,
+                    rate: 0.8 + Math.random() * 0.4
+                }
+            });
+        });
 
-                const makePart = (canvas, extra) => {
-                    const m = new THREE.SpriteMaterial(Object.assign({
-                        map: makeTexture(canvas),
-                        transparent: true,
-                        alphaTest: 0.08,
-                        fog: false,
-                        depthTest: false
-                    }, extra || {}));
-                    const s = new THREE.Sprite(m);
-                    s.center.set(0.5, 0);
-                    return s;
-                };
+        // Faixa lateral livre no tile à frente (em unidades do mundo, relativa ao eixo da câmera)
+        const ax = state.player.x + fx;
+        const ay = state.player.y + fz;
+        const aheadFree = !isWallAt(ax, ay);
+        let freeL = 0;
+        let freeR = 0;
+        if (aheadFree) {
+            while (freeL < 2 && !isWallAt(ax - rx * (freeL + 1), ay - rz * (freeL + 1))) freeL++;
+            while (freeR < 2 && !isWallAt(ax + rx * (freeR + 1), ay + rz * (freeR + 1))) freeR++;
+        }
+        const left = Math.max(-VIEW_HALF_WIDTH, -(TILE / 2 + freeL * TILE) + WALL_MARGIN);
+        const right = Math.min(VIEW_HALF_WIDTH, (TILE / 2 + freeR * TILE) - WALL_MARGIN);
 
-                const main = makePart(sheet.normal);
-                const red = makePart(sheet.red, { depthWrite: false });
-                const white = makePart(sheet.white, { depthWrite: false });
-                main.renderOrder = 10;
-                red.renderOrder = 11;
-                white.renderOrder = 12;
-                red.material.opacity = 0;
-                white.material.opacity = 0;
+        const list = state.enemies.map(e => combatSprites.get(e.uid));
+        const n = list.length;
+        const total = list.reduce((sum, e) => sum + e.visW, 0) + FORMATION_GAP * (n - 1);
+        const fits = total <= right - left;
+        const xs = [];
+        if (fits) {
+            let cursor = clamp(-total / 2, left, right - total);
+            list.forEach(e => {
+                xs.push(cursor + e.visW / 2);
+                cursor += e.visW + FORMATION_GAP;
+            });
+        } else {
+            // espaço apertado: distribui de parede a parede (com sobreposição) e alterna a profundidade
+            const first = left + list[0].visW / 2;
+            const last = right - list[n - 1].visW / 2;
+            list.forEach((e, i) => xs.push(n === 1 ? (left + right) / 2 : first + (last - first) * i / (n - 1)));
+        }
 
-                const shadow = new THREE.Mesh(
-                    new THREE.CircleGeometry(0.25, 12),
-                    new THREE.MeshBasicMaterial({
-                        color: 0x000000,
-                        transparent: true,
-                        opacity: 0.45,
-                        depthWrite: false,
-                        depthTest: false
-                    })
-                );
-                shadow.renderOrder = 9;
-                shadow.rotation.x = -Math.PI / 2;
-                shadow.position.y = 0.015;
+        list.forEach((entry, i) => {
+            let depth = FORMATION_DEPTH;
+            if (!fits) depth += i % 2 === 0 ? -0.3 : 0.3;
+            else if (entry.isBoss) depth += 0.25;
+            else if (n >= 3) depth += (i === 0 || i === n - 1) ? -0.12 : 0.12;
+            depth = clamp(depth, FORMATION_MIN_DEPTH, FORMATION_MAX_DEPTH);
+            if (!aheadFree) depth = 0.7;
 
-                group.add(shadow, main, red, white);
-                scene.add(group);
-                entry = {
-                    group: group,
-                    main: main,
-                    red: red,
-                    white: white,
-                    shadow: shadow,
-                    scale: 0.5,
-                    slotX: 0,
-                    slotZ: 1,
-                    curX: null,
-                    curZ: null,
-                    anim: {
-                        hurt: 0, white: 0, shake: 0, death: 0, buff: 0,
-                        atk: -1, atkStyle: 'lunge', projFired: false,
-                        spawn: enemy.summoned ? 1 : 0,
-                        // fase e ritmo aleatórios para os inimigos não respirarem em sincronia
-                        phase: Math.random() * Math.PI * 2,
-                        rate: 0.8 + Math.random() * 0.4
-                    }
-                };
-                combatSprites.set(enemy.uid, entry);
-            }
-
-            // Formação compacta: tudo dentro do tile livre à frente do jogador.
-            const slot = getFormationSlot(count, idx);
-            const aheadFree = !isWallAt(state.player.x + fx, state.player.y + fz);
-            const depthK = aheadFree ? 1 : 0.3;
-            const lateral = slot.x;
-            const dist = Math.min(MAX_COMBAT_DEPTH, slot.z) * depthK;
-            // largura limitada para a borda do sprite não encostar na parede lateral
-            const width = Math.min(slot.w * (enemy.scale || 1), 2 * (CORRIDOR_HALF_SAFE - Math.abs(lateral)) / 1.12);
-            entry.scale = width;
-            entry.slotX = lateral;
-            entry.slotZ = dist;
+            entry.slotX = xs[i];
+            entry.slotZ = depth;
+            entry.roomL = Math.max(0, xs[i] - entry.visW / 2 - left);
+            entry.roomR = Math.max(0, right - (xs[i] + entry.visW / 2));
+            entry.limL = left;
+            entry.limR = right;
+            entry.fwdX = fx;
+            entry.fwdZ = fz;
+            entry.originX = state.player.x * TILE;
+            entry.originZ = state.player.y * TILE;
             entry.rightX = rx;
             entry.rightZ = rz;
-            entry.shadow.scale.setScalar(width / 0.62);
-            // fileira da frente desenha por cima da de trás (sprites sem depthTest)
-            entry.rank = Math.round((2 - dist) * 10) * 3;
-            entry.baseX = state.player.x + fx * dist + rx * lateral;
-            entry.baseZ = state.player.y + fz * dist + rz * lateral;
+            entry.baseX = state.player.x * TILE + fx * depth + rx * xs[i];
+            entry.baseZ = state.player.y * TILE + fz * depth + rz * xs[i];
             if (entry.curX === null) {
                 entry.curX = entry.baseX;
                 entry.curZ = entry.baseZ;
             }
-            entry.alive = enemy.hp > 0;
+            entry.alive = state.enemies[i].hp > 0;
         });
     }
 
@@ -661,7 +861,11 @@
             const iw = Math.max(2, Math.round((ih * w) / h));
             renderer.setSize(iw, ih, false);
             camera.aspect = w / h;
-            camera.fov = w / h < 1.15 ? 78 : 70;
+            // O campo de visão horizontal precisa cobrir a faixa da formação (VIEW_HALF_WIDTH na
+            // fileira da frente); em janelas estreitas (celular) o FOV vertical aumenta para isso.
+            const needTan = (VIEW_HALF_WIDTH + 0.25) / (FORMATION_DEPTH - 0.3);
+            const fovDeg = 2 * Math.atan(needTan / (w / h)) * 180 / Math.PI;
+            camera.fov = clamp(fovDeg, 70, 102);
             camera.updateProjectionMatrix();
         }
     }
@@ -732,22 +936,11 @@
         hctx.save();
         hctx.strokeStyle = isAll ? '#ff6b4a' : '#f5cb5c';
         hctx.lineWidth = 3;
-
         hctx.beginPath();
         hctx.moveTo(cx - r, cy - r + len); hctx.lineTo(cx - r, cy - r); hctx.lineTo(cx - r + len, cy - r);
         hctx.moveTo(cx + r - len, cy - r); hctx.lineTo(cx + r, cy - r); hctx.lineTo(cx + r, cy - r + len);
         hctx.moveTo(cx - r, cy + r - len); hctx.lineTo(cx - r, cy + r); hctx.lineTo(cx - r + len, cy + r);
         hctx.moveTo(cx + r - len, cy + r); hctx.lineTo(cx + r, cy + r); hctx.lineTo(cx + r, cy + r - len);
-        hctx.stroke();
-
-        hctx.strokeStyle = 'rgba(255, 80, 60, 0.85)';
-        hctx.lineWidth = 2;
-        hctx.beginPath();
-        hctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2);
-        hctx.moveTo(cx - r * 0.65, cy); hctx.lineTo(cx - r * 0.25, cy);
-        hctx.moveTo(cx + r * 0.25, cy); hctx.lineTo(cx + r * 0.65, cy);
-        hctx.moveTo(cx, cy - r * 0.65); hctx.lineTo(cx, cy - r * 0.25);
-        hctx.moveTo(cx, cy + r * 0.25); hctx.lineTo(cx, cy + r * 0.65);
         hctx.stroke();
         hctx.restore();
     }
@@ -761,32 +954,20 @@
         grad.addColorStop(1, '#1a1426');
         hctx.fillStyle = grad;
         hctx.fillRect(0, 0, W, H);
-
-        hctx.strokeStyle = '#574870';
-        hctx.lineWidth = 2;
-        hctx.strokeRect(W * 0.2, H * 0.18, W * 0.6, H * 0.56);
-        hctx.beginPath();
-        hctx.moveTo(0, 0); hctx.lineTo(W * 0.2, H * 0.18);
-        hctx.moveTo(W, 0); hctx.lineTo(W * 0.8, H * 0.18);
-        hctx.moveTo(0, H); hctx.lineTo(W * 0.2, H * 0.74);
-        hctx.moveTo(W, H); hctx.lineTo(W * 0.8, H * 0.74);
-        hctx.stroke();
-
         if (currentState && currentState.mode === 'combat') {
             const count = currentState.enemies.length;
             currentState.enemies.forEach((e, idx) => {
                 if (e.hp <= 0) return;
                 const sx = count === 1 ? W * 0.5 : W * (0.22 + (idx / (count - 1)) * 0.56);
-                const sy = H * 0.66;
-                const sz = Math.min(W, H) * 0.27 * (e.scale || 1);
+                const sz = Math.min(W, H) * (e.isBoss ? 0.4 : 0.28);
                 const sheet = window.GameSprites.getSheet(e.kind);
                 hctx.imageSmoothingEnabled = false;
-                const bob = Math.sin(now / 260 + idx) * 4;
-                hctx.drawImage(sheet.normal, sx - sz / 2, sy - sz + bob, sz, sz);
+                hctx.drawImage(sheet.normal, sx - sz / 2, H * 0.7 - sz, sz, sz);
             });
         }
     }
 
+    // Labels ancorados na projeção do topo real da cabeça de cada sprite.
     function drawCombatHud(now) {
         enemyHitboxes.length = 0;
         if (!currentState || currentState.mode !== 'combat') return;
@@ -797,127 +978,146 @@
 
         enemies.forEach((enemy, idx) => {
             if (enemy.hp <= 0) return;
-
             let sx = viewW * 0.5;
             let topY = viewH * 0.3;
             let botY = viewH * 0.68;
-            let scalePx = viewH * 0.36;
+            let widthPx = viewH * 0.25;
 
             const entry = combatSprites.get(enemy.uid);
             if (webglOk && entry) {
-                const top = project3D(entry.curX, 0.1 + entry.scale * 1.02, entry.curZ);
-                const bot = project3D(entry.curX, 0.1, entry.curZ);
+                const top = project3D(entry.curX, entry.visH, entry.curZ);
+                const bot = project3D(entry.curX, 0, entry.curZ);
                 if (top && bot) {
                     sx = top.x;
                     topY = top.y;
                     botY = bot.y;
-                    scalePx = Math.max(60, bot.y - top.y);
+                    widthPx = entry.visW * top.s;
                 }
             } else {
                 sx = count === 1 ? viewW * 0.5 : viewW * (0.22 + (idx / (count - 1)) * 0.56);
-                topY = viewH * 0.28;
-                botY = viewH * 0.66;
-                scalePx = viewH * 0.28;
+                topY = viewH * (enemy.isBoss ? 0.3 : 0.42);
+                botY = viewH * 0.7;
             }
 
-            const bw = clamp(scalePx * 0.62, 62, 132);
-            const nameSize = clamp(bw * 0.15, 12, 18);
+            const isTarget = currentState.targetUid === enemy.uid;
+            const compactView = viewW < 520;
+            const bw = clamp(widthPx * 0.82, compactView ? 44 : 58, compactView ? 96 : 132);
+            const nameSize = clamp(bw * 0.15, compactView ? 11 : 13, 18);
             hctx.font = Math.round(nameSize) + 'px "Jersey 15", monospace';
-            const nameW = hctx.measureText(enemy.name).width;
             items.push({
                 enemy: enemy,
                 sx: sx,
                 topY: topY,
                 botY: botY,
-                scalePx: scalePx,
+                widthPx: widthPx,
                 bw: bw,
                 nameSize: nameSize,
-                // bloco do label: nome + barra de HP + intenção
-                labelW: Math.max(bw, nameW) + 10,
-                cx: clamp(sx, Math.max(bw, nameW) * 0.5 + 8, viewW - Math.max(bw, nameW) * 0.5 - 8),
-                by: clamp(topY - 30, 74, viewH * 0.52)
+                nameW: hctx.measureText(enemy.name).width,
+                isTarget: isTarget,
+                showName: true,
+                showIntent: true,
+                lift: 0
             });
         });
 
-        // Evita sobreposição de nome/HP com 3-4 inimigos: quem colide sobe um "andar" de label.
-        const LABEL_H = 50;
-        const placed = [];
-        items.slice().sort((a, b) => b.by - a.by || a.sx - b.sx).forEach(it => {
-            for (let tries = 0; tries < 6; tries++) {
-                const hit = placed.some(o =>
-                    Math.abs(o.cx - it.cx) < (o.labelW + it.labelW) * 0.5 &&
-                    Math.abs(o.by - it.by) < LABEL_H);
-                if (!hit) break;
-                it.by -= LABEL_H;
-            }
-            it.by = Math.max(74, it.by);
-            placed.push(it);
+        // A barra nunca é mais larga que o espaço até o vizinho (não sobrepõe outra barra).
+        const byX = items.slice().sort((a, b) => a.sx - b.sx);
+        byX.forEach((it, i) => {
+            let gap = Infinity;
+            if (i > 0) gap = Math.min(gap, it.sx - byX[i - 1].sx);
+            if (i < byX.length - 1) gap = Math.min(gap, byX[i + 1].sx - it.sx);
+            it.bw = Math.max(34, Math.min(it.bw, gap - 10));
         });
+
+        // Sem "voar para o teto": em colisão, labels não-alvo viram só a barra (sem nome/intenção)
+        // e, no máximo, sobem um degrau curto. O bloco fica sempre colado na cabeça do sprite.
+        const blockW = it => Math.max(it.bw, it.showName ? it.nameW : 0, it.showIntent ? 74 : 0) + 8;
+        const sorted = items.slice().sort((a, b) => a.sx - b.sx);
+        const cxOf = it => clamp(it.sx, blockW(it) / 2 + 4, viewW - blockW(it) / 2 - 4);
+        const collide = (a, b) => Math.abs(cxOf(a) - cxOf(b)) < (blockW(a) + blockW(b)) / 2;
+        for (let pass = 0; pass < 2; pass++) {
+            for (let i = 1; i < sorted.length; i++) {
+                const a = sorted[i - 1];
+                const b = sorted[i];
+                if (!collide(a, b)) continue;
+                if (pass === 0) {
+                    [a, b].forEach(it => { if (!it.isTarget) it.showName = false; });
+                } else {
+                    [a, b].forEach(it => { if (!it.isTarget) it.showIntent = false; });
+                    if (collide(a, b) && a.lift === 0) b.lift = 16;
+                }
+            }
+        }
 
         items.forEach(it => {
             const enemy = it.enemy;
-            const sx = it.sx;
-            const cx = it.cx;
+            const cx = cxOf(it);
             const bw = it.bw;
-            const bh = 11;
-            const by = it.by;
+            const bh = 10;
+            // de baixo para cima a partir da cabeça: intenção, barra de HP, nome
+            const intentY = it.topY - 10 - it.lift;
+            const by = (it.showIntent ? intentY - 22 : it.topY - 16 - it.lift);
+            const safeBy = Math.max(74, by);
             const bx = cx - bw / 2;
-            const isTarget = currentState.targetUid === enemy.uid;
 
             enemyHitboxes.push({
                 id: enemy.uid,
-                x: sx - it.scalePx * 0.4,
-                y: Math.min(by - 26, it.topY),
-                w: it.scalePx * 0.8,
-                h: it.botY - Math.min(by - 26, it.topY)
+                x: it.sx - Math.max(it.widthPx, bw) * 0.5,
+                y: safeBy - 20,
+                w: Math.max(it.widthPx, bw),
+                h: it.botY - (safeBy - 20)
             });
 
-            if (hoveredCard && (hoveredCard.target === 'all' || (hoveredCard.target === 'single' && isTarget))) {
-                const midY = (it.topY + it.botY) * 0.5;
-                drawReticle(sx, midY, it.scalePx * 0.9, now, hoveredCard.target === 'all');
+            if (hoveredCard && (hoveredCard.target === 'all' || (hoveredCard.target === 'single' && it.isTarget))) {
+                drawReticle(it.sx, (it.topY + it.botY) * 0.5, Math.min(it.widthPx, it.botY - it.topY) * 0.95, now, hoveredCard.target === 'all');
             }
 
-            if (isTarget) {
+            if (it.showName) {
+                drawOutlined(enemy.name, cx, safeBy - 11, it.nameSize, it.isTarget ? '#fff5d4' : '#efe6d8');
+            }
+            if (it.isTarget) {
                 const pulse = Math.round(Math.sin(now / 150) * 3);
-                drawPixelArrowDown(Math.round(cx), Math.round(by - 26 + pulse));
+                drawPixelArrowDown(Math.round(cx), Math.round(safeBy - (it.showName ? 28 : 12) + pulse));
             }
-
-            drawOutlined(enemy.name, cx, by - 11, it.nameSize, isTarget ? '#fff5d4' : '#efe6d8');
 
             hctx.fillStyle = '#0d0812';
-            hctx.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+            hctx.fillRect(bx - 2, safeBy - 2, bw + 4, bh + 4);
             hctx.fillStyle = '#3b1518';
-            hctx.fillRect(bx, by, bw, bh);
+            hctx.fillRect(bx, safeBy, bw, bh);
             const hpPct = clamp(enemy.hp / enemy.maxHp, 0, 1);
             hctx.fillStyle = enemy.isBoss ? '#e84545' : '#d8452f';
-            hctx.fillRect(bx, by, Math.max(2, bw * hpPct), bh);
+            hctx.fillRect(bx, safeBy, Math.max(2, bw * hpPct), bh);
+            if (enemy.shield > 0) {
+                hctx.fillStyle = '#69c8f0';
+                hctx.fillRect(bx, safeBy + bh - 2, bw, 2);
+            }
+            const hpText = enemy.shield > 0 ? enemy.hp + ' (+' + enemy.shield + ')' : enemy.hp + '/' + enemy.maxHp;
+            drawOutlined(hpText, cx, safeBy + bh / 2 + 1, 12, '#ffffff');
 
-            const hpText = enemy.shield > 0
-                ? enemy.hp + '/' + enemy.maxHp + ' (+' + enemy.shield + ')'
-                : enemy.hp + '/' + enemy.maxHp;
-            drawOutlined(hpText, cx, by + bh / 2 + 1, 13, '#ffffff');
-
-            const intentY = by + bh + 11;
+            if (!it.showIntent) return;
+            const iy = safeBy + bh + 11;
             if (enemy.stunned) {
-                drawPixelStun(Math.round(cx - 38), Math.round(intentY));
-                drawOutlined('ATORDOADO', cx + 8, intentY, 13, '#69c8f0');
+                drawPixelStun(Math.round(cx - 38), Math.round(iy));
+                drawOutlined('ATORDOADO', cx + 8, iy, 13, '#69c8f0');
             } else {
                 let tag = '';
-                if (enemy.doubleIfUnshielded) tag = currentState.shield > 0 ? ' [BLOQ]' : 'x2 [DOBRO]';
-                else if (enemy.curseCard) tag = ' [+ATA]';
+                if (enemy.attacksPerTurn > 1) tag = ' x' + enemy.attacksPerTurn;
+                else if (enemy.drainMana) tag = ' [DRENA]';
+                else if (enemy.shieldPerTurn) tag = ' [+ESC]';
+                else if (enemy.curseCard) tag = ' [+FOLHA]';
+                else if (enemy.summonKind) tag = ' [INVOCA]';
                 else if (enemy.buffAllies) tag = ' [+BUFF]';
-                else if (enemy.immuneKnockback) tag = ' [IMUNE]';
                 if (enemy.stunImmune > 0) tag = ' [IMUNE 1t]';
                 const label = 'ATK ' + enemy.atk + tag;
-                drawPixelSword(Math.round(cx - (tag ? 50 : 26)), Math.round(intentY));
-                drawOutlined(label, cx + 8, intentY, 14, enemy.stunImmune > 0 ? '#69c8f0' : (enemy.isBoss ? '#ff9f68' : '#f0a03c'));
+                drawPixelSword(Math.round(cx - (tag ? 50 : 26)), Math.round(iy));
+                drawOutlined(label, cx + 8, iy, 14, enemy.stunImmune > 0 ? '#69c8f0' : (enemy.isBoss ? '#ff9f68' : '#f0a03c'));
             }
         });
 
         drawProjectiles();
     }
 
-    // Projéteis pixelados voando do inimigo até a tela (planilha / onda sônica)
+    // Projéteis pixelados voando do inimigo até a tela (folha / onda / orbe de energia)
     function drawProjectiles() {
         for (const pr of projectiles) {
             const p = clamp(pr.t / pr.dur, 0, 1);
@@ -945,8 +1145,19 @@
                     hctx.arc(0, -size * 0.2, r, Math.PI * 0.18, Math.PI * 0.82);
                     hctx.stroke();
                 }
+            } else if (pr.kind === 'orb') {
+                const u = Math.max(3, Math.round(size / 8));
+                const s2 = Math.round(size * 0.5);
+                hctx.fillStyle = '#0d0812';
+                hctx.fillRect(-s2 - u, -s2 + u, (s2 + u) * 2, (s2 - u) * 2);
+                hctx.fillRect(-s2 + u, -s2 - u, (s2 - u) * 2, (s2 + u) * 2);
+                hctx.fillStyle = pr.color || '#9fe8ff';
+                hctx.fillRect(-s2, -s2 + u * 2, s2 * 2, (s2 - u * 2) * 2);
+                hctx.fillRect(-s2 + u * 2, -s2, (s2 - u * 2) * 2, s2 * 2);
+                hctx.fillStyle = '#ffffff';
+                hctx.fillRect(-u * 2, -u * 2, u * 3, u * 3);
             } else {
-                // Folha de planilha girando em passos de 22.5 graus (aspecto pixelado)
+                // Folha girando em passos de 22.5 graus (aspecto pixelado)
                 hctx.rotate(Math.floor(p * 14) * (Math.PI / 8));
                 const w = size * 0.78;
                 const h = size;
@@ -955,15 +1166,12 @@
                 hctx.fillRect(-w / 2 - u, -h / 2 - u, w + u * 2, h + u * 2);
                 hctx.fillStyle = '#f4f1e6';
                 hctx.fillRect(-w / 2, -h / 2, w, h);
-                hctx.fillStyle = '#1d6f42';
-                hctx.fillRect(-w / 2, -h / 2, w, u * 2);
                 hctx.fillStyle = '#9aa7b8';
-                for (let ly = -h / 2 + u * 4; ly < h / 2 - u; ly += u * 3) {
+                for (let ly = -h / 2 + u * 3; ly < h / 2 - u; ly += u * 3) {
                     hctx.fillRect(-w / 2 + u, ly, w - u * 2, u);
                 }
-                hctx.fillRect(-u / 2, -h / 2 + u * 2, u, h - u * 3);
-                hctx.fillStyle = '#d8452f';
-                hctx.fillRect(w / 2 - u * 4, h / 2 - u * 4, u * 3, u * 3);
+                hctx.fillStyle = '#22386b';
+                hctx.fillRect(w / 2 - u * 5, h / 2 - u * 5, u * 4, u * 4);
             }
             hctx.restore();
         }
@@ -990,14 +1198,14 @@
         let x = viewW * 0.5;
         let y = viewH * 0.3;
         if (webglOk) {
-            const p = project3D(entry.x, entry.baseScale * 0.92 + 0.1, entry.z);
+            const p = project3D(entry.x * TILE, entry.visH + 0.15, entry.z * TILE);
             if (!p) return;
             x = clamp(p.x, 40, viewW - 40);
-            y = clamp(p.y, 70, viewH * 0.7);
+            y = clamp(p.y, 76, viewH * 0.7);
         }
         const age = encounterAlert.dur - encounterAlert.time;
         const pop = age < 0.14 ? 1.7 - (age / 0.14) * 0.7 : 1 + Math.sin(now / 55) * 0.06;
-        const size = clamp(viewH * 0.15, 54, 96) * pop;
+        const size = clamp(viewH * 0.13, 44, 84) * pop;
         const bw = size * 0.52;
         const bh = size * 0.95;
         hctx.fillStyle = '#0d0812';
@@ -1010,21 +1218,29 @@
         hctx.fillRect(Math.round(x - sw / 2), Math.round(y - bh * 0.26), sw, Math.round(bh * 0.15));
     }
 
+    const MINI_THEMES = {
+        beach: { wall: '#2f6f7a', wallLine: '#1d4a52', floor: '#f3e2b6' },
+        city: { wall: '#3a4257', wallLine: '#1f2330', floor: '#c9cbd6' },
+        snow: { wall: '#7fb0dc', wallLine: '#4f86b8', floor: '#f4faff' },
+        dungeon: { wall: '#593e25', wallLine: '#362312', floor: '#f5e7c8' },
+        abyss: { wall: '#1a1238', wallLine: '#120c2b', floor: '#b9a8ff' }
+    };
+
     function renderMinimap() {
         if (!mctx || !currentState || !mapRows) return;
         const mw = miniCanvas.width;
         const mh = miniCanvas.height;
+        const theme = MINI_THEMES[biomeName] || MINI_THEMES.dungeon;
 
         mctx.fillStyle = '#e6d2a8';
         mctx.fillRect(0, 0, mw, mh);
-
         mctx.strokeStyle = '#c4ab7a';
         mctx.lineWidth = 4;
         mctx.strokeRect(2, 2, mw - 4, mh - 4);
 
-        const cell = Math.floor(Math.min((mw - 10) / mapCols, (mh - 10) / mapRows));
+        const cell = Math.floor(Math.min((mw - 12) / mapCols, (mh - 26) / mapRows));
         const ox = Math.floor((mw - cell * mapCols) / 2);
-        const oy = Math.floor((mh - cell * mapRows) / 2);
+        const oy = Math.floor((mh - cell * mapRows) / 2) + 5;
 
         for (let y = 0; y < mapRows; y++) {
             for (let x = 0; x < mapCols; x++) {
@@ -1039,38 +1255,36 @@
                     mctx.fillRect(px, py, cell, cell);
                     continue;
                 }
-
                 if (ch === '#') {
-                    mctx.fillStyle = '#593e25';
+                    mctx.fillStyle = theme.wall;
                     mctx.fillRect(px, py, cell, cell);
-                    mctx.strokeStyle = '#362312';
+                    mctx.strokeStyle = theme.wallLine;
                     mctx.lineWidth = 1;
                     mctx.strokeRect(px + 0.5, py + 0.5, cell - 1, cell - 1);
-                } else {
-                    mctx.fillStyle = '#f5e7c8';
-                    mctx.fillRect(px, py, cell, cell);
-                    mctx.strokeStyle = 'rgba(138, 108, 68, 0.25)';
-                    mctx.lineWidth = 1;
-                    mctx.strokeRect(px + 0.5, py + 0.5, cell - 1, cell - 1);
+                    continue;
+                }
+                mctx.fillStyle = theme.floor;
+                mctx.fillRect(px, py, cell, cell);
+                mctx.strokeStyle = 'rgba(90, 70, 50, 0.22)';
+                mctx.lineWidth = 1;
+                mctx.strokeRect(px + 0.5, py + 0.5, cell - 1, cell - 1);
 
-                    const cleared = currentState.clearedTiles.has(key);
-                    if (ch === 'C' && !cleared) {
-                        mctx.fillStyle = '#d99a16';
-                        mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
-                    } else if (ch === 'M') {
-                        mctx.fillStyle = '#2b8a3e';
-                        mctx.fillRect(px + 1, py + 1, cell - 2, cell - 2);
-                        mctx.fillStyle = '#f5cb5c';
-                        mctx.fillRect(px + Math.floor(cell * 0.32), py + Math.floor(cell * 0.32), Math.max(2, cell * 0.36), Math.max(2, cell * 0.36));
-                    } else if (ch === '?' && !cleared) {
-                        mctx.fillStyle = '#7b3fa8';
-                        mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
-                        mctx.fillStyle = '#f5cb5c';
-                        mctx.fillRect(px + Math.floor(cell * 0.38), py + Math.floor(cell * 0.38), Math.max(2, cell * 0.24), Math.max(2, cell * 0.24));
-                    } else if (ch === 'E') {
-                        mctx.fillStyle = '#2b8a3e';
-                        mctx.fillRect(px + 2, py + 2, cell - 4, cell - 4);
-                    }
+                const cleared = currentState.clearedTiles.has(key);
+                const q = Math.max(2, Math.round(cell * 0.2));
+                if (ch === 'C' && !cleared) {
+                    mctx.fillStyle = '#d99a16';
+                    mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
+                } else if (ch === 'M') {
+                    mctx.fillStyle = '#e2622b';
+                    mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
+                    mctx.fillStyle = '#ffd147';
+                    mctx.fillRect(px + q * 2, py + q * 2, cell - q * 4, cell - q * 4);
+                } else if (ch === '?' && !cleared) {
+                    mctx.fillStyle = '#7b3fa8';
+                    mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
+                } else if (ch === 'E') {
+                    mctx.fillStyle = '#2b8a3e';
+                    mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
                 }
             }
         }
@@ -1086,7 +1300,7 @@
             mctx.strokeStyle = '#3a1208';
             mctx.lineWidth = 1;
             mctx.beginPath();
-            mctx.arc(ecx, ecy, cell * (alerted ? 0.42 : (entry.isBoss ? 0.36 : 0.3)), 0, Math.PI * 2);
+            mctx.arc(ecx, ecy, cell * (alerted ? 0.42 : (entry.isBoss ? 0.38 : 0.3)), 0, Math.PI * 2);
             mctx.fill();
             mctx.stroke();
         }
@@ -1099,7 +1313,6 @@
         const rx = -fy;
         const ry = fx;
         const r = cell * 0.45;
-
         mctx.fillStyle = '#1864ab';
         mctx.strokeStyle = '#ffffff';
         mctx.lineWidth = 1.5;
@@ -1111,22 +1324,11 @@
         mctx.fill();
         mctx.stroke();
 
-        // Carimbo / Cabeçalho discreto de Planta de Emergência / Memorando
-        mctx.save();
-        mctx.fillStyle = 'rgba(54, 35, 18, 0.75)';
+        mctx.fillStyle = 'rgba(54, 35, 18, 0.8)';
         mctx.font = 'bold 10px monospace';
-        mctx.fillText('PLANTA #25', 7, 13);
-        mctx.translate(mw - 34, mh - 14);
-        mctx.rotate(-0.14);
-        mctx.strokeStyle = 'rgba(155, 28, 28, 0.65)';
-        mctx.lineWidth = 1.5;
-        mctx.strokeRect(-26, -7, 52, 12);
-        mctx.fillStyle = 'rgba(155, 28, 28, 0.75)';
-        mctx.font = 'bold 8px monospace';
-        mctx.textAlign = 'center';
-        mctx.textBaseline = 'middle';
-        mctx.fillText('EMERGÊNCIA', 0, -0.5);
-        mctx.restore();
+        mctx.textAlign = 'left';
+        mctx.textBaseline = 'alphabetic';
+        mctx.fillText('MAPA DO DEVANEIO', 7, 13);
     }
 
     function loop(now) {
@@ -1143,6 +1345,16 @@
         camYaw += (targetCamYaw - camYaw) * (1 - Math.exp(-dt * camTurnRate));
         if (Math.abs(targetCamYaw - camYaw) < 0.01) camTurnRate = 14;
 
+        if (stepBob > 0) stepBob = Math.max(0, stepBob - dt * 5.2);
+        if (shakeTime > 0) shakeTime = Math.max(0, shakeTime - dt);
+        else shakeMag = 0;
+
+        if (screenFlash.time > 0) {
+            screenFlash.time = Math.max(0, screenFlash.time - dt);
+            screenFlash.alpha = screenFlash.maxAlpha * (screenFlash.time / screenFlash.dur);
+        } else {
+            screenFlash.alpha = 0;
+        }
         if (edgeFlash.time > 0) {
             edgeFlash.time = Math.max(0, edgeFlash.time - dt);
             edgeFlash.alpha = edgeFlash.maxAlpha * (edgeFlash.time / edgeFlash.dur);
@@ -1177,67 +1389,69 @@
             pt.y += pt.vy * dt;
         }
 
-        if (stepBob > 0) stepBob = Math.max(0, stepBob - dt * 5.2);
-        if (shakeTime > 0) shakeTime = Math.max(0, shakeTime - dt);
-        else shakeMag = 0;
-
-        if (screenFlash.time > 0) {
-            screenFlash.time = Math.max(0, screenFlash.time - dt);
-            screenFlash.alpha = screenFlash.maxAlpha * (screenFlash.time / screenFlash.dur);
-        } else {
-            screenFlash.alpha = 0;
-        }
-
         if (webglOk && renderer && scene && camera) {
-            const bobY = Math.sin(stepBob * Math.PI) * 0.055;
+            const wx = camX * TILE;
+            const wz = camZ * TILE;
+            const bobY = Math.sin(stepBob * Math.PI) * 0.08;
             let sx = 0, sy = 0;
             if (shakeTime > 0) {
                 sx = (Math.random() * 2 - 1) * shakeMag;
                 sy = (Math.random() * 2 - 1) * shakeMag;
             }
-            const camYTarget = currentState && currentState.mode === 'combat' ? CAM_HEIGHT_COMBAT : CAM_HEIGHT_EXPLORE;
-            camY += (camYTarget - camY) * (1 - Math.exp(-dt * 8));
-            camera.position.set(camX + sx, camY + bobY + sy, camZ);
+            camera.position.set(wx + sx, CAM_HEIGHT + bobY + sy, wz);
             camera.rotation.y = camYaw;
             camera.updateMatrixWorld();
 
-            const stutter = Math.sin(now * 0.0017) > 0.86 ? (Math.sin(now * 0.09) < -0.25 ? 0.78 : 1.04) : 1;
-            const fluoFlick = stutter * (1 + Math.sin(now * 0.045) * 0.015);
-            if (ambientLight) {
-                ambientLight.intensity = 2.1 * fluoFlick;
+            if (skyMesh) skyMesh.position.set(wx, 0, wz);
+            if (playerLight) playerLight.position.set(wx, CAM_HEIGHT + 0.4, wz);
+            if (waterTex) {
+                waterTex.offset.x = (now * 0.000012) % 1;
+                waterTex.offset.y = (now * 0.00002) % 1;
             }
-            if (playerLight) {
-                playerLight.position.set(camX, 0.95, camZ);
-                playerLight.intensity = 3.6 * fluoFlick;
+            if (snowPoints) {
+                const arr = snowPoints.geometry.attributes.position.array;
+                for (let i = 0; i < arr.length; i += 3) {
+                    arr[i + 1] -= dt * (0.9 + (i % 7) * 0.12);
+                    arr[i] += dt * 0.35;
+                    if (arr[i + 1] < 0) arr[i + 1] += 8;
+                    if (arr[i] > 11) arr[i] -= 22;
+                }
+                snowPoints.geometry.attributes.position.needsUpdate = true;
+                snowPoints.position.set(wx, 0, wz);
             }
 
             for (const t of torches) {
                 const flick = 1 + Math.sin(now / 85 + t.seed) * 0.1 + Math.sin(now / 41 + t.seed * 2) * 0.07;
-                t.light.intensity = 4.2 * flick;
-                const frame = Math.floor(now / 120 + t.seed) % t.frames.length;
-                if (t.flame.material.map !== t.frames[frame]) {
-                    t.flame.material.map = t.frames[frame];
-                    t.flame.material.needsUpdate = true;
+                t.light.intensity = t.base * flick;
+                if (t.flame) {
+                    const frame = Math.floor(now / 120 + t.seed) % t.frames.length;
+                    if (t.flame.material.map !== t.frames[frame]) {
+                        t.flame.material.map = t.frames[frame];
+                        t.flame.material.needsUpdate = true;
+                    }
                 }
             }
 
             for (const obj of worldPickups.values()) {
                 if (!obj.sprite.visible) continue;
-                obj.sprite.position.y = 0.04 + Math.sin(now / 320 + obj.sprite.position.x) * 0.03;
+                const breath = 1 + Math.sin(now / 320 + obj.sprite.position.x) * 0.03;
+                obj.sprite.scale.set(obj.baseScale, obj.baseScale * breath, 1);
             }
 
-            // Idle contínuo dos encontros no mapa (respiração + flutuação, fase aleatória)
+            for (const e of epilogueSprites) {
+                if (e.still) continue;
+                const breath = Math.sin(now / 520 + e.phase);
+                e.sprite.scale.set(e.scale * (1 - breath * 0.012), e.scale * (1 + breath * 0.025), 1);
+            }
+
+            // Idle dos encontros no mapa: respiração (escala ancorada nos pés), sem sair do chão
             for (const entry of encounterSprites.values()) {
                 if (!entry.sprite || !entry.sprite.visible) continue;
                 const breath = Math.sin(now / 430 * entry.rate + entry.phase);
                 const alertHop = encounterAlert && encounterSprites.get(encounterAlert.id) === entry
-                    ? Math.abs(Math.sin(now / 70)) * 0.06 : 0;
-                entry.sprite.position.set(entry.x, 0.04 + breath * 0.028 + alertHop, entry.z);
-                entry.sprite.scale.set(
-                    entry.baseScale * (1 - breath * 0.018),
-                    entry.baseScale * (1 + breath * 0.035),
-                    1
-                );
+                    ? Math.abs(Math.sin(now / 70)) * 0.1 : 0;
+                entry.sprite.position.set(entry.x * TILE, alertHop, entry.z * TILE);
+                entry.sprite.scale.set(entry.baseScale * (1 - breath * 0.015), entry.baseScale * (1 + breath * 0.03), 1);
             }
 
             const kBase = 1 - Math.exp(-dt * 9);
@@ -1253,41 +1467,40 @@
                 entry.curX += (entry.baseX - entry.curX) * kBase;
                 entry.curZ += (entry.baseZ - entry.curZ) * kBase;
 
-                // Distância até a câmera e limites para a animação nunca sair do corredor:
-                // o recuo não pode levar o sprite para trás da parede do fundo.
-                const camDist = Math.hypot(camX - entry.curX, camZ - entry.curZ) || 1;
-                const recoil = Math.max(0, Math.min(0.1, (MAX_COMBAT_DEPTH + 0.04 - entry.slotZ) * 0.9));
-                let lungeReach = 0;
+                // Limites: o recuo nunca passa do fim do tile livre; a investida para antes da câmera.
+                const camDist = Math.hypot(wx - entry.curX, wz - entry.curZ) || 1;
+                const recoil = Math.max(0, Math.min(0.14, FORMATION_MAX_DEPTH + 0.05 - entry.slotZ));
+                const lungeReach = Math.max(0, camDist - 1.15);
 
                 // --- Ataque: antecipação (pisca laranja/vermelho + recuo) -> investida/projétil -> retorno ---
-                let toward = 0;        // deslocamento em direção à câmera (negativo = recuo)
+                let toward = 0;
                 let atkScale = 1;
                 let atkHop = 0;
-                let flashAlpha = 0;
+                let flash = 0;
                 let flashColor = 0xffffff;
                 if (a.atk >= 0 && entry.alive) {
                     a.atk += dt;
                     const t = a.atk;
                     const ranged = a.atkStyle !== 'lunge';
-                    lungeReach = Math.max(0, camDist - 0.42);
                     if (t < ATK_ANTICIPATION) {
                         const p = t / ATK_ANTICIPATION;
                         toward = -recoil * Math.sin(p * Math.PI * 0.5);
                         atkScale = 1 - 0.1 * p;
-                        flashAlpha = 0.9;
+                        flash = 1;
                         flashColor = Math.floor(t / 0.05) % 2 === 0 ? 0xff8a1e : 0xff2a1a;
                     } else if (t < ATK_ANTICIPATION + ATK_STRIKE) {
                         const p = (t - ATK_ANTICIPATION) / ATK_STRIKE;
                         const ease = p * p;
                         if (ranged) {
-                            toward = -recoil + Math.sin(p * Math.PI) * Math.min(0.3, lungeReach);
-                            atkScale = 0.9 + Math.sin(p * Math.PI) * 0.22;
-                            atkHop = Math.sin(p * Math.PI) * 0.1;
+                            toward = -recoil + Math.sin(p * Math.PI) * Math.min(0.4, lungeReach);
+                            atkScale = 0.9 + Math.sin(p * Math.PI) * 0.2;
+                            atkHop = Math.sin(p * Math.PI) * 0.12;
                             if (!a.projFired) {
                                 a.projFired = true;
-                                const sp = enemyLocalPos(entry, 0.1 + 0.55 * entry.scale);
+                                const sp = enemyLocalPos(entry, 0.6);
                                 projectiles.push({
-                                    kind: a.atkStyle === 'wave' ? 'wave' : 'paper',
+                                    kind: a.atkStyle,
+                                    color: biome.orb,
                                     t: 0,
                                     dur: ATK_STRIKE,
                                     sx: sp.x,
@@ -1296,11 +1509,13 @@
                             }
                         } else {
                             toward = -recoil + ease * (recoil + lungeReach);
-                            atkScale = 0.9 + ease * 0.7;
-                            atkHop = Math.sin(p * Math.PI) * 0.06;
+                            atkScale = 0.9 + ease * 0.45;
+                            atkHop = Math.sin(p * Math.PI) * 0.1;
                         }
-                        flashAlpha = 0.55 * (1 - p);
-                        flashColor = 0xff5a1e;
+                        if (p < 0.5) {
+                            flash = 1;
+                            flashColor = 0xff5a1e;
+                        }
                     } else if (t < ATK_ANTICIPATION + ATK_STRIKE + ATK_RECOVER) {
                         const p = (t - ATK_ANTICIPATION - ATK_STRIKE) / ATK_RECOVER;
                         const back = 1 - (1 - p) * (1 - p);
@@ -1309,86 +1524,101 @@
                             atkScale = 0.9 + 0.1 * back;
                         } else {
                             toward = lungeReach * (1 - back);
-                            atkScale = 1.6 - 0.6 * back;
+                            atkScale = 1.35 - 0.35 * back;
                         }
                     } else {
                         a.atk = -1;
                     }
                 }
 
-                // --- Idle contínuo: flutuação no eixo Y + pulsação de escala ---
+                // --- Idle contínuo: respiração (escala ancorada nos pés; nunca sai do chão) ---
                 const breath = Math.sin(now / 420 * a.rate + a.phase);
-                const idleBob = breath * 0.022;
-                const idleSx = 1 - breath * 0.02;
-                const idleSy = 1 + breath * 0.038;
+                const idleSx = 1 - breath * 0.018;
+                const idleSy = 1 + breath * 0.035;
 
-                // --- Buff / invocação: salto para cima ---
+                // --- Buff / invocação: salto curto ---
                 const buffSin = a.buff > 0 ? Math.sin((1 - a.buff) * Math.PI) : 0;
-                const buffHop = buffSin * 0.24;
-                const buffScale = 1 + buffSin * 0.1;
+                const buffHop = buffSin * 0.42;
 
-                // --- Morte: treme e pisca, depois encolhe/dissolve caindo no chão ---
+                // --- Morte: treme e pisca, depois encolhe/dissolve no chão ---
                 let deathSx = 1;
                 let deathSy = 1;
                 let alpha = 1;
                 let deathShake = 0;
-                let deathBlink = 0;
+                let deathBlink = false;
                 if (a.death > 0) {
                     if (a.death < 0.4) {
-                        deathShake = Math.sin(now / 14) * 0.05;
-                        deathBlink = Math.floor(now / 55) % 2 === 0 ? 0.85 : 0;
+                        deathShake = Math.sin(now / 14) * 0.09;
+                        deathBlink = Math.floor(now / 55) % 2 === 0;
                     } else {
                         const p = (a.death - 0.4) / 0.6;
                         deathSy = Math.max(0.02, 1 - p * p * 0.98);
-                        deathSx = 1 + p * 0.2 - p * p * 0.75;
+                        deathSx = Math.max(0.05, 1 + p * 0.2 - p * p * 0.75);
                         alpha = 1 - p * p;
-                        deathShake = Math.sin(now / 14) * 0.03 * (1 - p);
+                        deathShake = Math.sin(now / 14) * 0.04 * (1 - p);
                     }
                 }
 
-                const spawnScale = a.spawn > 0 ? (1 - a.spawn) * (1 + Math.sin((1 - a.spawn) * Math.PI) * 0.25) : 1;
+                const spawnScale = a.spawn > 0 ? Math.max(0.02, (1 - a.spawn) * (1 + Math.sin((1 - a.spawn) * Math.PI) * 0.2)) : 1;
+
                 // Tremor (dano/morte) apenas lateral e limitado à folga até a parede
-                const sideRoom = Math.max(0, 0.485 - Math.abs(entry.slotX) - entry.scale * 0.56);
-                const rawShake = (a.shake > 0 ? Math.sin(now / 18) * 0.06 : 0) + deathShake;
-                const shakeOffset = clamp(rawShake, -sideRoom, sideRoom);
+                const rawShake = (a.shake > 0 ? Math.sin(now / 18) * 0.1 : 0) + deathShake;
+                const shakeOffset = clamp(rawShake, -entry.roomL, entry.roomR);
 
-                // A investida vai em direção à câmera (centro da tela), não só para frente
-                let tdx = camX - entry.curX;
-                let tdz = camZ - entry.curZ;
-                const tlen = Math.hypot(tdx, tdz) || 1;
-                tdx /= tlen;
-                tdz /= tlen;
+                // A investida vai em direção à câmera (centro da tela)
+                const tdx = (wx - entry.curX) / camDist;
+                const tdz = (wz - entry.curZ) / camDist;
+                let px = entry.curX + tdx * toward + (entry.rightX || 0) * shakeOffset;
+                let pz = entry.curZ + tdz * toward + (entry.rightZ || 0) * shakeOffset;
 
-                entry.group.position.set(
-                    entry.curX + tdx * toward + (entry.rightX || 0) * shakeOffset,
-                    0.1 + (a.death > 0 ? 0 : idleBob) + atkHop + buffHop - (a.death > 0.4 ? (a.death - 0.4) * 0.16 : 0),
-                    entry.curZ + tdz * toward + (entry.rightZ || 0) * shakeOffset
-                );
-                entry.drawW = 0;
+                // Garantia por quadro: o sprite (já com a escala da animação) fica inteiro dentro da
+                // faixa livre do tile à frente — nunca passa das paredes laterais nem da do fundo.
+                const corridor = entry.limR - entry.limL;
+                atkScale = Math.min(atkScale, corridor / (entry.visW * 1.03));
+                const halfNow = entry.visW * atkScale * spawnScale * idleSx * deathSx * 0.5;
+                const relX = px - entry.originX;
+                const relZ = pz - entry.originZ;
+                let lat = relX * entry.rightX + relZ * entry.rightZ;
+                let dep = relX * entry.fwdX + relZ * entry.fwdZ;
+                lat = halfNow * 2 >= corridor
+                    ? (entry.limL + entry.limR) / 2
+                    : clamp(lat, entry.limL + halfNow, entry.limR - halfNow);
+                // a investida para dentro do tile à frente (não invade o tile do jogador, cujas
+                // laterais podem ser paredes)
+                dep = clamp(dep, Math.min(1.08, entry.slotZ), FORMATION_MAX_DEPTH + 0.06);
+                px = entry.originX + entry.rightX * lat + entry.fwdX * dep;
+                pz = entry.originZ + entry.rightZ * lat + entry.fwdZ * dep;
 
-                const base = entry.scale * atkScale * buffScale * spawnScale;
-                const sxScale = Math.max(0.001, base * idleSx * deathSx);
-                const syScale = Math.max(0.001, base * idleSy * deathSy);
-                entry.main.scale.set(sxScale, syScale, 1);
-                entry.red.scale.set(sxScale, syScale, 1);
-                entry.white.scale.set(sxScale, syScale, 1);
+                // Pés no chão: y = 0, exceto durante saltos de animação (ataque/buff)
+                entry.sprite.position.set(px, atkHop + buffHop, pz);
+                entry.shadow.position.set(px, 0.02, pz);
 
-                entry.drawW = sxScale;
+                const sxScale = entry.scale * atkScale * spawnScale * idleSx * deathSx;
+                const syScale = entry.scale * atkScale * spawnScale * idleSy * deathSy;
+                entry.sprite.scale.set(sxScale, syScale, 1);
+                entry.drawW = entry.visW * atkScale * spawnScale * idleSx * deathSx;
 
-                // Fileira da frente por cima; o atacante fica por cima de todos durante a investida
-                const order = 10 + (a.atk >= 0 ? 60 : (entry.rank || 0));
-                entry.shadow.renderOrder = order - 1;
-                entry.main.renderOrder = order;
-                entry.red.renderOrder = order + 1;
-                entry.white.renderOrder = order + 2;
-
-                const whiteAlpha = Math.max(a.white, deathBlink, flashAlpha);
-                entry.white.material.color.setHex(flashAlpha > 0 && flashAlpha >= a.white ? flashColor : 0xffffff);
-                entry.main.material.opacity = alpha;
-                entry.red.material.opacity = a.hurt * 0.85 * alpha;
-                entry.white.material.opacity = whiteAlpha * alpha;
-                entry.shadow.material.opacity = 0.45 * alpha * (a.spawn > 0 ? 1 - a.spawn : 1);
-                entry.group.visible = alpha > 0.02;
+                // Flash: troca a textura (branca tingida / vermelha) em vez de sobrepor sprites
+                const mat = entry.sprite.material;
+                let map = entry.tex.normal;
+                let color = 0xffffff;
+                if (flash > 0) {
+                    map = entry.tex.white;
+                    color = flashColor;
+                } else if (deathBlink || a.white > 0.45) {
+                    map = entry.tex.white;
+                } else if (a.hurt > 0.3) {
+                    map = entry.tex.red;
+                }
+                if (mat.map !== map) {
+                    mat.map = map;
+                    mat.needsUpdate = true;
+                }
+                mat.color.setHex(color);
+                mat.opacity = alpha;
+                entry.shadow.material.opacity = 0.4 * alpha * (a.spawn > 0 ? 1 - a.spawn : 1);
+                entry.sprite.visible = alpha > 0.02;
+                entry.shadow.visible = alpha > 0.02;
             }
 
             renderer.render(scene, camera);
@@ -1408,7 +1638,7 @@
         // Flash de dano nas bordas da janela 3D
         if (edgeFlash.alpha > 0.01) {
             const eg = hctx.createRadialGradient(
-                viewW / 2, viewH / 2, viewH * 0.22,
+                viewW / 2, viewH / 2, Math.min(viewW, viewH) * 0.22,
                 viewW / 2, viewH / 2, Math.max(viewW, viewH) * 0.62
             );
             eg.addColorStop(0, 'rgba(' + edgeFlash.rgb + ',0)');
@@ -1432,43 +1662,60 @@
         }
 
         const vig = hctx.createRadialGradient(
-            viewW / 2, viewH / 2, viewH * 0.42,
-            viewW / 2, viewH / 2, viewH * 0.95
+            viewW / 2, viewH / 2, Math.min(viewW, viewH) * 0.5,
+            viewW / 2, viewH / 2, Math.max(viewW, viewH) * 0.8
         );
         vig.addColorStop(0, 'rgba(0,0,0,0)');
-        vig.addColorStop(1, 'rgba(8,5,14,0.42)');
+        vig.addColorStop(1, 'rgba(8,5,14,0.36)');
         hctx.fillStyle = vig;
         hctx.fillRect(0, 0, viewW, viewH);
 
         renderMinimap();
     }
 
-    // Diagnóstico: segmentos (no chão) ocupados pelos billboards visíveis, para testes de clipping.
+    // Diagnóstico para testes: segmento (no chão, em unidades de TILE) ocupado por cada billboard
+    // visível, altura dos pés (y) e altura visível.
     function getDebugBounds() {
         const out = [];
         const rxC = Math.cos(camYaw);
         const rzC = -Math.sin(camYaw);
+        const seg = (id, type, px, pz, hw, extra) => Object.assign({
+            id: id, type: type,
+            x1: (px - rxC * hw) / TILE, z1: (pz - rzC * hw) / TILE,
+            x2: (px + rxC * hw) / TILE, z2: (pz + rzC * hw) / TILE
+        }, extra || {});
         if (currentState && currentState.mode === 'combat') {
             for (const [uid, entry] of combatSprites.entries()) {
-                if (!entry.group.visible || !entry.alive) continue;
-                const hw = (entry.drawW || entry.scale) * 0.5;
-                const px = entry.group.position.x;
-                const pz = entry.group.position.z;
-                out.push({ id: uid, type: 'combat', x1: px - rxC * hw, z1: pz - rzC * hw, x2: px + rxC * hw, z2: pz + rzC * hw });
+                if (!entry.sprite.visible || !entry.alive) continue;
+                out.push(seg(uid, 'combat', entry.sprite.position.x, entry.sprite.position.z, (entry.drawW || entry.visW) * 0.5, {
+                    feetY: entry.sprite.position.y,
+                    visH: entry.visH,
+                    isBoss: entry.isBoss,
+                    idle: entry.anim.atk < 0 && entry.anim.buff <= 0,
+                    depth: entry.slotZ
+                }));
             }
         } else {
             for (const [id, entry] of encounterSprites.entries()) {
                 if (!entry.sprite || !entry.sprite.visible) continue;
-                const hw = entry.sprite.scale.x * 0.5;
-                out.push({ id: id, type: 'world', x1: entry.x - rxC * hw, z1: entry.z - rzC * hw, x2: entry.x + rxC * hw, z2: entry.z + rzC * hw });
+                out.push(seg(id, 'world', entry.x * TILE, entry.z * TILE, entry.visW * 0.5, { feetY: 0, visH: entry.visH, isBoss: entry.isBoss }));
             }
             for (const [key, obj] of worldPickups.entries()) {
                 if (!obj.sprite.visible) continue;
-                const hw = obj.sprite.scale.x * 0.5;
-                const px = obj.sprite.position.x;
-                const pz = obj.sprite.position.z;
-                out.push({ id: obj.kind + '@' + key, type: 'world', x1: px - rxC * hw, z1: pz - rzC * hw, x2: px + rxC * hw, z2: pz + rzC * hw });
+                out.push(seg(obj.kind + '@' + key, 'world', obj.sprite.position.x, obj.sprite.position.z, obj.visW * 0.5, { feetY: obj.sprite.position.y }));
             }
+        }
+        return out;
+    }
+
+    // Posições 2D (locais ao viewport) dos labels, para testes de sobreposição.
+    function getCombatLabelAnchors() {
+        const out = [];
+        for (const [uid, entry] of combatSprites.entries()) {
+            if (!entry.alive) continue;
+            const top = project3D(entry.curX, entry.visH, entry.curZ);
+            const bot = project3D(entry.curX, 0, entry.curZ);
+            if (top && bot) out.push({ id: uid, x: top.x, headY: top.y, feetY: bot.y, isBoss: entry.isBoss });
         }
         return out;
     }
@@ -1477,7 +1724,7 @@
         const rect = hudCanvas.getBoundingClientRect();
         const entry = combatSprites.get(enemyUid);
         if (webglOk && entry) {
-            const p = project3D(entry.curX, 0.1 + entry.scale * 0.55, entry.curZ);
+            const p = project3D(entry.curX, entry.visH * 0.55, entry.curZ);
             if (p) {
                 return { x: rect.left + p.x, y: rect.top + p.y };
             }
@@ -1491,18 +1738,21 @@
         syncState: syncState,
         setHoveredCard: setHoveredCard,
         turnCamera: turnCamera,
+        settleCamera: settleCamera,
         triggerStepBob: triggerStepBob,
         triggerShake: triggerShake,
         triggerScreenFlash: triggerScreenFlash,
+        triggerEdgeFlash: triggerEdgeFlash,
         triggerEnemyHitAnim: triggerEnemyHitAnim,
         triggerEnemyAttackAnim: triggerEnemyAttackAnim,
         triggerEnemyBuffAnim: triggerEnemyBuffAnim,
-        triggerEdgeFlash: triggerEdgeFlash,
         showEncounterAlert: showEncounterAlert,
+        showEpilogue: showEpilogue,
         spawnBurst: spawnBurst,
         getAttackTimings: getAttackTimings,
         getDebugBounds: getDebugBounds,
-        settleCamera: settleCamera,
-        getEnemyScreenPos: getEnemyScreenPos
+        getCombatLabelAnchors: getCombatLabelAnchors,
+        getEnemyScreenPos: getEnemyScreenPos,
+        constants: { TILE: TILE, CAM_HEIGHT: CAM_HEIGHT, COMMON_HEIGHT: COMMON_HEIGHT, BOSS_HEIGHT: BOSS_HEIGHT }
     };
 })();

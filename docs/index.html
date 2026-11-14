@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Hell's Castle: Expediente Sombrio</title>
     <link rel="icon" type="image/png" href="icon-192.png" />
     <link rel="preload" href="fonts/Jersey15-latin.woff2" as="font" type="font/woff2" crossorigin />
@@ -63,7 +63,6 @@
                 </div>
             </div>
             <div class="left-top-strips">
-                <div id="allies-strip" class="allies-strip" title="Colegas Aliados Recrutados"></div>
                 <div id="passives-strip" class="passives-grid"></div>
             </div>
         </div>
@@ -101,6 +100,7 @@
             <div class="combo-inner">
                 <span class="combo-lbl">COMBO</span>
                 <span id="combo-num" class="combo-num">x1</span>
+                <span id="combo-bonus" class="combo-bonus">+0%</span>
             </div>
         </div>
 
@@ -153,9 +153,17 @@
                 <span>VR <b id="stat-vr">0</b></span>
             </div>
 
-            <div id="log-text" class="vp-toast">Sir Valter entra nas Catacumbas das Baias.</div>
+            <div id="log-text" class="vp-toast toast-hidden"></div>
             <div id="overkill-banner" class="overkill-banner">OVERKILL!</div>
             <div id="evolution-banner" class="overkill-banner evo-banner">EVOLUÇÃO!</div>
+            <div id="ambush-banner" class="overkill-banner ambush-banner">EMBOSCADA!</div>
+
+            <!-- Epílogo: momento calmo com um único botão central -->
+            <div id="epilogue-overlay" class="epilogue-overlay hidden">
+                <h2 id="epilogue-title">O ponteiro parou.</h2>
+                <div id="epilogue-lines" class="epilogue-lines"></div>
+                <button id="btn-punch-clock" class="punch-clock-btn" type="button">BATER O PONTO</button>
+            </div>
         </section>
 
         <!-- Parte Inferior Central -->
@@ -201,9 +209,9 @@
                     </button>
                 </div>
 
-                <div class="parchment-wrap" title="Planta de Emergência / Minimapa do Andar">
+                <div class="parchment-wrap" title="Minimapa do Devaneio">
                     <canvas id="minimap-canvas" width="168" height="168"></canvas>
-                    <span class="memo-stamp">PLANTA &middot; SAÍDA</span>
+                    <span class="memo-stamp">MAPA &middot; SAÍDA</span>
                 </div>
             </div>
 
@@ -214,7 +222,7 @@
                         <path fill="#1b0a02" d="M12,1 h3 v3 l-7,7 l2,2 l-1,1 l-2,-2 l-3,3 h-2 v-2 l3,-3 l-2,-2 l1,-1 l2,2 z"/>
                         <path fill="#fff2c2" d="M12,2 h2 v2 l-6,6 l-2,-2 z"/>
                     </svg>
-                    <span>JOGAR<br />TUDO</span>
+                    <span>JOGAR<br /> TUDO</span>
                 </button>
 
                 <div id="hand-grid" class="cards-fan"></div>
@@ -225,7 +233,7 @@
                         <rect fill="#3ecbff" x="6" y="4" width="4" height="2"/>
                         <rect fill="#3ecbff" x="7" y="10" width="2" height="2"/>
                     </svg>
-                    <span>FIM DO<br />TURNO</span>
+                    <span>FIM DO<br /> TURNO</span>
                 </button>
             </div>
         </section>
@@ -245,22 +253,22 @@
 
     <div id="xp-particles-layer"></div>
 
-    <!-- Tela Inicial Corporativa: Bater o Ponto & Seleção de Crachá -->
+    <!-- Tela Inicial: Bater o Ponto (Valter Motta sozinho) -->
     <div id="title-modal" class="modal-overlay">
         <div class="modal-box intranet-box">
             <div class="intranet-topbar">
-                <span>HELTON CORP &middot; INTRANET v4.2 — TERMINAL DE PONTO ELETRÔNICO</span>
-                <span class="intranet-clock">SEXTA-FEIRA &middot; 17:15</span>
+                <span>HELTON CORP &middot; TERMINAL DE PONTO ELETRÔNICO</span>
+                <span class="intranet-clock">SEGUNDA-FEIRA &middot; 08:00</span>
             </div>
-            <h1 class="intranet-title">HELL'S CASTLE: BATER O PONTO</h1>
+            <h1 class="intranet-title">HELL'S CASTLE: ENTRE UMA REUNIÃO E OUTRA</h1>
             <div class="ceo-email-box">
-                <div class="email-hdr">DE: valdemar.ceo@heltoncorp.com &middot; ASSUNTO: URGENTE (PRIORIDADE MÁXIMA)</div>
-                <div class="email-msg">"Motta, onde está o Relatório #25? Reunião obrigatória antes das 18:00."</div>
+                <div class="email-hdr">AGENDA DE HOJE &middot; 08:17 IMPRESSORA &middot; 11:30 CORREDOR &middot; 14:45 REUNIÃO &middot; 17:15 ARQUIVO &middot; 18:00 SAÍDA</div>
+                <div class="email-msg">"Entre uma tarefa e outra, Valter Motta olha para o nada. E o nada olha de volta."</div>
             </div>
-            <p class="mitty-motto">"Enxergar além das planilhas. Enfrentar a copa. Sobreviver até as 18:00."</p>
-            <div class="badge-pick-lbl">ESCOLHA SEU CRACHÁ DE FUNCIONÁRIO PARA INICIAR O EXPEDIENTE:</div>
+            <p class="mitty-motto">Cinco devaneios. Um dia inteiro. Ninguém para ajudar.</p>
+            <div class="badge-pick-lbl">SEU CRACHÁ:</div>
             <div id="badge-select-grid" class="badge-grid"></div>
-            <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E ENTRAR EM DEVANEIO</button>
+            <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E COMEÇAR O DIA</button>
         </div>
     </div>
 
@@ -325,43 +333,54 @@
         </div>
     </div>
 
-    <!-- Modal de Level Up (1 de 3) -->
+    <!-- Modal de Level Up (1 de 3) — sempre aberto pela fila única de modais -->
     <div id="levelup-modal" class="modal-overlay hidden">
         <div class="modal-box">
             <h2>LEVEL UP!</h2>
-            <p>Escolha 1 recompensa para Sir Valter sobreviver ao expediente:</p>
+            <p id="levelup-count" class="levelup-count">Nível 2</p>
+            <p>Escolha 1 recompensa para Valter seguir em frente:</p>
             <div id="reward-grid" class="reward-grid"></div>
         </div>
     </div>
 
-    <!-- Modal da Máquina de Café / Copa (Loja & Aliados) -->
-    <div id="shop-modal" class="modal-overlay hidden">
+    <!-- Modal do Ponto de Pausa / Fogueira -->
+    <div id="rest-modal" class="modal-overlay hidden">
         <div class="modal-box shop-box">
             <div class="shop-header">
-                <h2>MÁQUINA DE CAFÉ DA COPA</h2>
-                <div class="shop-vr-pill">SEU VR: <b id="shop-vr-val">0</b></div>
+                <h2 id="rest-title">PONTO DE PAUSA</h2>
+                <div class="shop-vr-pill">SEU VR: <b id="rest-vr-val">0</b></div>
             </div>
-            <p>Sir Valter pode gastar Vale-Refeição em suprimentos, relíquias de evolução ou aliados:</p>
-            <div id="shop-items-grid" class="shop-grid"></div>
-            <button id="btn-shop-close" class="bevel-btn modal-restart" type="button">VOLTAR AO CORREDOR</button>
+            <p id="rest-desc"></p>
+            <div id="rest-items-grid" class="shop-grid"></div>
+            <button id="btn-rest-close" class="bevel-btn modal-restart" type="button">SEGUIR VIAGEM</button>
         </div>
     </div>
 
-    <!-- Modal de Evento Aleatório (?) -->
+    <!-- Modal de Evento (?) -->
     <div id="event-modal" class="modal-overlay hidden">
         <div class="modal-box event-box">
-            <span class="event-tag">EVENTO NO CORREDOR</span>
+            <span class="event-tag">EVENTO NO DEVANEIO</span>
             <h2 id="event-title">Encontro Inesperado</h2>
             <p id="event-desc"></p>
             <div id="event-choices" class="event-choices"></div>
         </div>
     </div>
 
-    <!-- Modal de Vitória / Derrota -->
+    <!-- Card narrativo entre as fases -->
+    <div id="narrative-modal" class="modal-overlay narrative-overlay hidden">
+        <div class="modal-box narrative-box">
+            <span id="narrative-tag" class="event-tag">FASE 1</span>
+            <h2 id="narrative-title">A Impressora Faminta</h2>
+            <div id="narrative-lines" class="narrative-lines"></div>
+            <button id="btn-narrative-continue" class="bevel-btn modal-restart" type="button">Continuar</button>
+        </div>
+    </div>
+
+    <!-- Modal de Vitória (epílogo) / Derrota -->
     <div id="end-modal" class="modal-overlay hidden">
         <div id="end-box" class="modal-box">
             <h2 id="end-title">EXPEDIENTE ENCERRADO!</h2>
-            <p id="end-desc"></p>
+            <div id="end-desc" class="narrative-lines"></div>
             <p id="end-stats" class="end-stats"></p>
             <button id="btn-play-again" class="bevel-btn modal-restart" type="button">NOVO EXPEDIENTE</button>
         </div>

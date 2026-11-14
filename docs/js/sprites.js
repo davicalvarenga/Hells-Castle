@@ -1,4 +1,4 @@
-// Gerador procedural de sprites 24x24/16x16 e texturas em Pixel Art (via Canvas 2D).
+// Gerador procedural de sprites (32x32, 24x24, 16x16) e texturas dos biomas em Pixel Art (via Canvas 2D).
 (function () {
     'use strict';
 
@@ -775,274 +775,611 @@
         return c;
     }
 
-    const FLOOR_THEMES = {
-        1: {
-            wallBg: '#332942', brickRgb: [82, 70, 98], trim: '#5c667d', trimHi: '#8b97b0', panel: '#473c59',
-            floorBg: '#2a2236', stoneA: '#3f3450', stoneB: '#342a44', carpet: '#631d28', carpetMid: '#7d2634', carpetTrim: '#ba8524', grout: '#181221',
-            ceilBg: '#1a1424', ceilMid: '#282036', ceilBeam: '#3d334d', lampGlow: '#97b4db', lampCore: '#d2ecff'
-        },
-        2: {
-            wallBg: '#1f382c', brickRgb: [52, 86, 68], trim: '#4b6e5d', trimHi: '#7da892', panel: '#2c4a3b',
-            floorBg: '#182b21', stoneA: '#243b30', stoneB: '#1e3328', carpet: '#2e5930', carpetMid: '#3d733f', carpetTrim: '#cfa238', grout: '#101f17',
-            ceilBg: '#122119', ceilMid: '#1d3328', ceilBeam: '#2b4739', lampGlow: '#82d99b', lampCore: '#d4ffe0'
-        },
-        3: {
-            wallBg: '#3d1720', brickRgb: [92, 42, 54], trim: '#946f29', trimHi: '#f0c85a', panel: '#4d1f2a',
-            floorBg: '#2b161b', stoneA: '#422028', stoneB: '#361920', carpet: '#8c1d24', carpetMid: '#ad262f', carpetTrim: '#f5cb5c', grout: '#170a0d',
-            ceilBg: '#1c0c10', ceilMid: '#2b1318', ceilBeam: '#4f2830', lampGlow: '#f2c166', lampCore: '#fff2ba'
-        }
-    };
+    // =====================================================================================
+    // PINTOR PROCEDURAL (campanha dos 5 biomas): sprites 32x32 / ícones 16x16 descritos por
+    // operações simples, espelhados no eixo vertical e com contorno automático.
+    //   ['e', cx, cy, rx, ry, cor]  elipse      ['r', x, y, w, h, cor]  retângulo
+    //   ['l', x0, y0, x1, y1, cor, espessura]   linha       ['p', x, y, cor]  pixel
+    // Prefixo '!' = não espelhar. Cor '.' apaga.
+    // =====================================================================================
+    Object.assign(PALETTE, {
+        i: '#22386b', I: '#121d3d', n: '#e6f6ff', N: '#9fd0ee', v: '#4f8dc2', q: '#3fb3b8',
+        z: '#8b909e', Z: '#4d5261', x: '#5f9440', l: '#9fe8ff', j: '#a3542a', T: '#e0603c',
+        V: '#3d2c73', W: '#ffffff', O: '#d1a13c', H: '#7d5c1f', M: '#ec6bff'
+    });
 
-    const FONT_3X5 = {
-        A: ['010', '101', '111', '101', '101'],
-        B: ['110', '101', '110', '101', '110'],
-        C: ['011', '100', '100', '100', '011'],
-        D: ['110', '101', '101', '101', '110'],
-        E: ['111', '100', '110', '100', '111'],
-        F: ['111', '100', '110', '100', '100'],
-        G: ['011', '100', '101', '101', '011'],
-        H: ['101', '101', '111', '101', '101'],
-        I: ['111', '010', '010', '010', '111'],
-        J: ['001', '001', '001', '101', '010'],
-        K: ['101', '101', '110', '101', '101'],
-        L: ['100', '100', '100', '100', '111'],
-        M: ['101', '111', '111', '101', '101'],
-        N: ['101', '111', '111', '111', '101'],
-        O: ['010', '101', '101', '101', '010'],
-        P: ['110', '101', '110', '100', '100'],
-        Q: ['010', '101', '101', '111', '011'],
-        R: ['110', '101', '110', '101', '101'],
-        S: ['011', '100', '010', '001', '110'],
-        T: ['111', '010', '010', '010', '010'],
-        U: ['101', '101', '101', '101', '111'],
-        V: ['101', '101', '101', '101', '010'],
-        W: ['101', '101', '111', '111', '101'],
-        X: ['101', '101', '010', '101', '101'],
-        Y: ['101', '101', '010', '010', '010'],
-        Z: ['111', '001', '010', '100', '111'],
-        '0': ['111', '101', '101', '101', '111'],
-        '1': ['010', '110', '010', '010', '111'],
-        '2': ['110', '001', '010', '100', '111'],
-        '3': ['110', '001', '110', '001', '110'],
-        '4': ['101', '101', '111', '001', '001'],
-        '5': ['111', '100', '110', '001', '110'],
-        '6': ['011', '100', '111', '101', '111'],
-        '7': ['111', '001', '010', '010', '010'],
-        '8': ['111', '101', '111', '101', '111'],
-        '9': ['111', '101', '111', '001', '110'],
-        '-': ['000', '000', '111', '000', '000'],
-        ' ': ['000', '000', '000', '000', '000']
-    };
-
-    function drawPixelText3x5(g, text, startX, startY, color) {
-        g.fillStyle = color;
-        const up = String(text || '').toUpperCase();
-        for (let i = 0; i < up.length; i++) {
-            const glyph = FONT_3X5[up[i]] || FONT_3X5[' '];
-            const gx = startX + i * 4;
-            for (let r = 0; r < 5; r++) {
-                for (let c = 0; c < 3; c++) {
-                    if (glyph[r][c] === '1') {
-                        g.fillRect(gx + c, startY + r, 1, 1);
-                    }
+    function paintSprite(size, ops) {
+        const buf = [];
+        for (let y = 0; y < size; y++) buf.push(new Array(size).fill('.'));
+        const put = (x, y, c) => {
+            x = Math.round(x);
+            y = Math.round(y);
+            if (x >= 0 && x < size && y >= 0 && y < size) buf[y][x] = c;
+        };
+        const rect = (x, y, w, h, c) => {
+            for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) put(xx, yy, c);
+        };
+        const ellipse = (cx, cy, rx, ry, c) => {
+            for (let yy = Math.floor(cy - ry); yy <= Math.ceil(cy + ry); yy++) {
+                for (let xx = Math.floor(cx - rx); xx <= Math.ceil(cx + rx); xx++) {
+                    const dx = (xx + 0.5 - cx) / rx;
+                    const dy = (yy + 0.5 - cy) / ry;
+                    if (dx * dx + dy * dy <= 1) put(xx, yy, c);
                 }
             }
+        };
+        const line = (x0, y0, x1, y1, c, th) => {
+            const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+            for (let i = 0; i <= steps; i++) {
+                rect(Math.round(x0 + (x1 - x0) * i / steps), Math.round(y0 + (y1 - y0) * i / steps), th, th, c);
+            }
+        };
+        ops.forEach(op => {
+            const noMirror = op[0][0] === '!';
+            const t = op[0].replace('!', '');
+            if (t === 'e') {
+                ellipse(op[1], op[2], op[3], op[4], op[5]);
+                if (!noMirror) ellipse(size - op[1], op[2], op[3], op[4], op[5]);
+            } else if (t === 'r') {
+                rect(op[1], op[2], op[3], op[4], op[5]);
+                if (!noMirror) rect(size - op[1] - op[3], op[2], op[3], op[4], op[5]);
+            } else if (t === 'l') {
+                const th = op[6] || 1;
+                line(op[1], op[2], op[3], op[4], op[5], th);
+                if (!noMirror) line(size - th - op[1], op[2], size - th - op[3], op[4], op[5], th);
+            } else if (t === 'p') {
+                put(op[1], op[2], op[3]);
+                if (!noMirror) put(size - 1 - op[1], op[2], op[3]);
+            }
+        });
+        // contorno automático
+        const out = buf.map(row => row.slice());
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                if (buf[y][x] !== '.') continue;
+                const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(d => {
+                    const r = buf[y + d[1]];
+                    const c = r ? r[x + d[0]] : undefined;
+                    return c !== undefined && c !== '.';
+                });
+                if (near) out[y][x] = 'k';
+            }
+        }
+        return out.map(row => row.join(''));
+    }
+
+    const PAINTED_32 = {
+        // ---------------- Fase 1: Praia ----------------
+        crab: [
+            ['l', 7, 24, 3, 29, 'R', 2], ['l', 9, 26, 7, 30, 'R', 2], ['l', 12, 27, 11, 30, 'R', 2],
+            ['l', 8, 18, 5, 11, 'T', 3], ['e', 5.5, 6.5, 4, 5, 'T'], ['r', 5, 2, 1, 5, '.'], ['r', 3, 8, 2, 3, 'R'],
+            ['r', 12, 11, 2, 6, 'T'], ['r', 11, 8, 4, 4, 'w'], ['r', 13, 9, 1, 2, 'k'],
+            ['e', 16, 21, 10, 6, 'T'], ['e', 16, 24, 8, 3, 'R'], ['r', 12, 22, 8, 1, 'k'],
+            ['r', 15, 17, 2, 3, 'i'], ['p', 10, 20, 'i'], ['!r', 19, 18, 2, 2, 'i']
+        ],
+        gull: [
+            ['e', 6.5, 12, 6, 3.5, 'c'], ['e', 4, 10, 3, 2.5, 'd'], ['l', 11, 14, 8, 13, 'w', 3],
+            ['r', 14, 26, 4, 2, 'd'],
+            ['e', 16, 20, 5.5, 7, 'w'], ['e', 16, 23, 4, 4, 'c'],
+            ['e', 16, 9, 4.5, 4.5, 'w'], ['r', 12, 7, 8, 3, 'd'], ['r', 13, 8, 2, 1, 'e'],
+            ['r', 15, 11, 2, 3, 'o'], ['r', 15, 13, 2, 1, 'Y'],
+            ['r', 13, 27, 1, 3, 'o'], ['r', 11, 30, 4, 1, 'o'],
+            ['!r', 20, 15, 5, 6, 'w'], ['!r', 21, 17, 3, 1, 'c'], ['!r', 21, 19, 3, 1, 'c']
+        ],
+        specter: [
+            ['e', 6, 17, 3.5, 2.5, 'q'], ['r', 3, 18, 2, 3, 'q'],
+            ['e', 16, 9, 7.5, 8, 'q'], ['r', 9, 9, 14, 15, 'q'],
+            ['r', 9, 24, 3, 7, 'q'], ['r', 13, 24, 2, 5, 'q'], ['r', 15, 24, 2, 7, 'q'],
+            ['e', 12.5, 6, 2.5, 3, 'm'], ['r', 9, 21, 14, 2, 't'],
+            ['r', 11, 9, 3, 4, 'D'], ['p', 12, 10, 'a'], ['r', 15, 15, 2, 4, 'D'],
+            ['r', 9, 30, 3, 1, 'w'], ['r', 15, 30, 2, 1, 'w']
+        ],
+        // ---------------- Fase 2: Cidade Gótica ----------------
+        hunter: [
+            ['r', 12, 1, 8, 3, 'D'], ['r', 7, 4, 18, 2, 'D'], ['r', 6, 3, 2, 1, 'D'],
+            ['r', 12, 6, 8, 5, 'f'], ['r', 12, 9, 8, 3, 'd'], ['r', 13, 7, 2, 1, 'e'], ['r', 13, 12, 6, 2, 'R'],
+            ['r', 6, 14, 4, 9, 'd'], ['r', 6, 23, 3, 2, 'f'],
+            ['r', 10, 14, 12, 10, 'd'], ['r', 15, 14, 2, 10, 'D'], ['p', 14, 16, 'y'], ['p', 14, 19, 'y'],
+            ['r', 8, 22, 16, 5, 'd'], ['r', 8, 26, 16, 1, 'D'],
+            ['r', 11, 27, 4, 3, 'D'], ['r', 10, 30, 5, 1, 'B'],
+            ['!r', 3, 6, 2, 17, 's'], ['!p', 2, 8, 's'], ['!p', 2, 11, 's'], ['!p', 2, 14, 's'], ['!p', 2, 17, 's'], ['!r', 3, 22, 2, 4, 'B']
+        ],
+        crow: [
+            ['e', 8, 17, 4.5, 8, 'd'], ['r', 4, 22, 3, 4, 'D'],
+            ['e', 16, 19, 6.5, 8, 'D'], ['e', 16, 20, 3.5, 5, 'd'],
+            ['r', 15, 1, 2, 2, 'D'], ['e', 16, 8, 5.5, 5.5, 'D'], ['r', 12, 6, 2, 2, 'e'],
+            ['r', 15, 9, 2, 5, 'y'], ['r', 15, 13, 2, 1, 'Y'],
+            ['r', 14, 20, 4, 1, 'H'], ['r', 13, 21, 6, 4, 'O'], ['r', 12, 25, 8, 1, 'O'], ['r', 15, 26, 2, 1, 'H'], ['!p', 14, 22, 'y'],
+            ['r', 12, 27, 2, 3, 'Y'], ['r', 10, 30, 5, 1, 'Y']
+        ],
+        herald: [
+            ['e', 8, 17, 3, 3.5, 'p'], ['r', 7, 20, 2, 2, 'f'],
+            ['e', 16, 7, 6.5, 6.5, 'P'], ['e', 16, 8, 4, 4.5, 'D'], ['r', 13, 7, 2, 2, 'l'],
+            ['r', 11, 13, 10, 6, 'P'], ['r', 9, 19, 14, 6, 'P'], ['r', 7, 25, 18, 6, 'P'], ['r', 7, 30, 18, 1, 'p'],
+            ['r', 15, 13, 2, 18, 'y'], ['r', 11, 18, 10, 1, 'Y'],
+            ['!r', 4, 7, 1, 24, 'b'], ['!r', 2, 2, 5, 5, 'S'], ['!r', 3, 3, 3, 3, 'l']
+        ],
+        // ---------------- Fase 3: Pico Nevado ----------------
+        wolf: [
+            ['!e', 25, 25, 3, 4, 'n'],
+            ['r', 9, 2, 3, 5, 'n'], ['r', 10, 1, 2, 1, 'n'], ['r', 10, 3, 1, 3, 'u'],
+            ['e', 16, 22, 8, 8, 'N'], ['e', 16, 22, 4.5, 7, 'n'],
+            ['r', 10, 24, 4, 7, 'n'], ['r', 9, 30, 5, 1, 'w'],
+            ['e', 16, 10, 7, 6, 'n'], ['r', 8, 11, 2, 3, 'n'],
+            ['r', 11, 8, 3, 2, 'a'], ['p', 12, 8, 'k'],
+            ['e', 16, 13, 3.5, 3.5, 'w'], ['r', 15, 11, 2, 2, 'k'], ['r', 14, 15, 4, 1, 'k'], ['p', 14, 16, 'w']
+        ],
+        serpent: [
+            ['e', 16, 25.5, 11, 5.5, 'v'], ['e', 16, 24, 8, 3, 'N'], ['r', 11, 23, 10, 1, 'n'],
+            ['r', 5, 18, 2, 5, 'n'], ['p', 5, 17, 'n'], ['r', 8, 20, 1, 3, 'a'],
+            ['e', 16, 8, 8, 6.5, 'N'], ['r', 9, 7, 2, 3, 'v'],
+            ['r', 13, 12, 6, 9, 'N'], ['r', 14, 13, 4, 1, 'n'], ['r', 14, 15, 4, 1, 'n'], ['r', 14, 17, 4, 1, 'n'], ['r', 14, 19, 4, 1, 'n'],
+            ['e', 16, 7, 4, 4.5, 'n'], ['r', 13, 5, 2, 2, 'e'], ['r', 15, 11, 2, 2, 'r'], ['p', 14, 13, 'r']
+        ],
+        sentinel: [
+            ['e', 8, 13, 4, 3, 'n'], ['r', 5, 15, 2, 3, 'n'], ['p', 5, 18, 'n'],
+            ['r', 6, 15, 3, 8, 's'], ['r', 6, 23, 3, 2, 'S'],
+            ['r', 10, 11, 12, 10, 'S'], ['r', 12, 12, 8, 6, 's'], ['r', 15, 14, 2, 3, 'a'], ['r', 10, 20, 12, 1, 'A'],
+            ['r', 11, 21, 4, 8, 'S'], ['r', 11, 24, 4, 1, 's'], ['r', 10, 29, 5, 2, 's'],
+            ['r', 11, 1, 10, 9, 's'], ['r', 15, 0, 2, 2, 'a'], ['r', 12, 5, 8, 2, 'D'], ['r', 13, 5, 2, 2, 'a'], ['r', 11, 9, 10, 1, 'S'],
+            ['!r', 26, 7, 2, 18, 'n'], ['!p', 26, 6, 'n'], ['!r', 24, 24, 6, 1, 'S'], ['!r', 26, 25, 2, 3, 'B']
+        ],
+        // ---------------- Fase 4: Dungeon ----------------
+        skeleton: [
+            ['r', 8, 12, 3, 2, 'w'], ['r', 8, 14, 2, 8, 'c'], ['r', 7, 22, 3, 2, 'w'],
+            ['r', 15, 12, 2, 10, 'c'], ['r', 11, 13, 10, 1, 'w'], ['r', 10, 15, 12, 1, 'w'], ['r', 11, 17, 10, 1, 'w'], ['r', 12, 19, 8, 1, 'w'],
+            ['r', 11, 22, 10, 2, 'w'], ['r', 12, 24, 2, 6, 'c'], ['r', 10, 30, 5, 1, 'w'],
+            ['e', 16, 6, 5.5, 5.5, 'w'], ['r', 12, 5, 3, 3, 'k'], ['p', 13, 6, 'm'], ['r', 15, 8, 2, 2, 'k'],
+            ['r', 13, 10, 6, 2, 'c'], ['p', 14, 11, 'k'],
+            ['!r', 21, 18, 7, 7, 'b'], ['!r', 21, 18, 7, 1, 'y'], ['!r', 23, 21, 3, 1, 'w']
+        ],
+        mimic: [
+            ['r', 6, 29, 3, 2, 'b'], ['r', 5, 30, 5, 1, 'B'],
+            ['r', 5, 3, 22, 1, 'b'], ['r', 4, 4, 24, 9, 'b'], ['r', 4, 8, 24, 1, 'B'], ['r', 4, 4, 2, 9, 's'],
+            ['r', 9, 5, 4, 3, 'y'], ['r', 11, 6, 1, 2, 'k'],
+            ['r', 5, 13, 22, 7, 'D'], ['r', 6, 13, 2, 2, 'w'], ['r', 10, 13, 2, 3, 'w'], ['r', 14, 13, 2, 2, 'w'],
+            ['r', 8, 18, 2, 2, 'w'], ['r', 12, 17, 2, 3, 'w'],
+            ['r', 14, 16, 4, 5, 'r'], ['r', 15, 20, 2, 3, 'u'],
+            ['r', 4, 20, 24, 9, 'B'], ['r', 6, 22, 20, 5, 'b'], ['r', 13, 23, 6, 2, 'y'], ['r', 14, 24, 4, 1, 'Y'], ['r', 4, 20, 2, 9, 'S']
+        ],
+        gargoyle: [
+            ['e', 6, 13, 5.5, 9, 'Z'], ['e', 6.5, 14, 3.5, 6.5, 'z'], ['r', 2, 3, 2, 3, 'Z'],
+            ['r', 10, 1, 2, 5, 'Z'], ['r', 9, 1, 1, 2, 'Z'],
+            ['r', 8, 17, 3, 7, 'z'], ['r', 8, 24, 3, 1, 'w'],
+            ['e', 16, 20, 6.5, 7.5, 'z'], ['e', 16, 21, 3.5, 5, 'Z'], ['!r', 19, 22, 2, 2, 'x'], ['!r', 10, 16, 2, 1, 'x'],
+            ['r', 11, 26, 4, 4, 'Z'], ['r', 9, 30, 7, 1, 'z'],
+            ['e', 16, 8, 5.5, 5, 'z'], ['r', 12, 6, 8, 1, 'Z'], ['r', 12, 7, 3, 2, 'e'], ['r', 14, 11, 4, 1, 'k'], ['p', 14, 12, 'w']
+        ],
+        // ---------------- Chefes ----------------
+        kraken: [
+            ['l', 8, 18, 3, 24, 'i', 3], ['l', 3, 24, 5, 29, 'i', 3], ['l', 11, 20, 9, 29, 'i', 3], ['l', 14, 21, 14, 29, 'I', 3],
+            ['p', 4, 25, 'u'], ['p', 10, 24, 'u'], ['p', 10, 27, 'u'],
+            ['e', 16, 11, 11, 10, 'i'], ['e', 16, 15, 9, 5, 'I'], ['e', 11, 6, 4, 3, 'A'],
+            ['r', 9, 10, 5, 4, 'y'], ['r', 11, 11, 2, 3, 'k'],
+            ['r', 14, 17, 4, 3, 'D'], ['r', 15, 19, 2, 2, 'o'],
+            ['!r', 19, 2, 5, 6, 'w'], ['!r', 20, 4, 3, 1, 'c'], ['!r', 6, 16, 4, 5, 'w'], ['!r', 7, 18, 2, 1, 'c']
+        ],
+        mensageiro: [
+            ['r', 5, 26, 22, 5, 'D'], ['r', 7, 20, 18, 6, 'd'], ['r', 9, 13, 14, 7, 'd'], ['r', 9, 13, 2, 18, 'D'],
+            ['r', 14, 13, 4, 18, 'D'], ['p', 15, 15, 's'], ['p', 15, 18, 's'], ['p', 15, 21, 's'],
+            ['r', 12, 30, 3, 1, 'B'],
+            ['r', 12, 0, 8, 4, 'D'], ['r', 8, 4, 16, 2, 'D'], ['r', 12, 3, 8, 1, 'A'],
+            ['r', 13, 6, 6, 4, 'F'], ['r', 13, 7, 2, 1, 'l'], ['r', 11, 10, 10, 3, 'R'], ['!r', 20, 12, 3, 6, 'R'],
+            ['!r', 5, 14, 4, 3, 'd'], ['!r', 3, 13, 2, 3, 'S'], ['!r', 1, 16, 6, 8, 'S'], ['!r', 2, 17, 4, 6, 'l'], ['!r', 3, 18, 2, 3, 'W'],
+            ['!r', 25, 15, 3, 2, 'd'], ['!r', 25, 17, 5, 5, 'O'], ['!r', 24, 22, 7, 1, 'O'], ['!p', 27, 23, 'H']
+        ],
+        estrategista: [
+            ['r', 5, 25, 2, 6, 'N'],
+            ['r', 10, 5, 3, 13, 'n'],
+            ['r', 7, 15, 3, 8, 'N'], ['r', 7, 23, 2, 2, 'f'],
+            ['r', 9, 20, 14, 5, 'n'], ['r', 7, 25, 18, 6, 'w'], ['r', 11, 22, 1, 9, 'N'], ['r', 7, 30, 18, 1, 'N'],
+            ['r', 11, 12, 10, 8, 'N'], ['r', 15, 13, 2, 3, 'a'], ['r', 11, 19, 10, 1, 'v'],
+            ['e', 8.5, 13, 4, 3, 'n'], ['r', 5, 9, 2, 3, 'N'],
+            ['e', 16, 8, 4, 4, 'f'], ['r', 13, 7, 2, 1, 'a'], ['r', 15, 10, 2, 1, 'u'],
+            ['r', 11, 1, 2, 4, 'N'], ['r', 15, 0, 2, 5, 'n'], ['r', 11, 4, 10, 1, 'a'],
+            ['!r', 27, 5, 1, 26, 's'], ['!r', 25, 1, 5, 5, 'a'], ['!r', 26, 2, 3, 3, 'W']
+        ],
+        guardia: [
+            ['r', 5, 27, 22, 4, 'D'], ['r', 7, 22, 18, 5, 'Z'], ['r', 9, 13, 14, 9, 'Z'], ['r', 14, 14, 4, 17, 'D'],
+            ['!r', 9, 24, 3, 2, 'x'], ['!r', 20, 17, 2, 2, 'x'],
+            ['l', 10, 14, 15, 19, 'S', 1],
+            ['e', 7, 17, 3, 4, 'z'], ['r', 5, 20, 3, 2, 'w'],
+            ['e', 16, 7, 7.5, 7, 'Z'], ['e', 16, 8, 5, 5.5, 'D'], ['e', 16, 8.5, 4, 4.5, 'w'],
+            ['r', 13, 7, 2, 3, 'k'], ['p', 13, 8, 'm'], ['r', 15, 10, 2, 1, 'k'], ['r', 14, 12, 4, 1, 'c'],
+            ['!r', 3, 22, 1, 3, 'S'], ['!r', 1, 25, 5, 5, 'j'], ['!r', 2, 26, 3, 3, 'm'],
+            ['!r', 25, 21, 1, 4, 'S'], ['!r', 24, 25, 4, 4, 'y'], ['!r', 25, 26, 2, 2, '.'], ['!r', 26, 29, 1, 2, 'y']
+        ],
+        horas: [
+            ['l', 3, 15, 1, 23, 'V', 2], ['r', 0, 24, 3, 3, 'O'],
+            ['r', 10, 25, 5, 5, 'V'], ['r', 11, 26, 3, 1, 'p'], ['r', 8, 30, 8, 1, 'H'],
+            ['r', 14, 0, 4, 2, 'H'], ['r', 4, 3, 3, 3, 'H'], ['r', 1, 11, 2, 4, 'H'], ['r', 4, 21, 3, 3, 'H'],
+            ['e', 16, 13, 13, 12.5, 'O'], ['e', 16, 13, 11, 10.5, 'H'], ['e', 16, 13, 9.5, 9, 'D'],
+            ['r', 15, 5, 2, 2, 'y'], ['r', 8, 12, 2, 2, 'y'], ['r', 15, 20, 2, 2, 'y'], ['p', 10, 7, 'y'], ['p', 10, 18, 'y'],
+            ['r', 11, 10, 3, 2, 'M'], ['r', 13, 16, 6, 1, 'M'],
+            ['!l', 16, 13, 16, 7, 'w', 1], ['!l', 16, 13, 21, 16, 'r', 1], ['r', 15, 12, 2, 2, 'y'],
+            ['!p', 28, 1, 'W'], ['!p', 3, 29, 'W']
+        ],
+        // ---------------- Props dos biomas ----------------
+        palm: [
+            ['!l', 17, 29, 14, 12, 'b', 3], ['!l', 19, 29, 16, 12, 'B', 1],
+            ['e', 8, 9, 8, 3, 'G'], ['e', 6, 13, 5, 2.5, 'h'], ['e', 10, 6, 6, 2.5, 'g'], ['e', 16, 9, 4, 3, 'G'],
+            ['r', 1, 10, 2, 3, 'G'], ['r', 2, 14, 2, 3, 'h'], ['r', 14, 11, 2, 2, 'B']
+        ],
+        lamp: [
+            ['r', 15, 9, 2, 21, 'S'], ['r', 13, 29, 6, 2, 'S'], ['r', 12, 30, 8, 1, 'D'], ['r', 12, 8, 8, 1, 'S'],
+            ['r', 12, 1, 8, 8, 'D'], ['r', 13, 2, 6, 6, 'l'], ['r', 15, 3, 2, 4, 'W'], ['r', 14, 0, 4, 1, 'S']
+        ],
+        restlamp: [
+            ['r', 15, 12, 2, 18, 'B'], ['r', 12, 29, 8, 2, 'B'], ['r', 11, 11, 10, 1, 'S'],
+            ['r', 11, 2, 10, 10, 'D'], ['r', 12, 3, 8, 8, 'y'], ['r', 14, 4, 4, 6, 'W'], ['r', 13, 1, 6, 1, 'S'],
+            ['r', 6, 27, 4, 4, 'b'], ['r', 6, 26, 4, 1, 'R']
+        ],
+        icespire: [
+            ['r', 4, 22, 3, 9, 'N'], ['r', 5, 20, 1, 2, 'n'],
+            ['r', 14, 1, 4, 5, 'n'], ['r', 12, 6, 8, 8, 'N'], ['r', 10, 14, 12, 9, 'N'], ['r', 8, 23, 16, 8, 'v'],
+            ['!r', 13, 4, 1, 20, 'n'], ['!r', 11, 16, 1, 10, 'W']
+        ],
+        campfire: [
+            ['r', 6, 28, 4, 3, 'z'], ['r', 11, 29, 10, 2, 'Z'],
+            ['!l', 7, 24, 22, 28, 'B', 3], ['!l', 9, 28, 24, 24, 'b', 3],
+            ['r', 15, 7, 2, 4, 'r'], ['e', 16, 18, 6, 9, 'r'], ['e', 16, 20, 4, 7, 'o'], ['e', 16, 22, 2.5, 5, 'y'],
+            ['!p', 10, 8, 'y'], ['!p', 22, 11, 'o']
+        ],
+        timeclock: [
+            ['r', 13, 22, 6, 9, 'S'], ['r', 10, 30, 12, 1, 'D'],
+            ['r', 8, 3, 16, 19, 'S'], ['r', 9, 4, 14, 17, 's'], ['r', 10, 5, 12, 8, 'D'],
+            ['r', 11, 7, 2, 4, 'g'], ['r', 15, 7, 2, 4, 'g'], ['r', 15, 8, 2, 1, 'D'],
+            ['r', 11, 15, 10, 2, 'w'], ['r', 11, 18, 10, 1, 'D']
+        ]
+    };
+
+    const PAINTED_16 = {
+        c_sword: [['!l', 4, 10, 11, 3, 's', 2], ['!r', 12, 2, 2, 2, 'w'], ['!l', 3, 8, 7, 12, 'y', 2], ['!l', 2, 12, 3, 13, 'B', 2], ['!r', 1, 13, 2, 2, 'y']],
+        c_flask: [['r', 7, 1, 2, 1, 'b'], ['r', 7, 2, 2, 3, 's'], ['e', 8, 10, 5, 5, 'r'], ['e', 8, 11, 4, 3.5, 'o'], ['r', 7, 10, 2, 2, 'y'], ['!r', 5, 8, 1, 3, 'w']],
+        c_bolt: [['!l', 9, 1, 5, 6, 'y', 3], ['!r', 5, 7, 6, 2, 'y'], ['!l', 8, 8, 4, 13, 'y', 3], ['!p', 12, 3, 'a'], ['!p', 3, 11, 'a'], ['!p', 13, 10, 'a']],
+        c_aegis: [['r', 3, 2, 10, 7, 'a'], ['r', 4, 9, 8, 2, 'a'], ['r', 5, 11, 6, 2, 'A'], ['r', 7, 13, 2, 1, 'A'], ['r', 7, 3, 2, 8, 'w'], ['r', 5, 5, 6, 2, 'w']],
+        c_shadow: [['r', 3, 12, 10, 2, 'D'], ['r', 4, 9, 8, 4, 'd'], ['e', 8, 6, 5, 5, 'd'], ['e', 8, 7, 3, 3, 'D'], ['r', 6, 6, 1, 1, 'a'], ['!r', 13, 7, 1, 6, 's']],
+        c_crows: [['!l', 1, 4, 3, 6, 'D', 1], ['!l', 3, 6, 5, 4, 'D', 1], ['!l', 8, 2, 10, 4, 'D', 1], ['!l', 10, 4, 13, 2, 'D', 1], ['!l', 5, 10, 8, 13, 'P', 1], ['!l', 8, 13, 11, 10, 'P', 1], ['!p', 3, 6, 'e'], ['!p', 10, 4, 'e'], ['!p', 8, 13, 'e']],
+        c_bless: [['e', 5.5, 6, 3, 3, 'r'], ['r', 3, 7, 10, 3, 'r'], ['r', 4, 10, 8, 2, 'r'], ['r', 6, 12, 4, 1, 'R'], ['r', 7, 13, 2, 1, 'R'], ['r', 7, 5, 2, 6, 'w'], ['r', 5, 7, 6, 2, 'w']],
+        c_sun: [['r', 7, 0, 2, 2, 'o'], ['r', 7, 14, 2, 2, 'o'], ['r', 0, 7, 2, 2, 'o'], ['p', 2, 2, 'o'], ['p', 2, 13, 'o'], ['e', 8, 8, 5.5, 5.5, 'o'], ['e', 8, 8, 4.5, 4.5, 'y'], ['e', 8, 8, 2.5, 2.5, 'w']],
+        c_blades: [['!l', 2, 12, 12, 2, 's', 2], ['!l', 12, 12, 2, 2, 'w', 2], ['!r', 1, 13, 3, 2, 'y'], ['!r', 12, 13, 3, 2, 'y']],
+        c_wall: [['r', 1, 1, 3, 2, 's'], ['r', 6, 1, 4, 2, 's'], ['r', 1, 3, 14, 10, 'S'], ['r', 1, 6, 14, 1, 'D'], ['r', 1, 9, 14, 1, 'D'], ['r', 5, 3, 1, 3, 'D'], ['r', 3, 7, 1, 2, 'D'], ['r', 5, 10, 1, 3, 'D'], ['r', 7, 10, 2, 3, 'a']],
+        r_photo: [['r', 2, 3, 12, 10, 'w'], ['r', 3, 4, 10, 5, 'a'], ['r', 3, 9, 10, 3, 'g'], ['!r', 10, 5, 2, 2, 'y'], ['!r', 5, 6, 2, 4, 'G'], ['!r', 8, 8, 1, 3, 'r']],
+        r_ticket: [['r', 2, 5, 12, 6, 'y'], ['r', 2, 7, 12, 1, 'Y'], ['r', 7, 8, 2, 2, 'r'], ['r', 2, 7, 1, 2, '.']],
+        r_key: [['!e', 5, 5, 3, 3, 'y'], ['!r', 4, 4, 2, 2, '.'], ['!l', 7, 7, 12, 12, 'y', 2], ['!r', 11, 13, 2, 1, 'y'], ['!r', 13, 11, 1, 2, 'y']]
+    };
+
+    Object.keys(PAINTED_32).forEach(key => { SPRITE_GRIDS[key] = paintSprite(32, PAINTED_32[key]); });
+    Object.keys(PAINTED_16).forEach(key => { SPRITE_GRIDS[key] = paintSprite(16, PAINTED_16[key]); });
+
+    // Valida todas as grades (quadradas, linhas do mesmo tamanho, só cores conhecidas).
+    function validateGrids() {
+        const problems = [];
+        Object.keys(SPRITE_GRIDS).forEach(key => {
+            const grid = SPRITE_GRIDS[key];
+            const w = grid[0].length;
+            grid.forEach((row, y) => {
+                if (row.length !== w) problems.push(key + ': linha ' + y + ' com ' + row.length + ' colunas (esperado ' + w + ')');
+                for (const ch of row) {
+                    if (ch !== '.' && !PALETTE[ch]) problems.push(key + ': cor desconhecida "' + ch + '" na linha ' + y);
+                }
+            });
+        });
+        return problems;
+    }
+
+    // Caixa delimitadora dos pixels opacos: o renderizador usa para apoiar os pés no chão
+    // e dar a mesma altura visível a todos os inimigos comuns.
+    function gridBounds(grid) {
+        let x0 = grid[0].length, x1 = -1, y0 = grid.length, y1 = -1;
+        grid.forEach((row, y) => {
+            for (let x = 0; x < row.length; x++) {
+                if (row[x] === '.') continue;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+        });
+        return { x0: x0, y0: y0, x1: x1, y1: y1, w: grid[0].length, h: grid.length };
+    }
+
+    // =====================================================================================
+    // TEXTURAS DOS BIOMAS
+    // =====================================================================================
+    function speckle(g, w, h, colors, count, rng, size) {
+        for (let i = 0; i < count; i++) {
+            g.fillStyle = colors[Math.floor(rng() * colors.length)];
+            const s = size ? 1 + Math.floor(rng() * size) : 1;
+            g.fillRect(Math.floor(rng() * w), Math.floor(rng() * h), s, 1);
         }
     }
 
-    function makeWallTexture(variant, floorNum) {
-        const size = 48;
-        const c = makeCanvas(size, size);
+    function makeFloorTexture(biome) {
+        const c = makeCanvas(32, 32);
         const g = c.getContext('2d');
-        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
-        const rnd = mulberry32(2026 + (variant || 0) * 131 + (floorNum || 1) * 37);
-
-        g.fillStyle = fl.wallBg;
-        g.fillRect(0, 0, size, size);
-
-        for (let y = 32; y < size; y += 8) {
-            const off = (y % 16 === 0) ? 0 : 6;
-            for (let x = -off; x < size; x += 12) {
-                const shade = 0.85 + rnd() * 0.3;
-                g.fillStyle = 'rgb(' + ((fl.brickRgb[0] * shade) | 0) + ',' + ((fl.brickRgb[1] * shade) | 0) + ',' + ((fl.brickRgb[2] * shade) | 0) + ')';
-                g.fillRect(x + 1, y + 1, 10, 6);
-                g.fillStyle = 'rgba(255,255,255,0.12)';
-                g.fillRect(x + 1, y + 1, 10, 1);
-                g.fillStyle = 'rgba(0,0,0,0.35)';
-                g.fillRect(x + 1, y + 6, 10, 1);
-            }
-        }
-
-        g.fillStyle = fl.trim;
-        g.fillRect(0, 0, size, 5);
-        g.fillRect(0, 30, size, 3);
-        g.fillRect(0, 0, 3, 32);
-        g.fillRect(size - 3, 0, 3, 32);
-        g.fillStyle = fl.trimHi;
-        g.fillRect(0, 0, size, 1);
-        g.fillRect(0, 30, size, 1);
-
-        const v = (variant || 0) % 6;
-        if (v === 0) {
-            g.fillStyle = '#3d281b';
-            g.fillRect(5, 6, size - 10, 23);
-            g.fillStyle = '#5e3e29';
-            g.fillRect(6, 13, size - 12, 2);
-            g.fillRect(6, 21, size - 12, 2);
-
-            const colors = ['#d8452f', '#38b6ff', '#f3c552', '#7fd15a', '#a47bd0', '#efe6d8'];
-            for (const sy of [7, 15, 23]) {
-                for (let sx = 7; sx < size - 9; sx += 4) {
-                    if (rnd() < 0.2) continue;
-                    g.fillStyle = colors[((rnd() * colors.length) | 0)];
-                    const bh = 4 + ((rnd() * 2) | 0);
-                    g.fillRect(sx, sy + (6 - bh), 3, bh);
-                    g.fillStyle = 'rgba(0,0,0,0.28)';
-                    g.fillRect(sx + 2, sy + (6 - bh), 1, bh);
+        const rng = mulberry32(biome.length * 977 + 13);
+        if (biome === 'beach') {
+            g.fillStyle = '#ecd6a4';
+            g.fillRect(0, 0, 32, 32);
+            speckle(g, 32, 32, ['#f6e6bd', '#dcc089', '#cfae78', '#fff3d6'], 190, rng, 2);
+            g.fillStyle = '#c9a56d';
+            for (let y = 5; y < 32; y += 9) for (let x = 0; x < 32; x += 2) g.fillRect(x, y + Math.round(Math.sin(x * 0.5) * 1.5), 1, 1);
+            g.fillStyle = '#f7b7a3';
+            g.fillRect(22, 12, 2, 1);
+            g.fillRect(7, 25, 2, 1);
+        } else if (biome === 'city') {
+            g.fillStyle = '#14171f';
+            g.fillRect(0, 0, 32, 32);
+            for (let row = 0; row < 4; row++) {
+                for (let col = 0; col < 4; col++) {
+                    const ox = col * 8 + (row % 2 ? 4 : 0);
+                    const shade = ['#2c3242', '#343b4d', '#262b39', '#3a4257'][Math.floor(rng() * 4)];
+                    g.fillStyle = shade;
+                    g.fillRect((ox + 1) % 32, row * 8 + 1, 6, 6);
+                    if (ox + 7 > 32) g.fillRect(0, row * 8 + 1, (ox + 7) % 32, 6);
+                    g.fillStyle = '#5b6885';
+                    g.fillRect((ox + 2) % 32, row * 8 + 2, 2, 1);
                 }
             }
-        } else if (v === 1) {
-            g.fillStyle = fl.panel;
-            g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = '#141722';
-            g.fillRect(14, 9, 20, 14);
-            g.fillStyle = floorNum === 3 ? '#992525' : floorNum === 2 ? '#25875a' : '#256fa8';
-            g.fillRect(16, 11, 16, 10);
-            g.fillStyle = floorNum === 3 ? '#ffcb6b' : floorNum === 2 ? '#8bffb8' : '#69e2ff';
-            g.fillRect(17, 12, 10, 2);
-            g.fillRect(17, 15, 13, 1);
-            g.fillRect(17, 17, 8, 1);
-            g.fillRect(17, 19, 11, 1);
-            g.fillStyle = '#f5cb5c';
-            g.fillRect(6, 10, 5, 5);
-            g.fillStyle = '#e8873a';
-            g.fillRect(37, 13, 5, 5);
-            g.fillStyle = '#b288e0';
-            g.fillRect(7, 18, 4, 4);
-        } else if (v === 2) {
-            g.fillStyle = fl.panel;
-            g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = floorNum === 3 ? '#f5cb5c' : '#d8d0c4';
-            g.fillRect(9, 8, 30, 15);
-            g.fillStyle = '#232030';
-            g.fillRect(10, 9, 28, 13);
-            g.fillStyle = '#e24a33';
-            g.fillRect(12, 12, 6, 2);
-            g.fillRect(18, 14, 6, 2);
-            g.fillRect(24, 16, 8, 2);
-            g.fillStyle = '#7fd15a';
-            g.fillRect(12, 18, 10, 2);
-        } else if (v === 3) {
-            // Pôster Motivacional 1: "SINERGIA"
-            g.fillStyle = fl.panel;
-            g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = '#9ba8be';
-            g.fillRect(6, 7, 36, 21);
-            g.fillStyle = '#1b263b';
-            g.fillRect(7, 8, 34, 19);
-            // Seta corporativa dourada subindo
-            g.fillStyle = '#f5cb5c';
-            g.fillRect(22, 10, 4, 2);
-            g.fillRect(20, 12, 8, 2);
-            g.fillRect(22, 14, 4, 4);
-            g.fillStyle = '#38b6ff';
-            g.fillRect(14, 15, 6, 3);
-            g.fillRect(28, 15, 6, 3);
-            drawPixelText3x5(g, 'SINERGIA', 9, 20, '#f5cb5c');
-        } else if (v === 4) {
-            // Pôster Motivacional 2: "VISTA A CAMISA"
-            g.fillStyle = fl.panel;
-            g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = '#f5cb5c';
-            g.fillRect(7, 7, 34, 21);
-            g.fillStyle = '#251a30';
-            g.fillRect(8, 8, 32, 19);
-            // Camisa e gravata pixel art
-            g.fillStyle = '#f4ead8';
-            g.fillRect(20, 9, 8, 6);
-            g.fillStyle = '#e24a33';
-            g.fillRect(23, 10, 2, 5);
-            drawPixelText3x5(g, 'VISTA A', 10, 16, '#ffffff');
-            drawPixelText3x5(g, 'CAMISA', 12, 22, '#ff9f68');
+            speckle(g, 32, 32, ['#6f85b0', '#465270'], 22, rng, 2);
+        } else if (biome === 'snow') {
+            g.fillStyle = '#eef6ff';
+            g.fillRect(0, 0, 32, 32);
+            speckle(g, 32, 32, ['#ffffff', '#d5e6f7', '#c2d9f0', '#dfeeff'], 170, rng, 3);
+            g.fillStyle = '#b3cdea';
+            for (let x = 0; x < 32; x += 2) g.fillRect(x, 20 + Math.round(Math.sin(x * 0.4) * 2), 2, 1);
+        } else if (biome === 'dungeon') {
+            g.fillStyle = '#1b1a1f';
+            g.fillRect(0, 0, 32, 32);
+            [[0, 0, 16, 16], [16, 0, 16, 16], [-8, 16, 16, 16], [8, 16, 16, 16], [24, 16, 16, 16]].forEach(t => {
+                g.fillStyle = ['#4a4850', '#53515a', '#434149'][Math.floor(rng() * 3)];
+                g.fillRect(t[0] + 1, t[1] + 1, t[2] - 2, t[3] - 2);
+                g.fillStyle = '#62606b';
+                g.fillRect(t[0] + 2, t[1] + 2, t[2] - 6, 1);
+            });
+            speckle(g, 32, 32, ['#3a3940', '#2d2c33'], 50, rng, 2);
+            speckle(g, 32, 32, ['#4f7a35', '#3d6129'], 22, rng, 2);
         } else {
-            // Pôster Motivacional 3: "SORRIA"
-            g.fillStyle = fl.panel;
-            g.fillRect(4, 6, size - 8, 23);
-            g.fillStyle = '#38b6ff';
-            g.fillRect(7, 7, 34, 21);
-            g.fillStyle = '#14202e';
-            g.fillRect(8, 8, 32, 19);
-            // Smiley corporativo
-            g.fillStyle = '#f5cb5c';
-            g.fillRect(20, 10, 8, 8);
-            g.fillStyle = '#14202e';
-            g.fillRect(21, 12, 2, 2);
-            g.fillRect(25, 12, 2, 2);
-            g.fillRect(21, 15, 6, 1);
-            drawPixelText3x5(g, 'SORRIA', 12, 20, '#6ae0a8');
+            // abismo: ladrilho luminoso
+            g.fillStyle = '#120c2b';
+            g.fillRect(0, 0, 32, 32);
+            g.fillStyle = '#7ef0ff';
+            g.fillRect(0, 0, 32, 2); g.fillRect(0, 30, 32, 2); g.fillRect(0, 0, 2, 32); g.fillRect(30, 0, 2, 32);
+            g.fillStyle = '#3c8fd8';
+            g.fillRect(2, 2, 28, 1); g.fillRect(2, 29, 28, 1); g.fillRect(2, 2, 1, 28); g.fillRect(29, 2, 1, 28);
+            g.fillStyle = '#241a52';
+            g.fillRect(6, 6, 20, 20);
+            g.fillStyle = '#c59bff';
+            g.fillRect(15, 10, 2, 12); g.fillRect(10, 15, 12, 2);
+            speckle(g, 32, 32, ['#ffffff', '#9fe8ff'], 8, rng);
         }
-
         return c;
     }
 
-    // Piso em ladrilhos de pedra escura + tapete por andar
-    function makeFloorTexture(floorNum) {
-        const size = 48;
-        const c = makeCanvas(size, size);
+    // Paredes/obstáculos. 'kind' escolhe a variação (fachada, grade, estante...).
+    function makeWallTexture(biome, kind) {
+        const tall = biome === 'city';
+        const c = makeCanvas(32, tall ? 96 : 48);
         const g = c.getContext('2d');
-        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
-        const rnd = mulberry32(4242 + (floorNum || 1) * 19);
-
-        g.fillStyle = fl.floorBg;
-        g.fillRect(0, 0, size, size);
-
-        for (let qy = 0; qy < 2; qy++) {
-            for (let qx = 0; qx < 2; qx++) {
-                const alt = (qx + qy) % 2 === 0;
-                g.fillStyle = alt ? fl.stoneA : fl.stoneB;
-                g.fillRect(qx * 24 + 2, qy * 24 + 2, 20, 20);
-                g.fillStyle = 'rgba(255,255,255,0.08)';
-                g.fillRect(qx * 24 + 2, qy * 24 + 2, 20, 1);
+        const W = c.width;
+        const H = c.height;
+        const rng = mulberry32(biome.length * 131 + (kind || 0) * 17 + 5);
+        const bricks = (base, mortar, shades, bw, bh) => {
+            g.fillStyle = mortar;
+            g.fillRect(0, 0, W, H);
+            for (let y = 0, r = 0; y < H; y += bh, r++) {
+                for (let x = (r % 2 ? -bw / 2 : 0); x < W; x += bw) {
+                    g.fillStyle = shades[Math.floor(rng() * shades.length)] || base;
+                    g.fillRect(x + 1, y + 1, bw - 1, bh - 1);
+                }
+            }
+        };
+        if (biome === 'beach') {
+            g.fillStyle = '#5b4632';
+            g.fillRect(0, 0, W, H);
+            speckle(g, W, H, ['#6f573f', '#4a3827', '#806549', '#3c2d1f'], 260, rng, 4);
+            g.fillStyle = '#2d221a';
+            for (let i = 0; i < 6; i++) g.fillRect(Math.floor(rng() * W), Math.floor(rng() * H), 1, 6);
+            g.fillStyle = '#2f8f9a';
+            g.fillRect(0, H - 4, W, 4);
+            g.fillStyle = '#e9f7f2';
+            for (let x = 0; x < W; x += 3) g.fillRect(x, H - 5 + (x % 2), 2, 1);
+        } else if (biome === 'city') {
+            bricks('#252a38', '#12141b', ['#252a38', '#2b3142', '#1f2330', '#303749'], 8, 4);
+            // telhado e cornija
+            g.fillStyle = '#0c0e14';
+            g.fillRect(0, 0, W, 6);
+            g.fillStyle = '#3a4257';
+            g.fillRect(0, 6, W, 2);
+            if (kind === 3) {
+                // grade de ferro vitoriana sobre mureta
+                g.fillStyle = '#0c0e14';
+                g.fillRect(0, 8, W, H - 26);
+                g.fillStyle = '#2b3142';
+                g.fillRect(0, H - 18, W, 18);
+                g.fillStyle = '#596482';
+                for (let x = 2; x < W; x += 5) {
+                    g.fillRect(x, 30, 1, H - 48);
+                    g.fillRect(x - 1, 28, 3, 2);
+                }
+                g.fillRect(0, 40, W, 1);
+                g.fillRect(0, H - 22, W, 1);
+            } else {
+                const lit = kind === 1 ? '#ffb347' : kind === 2 ? '#7fd4ff' : '#10131b';
+                [[5, 16], [19, 16], [5, 44], [19, 44]].forEach((p, i) => {
+                    const on = lit !== '#10131b' && (i + kind) % 2 === 0;
+                    g.fillStyle = '#0c0e14';
+                    g.fillRect(p[0] - 1, p[1] - 2, 10, 20);
+                    g.fillStyle = on ? lit : '#161b28';
+                    g.fillRect(p[0], p[1], 8, 17);
+                    g.fillRect(p[0] + 2, p[1] - 1, 4, 1);
+                    g.fillStyle = '#0c0e14';
+                    g.fillRect(p[0] + 3, p[1], 2, 17);
+                    g.fillRect(p[0], p[1] + 8, 8, 1);
+                });
+                // porta
+                g.fillStyle = '#0c0e14';
+                g.fillRect(10, H - 26, 12, 26);
+                g.fillStyle = kind === 1 ? '#3a2416' : '#1c2130';
+                g.fillRect(11, H - 24, 10, 24);
+                g.fillStyle = '#c79a3a';
+                g.fillRect(18, H - 12, 1, 2);
+            }
+        } else if (biome === 'snow') {
+            const grad = g.createLinearGradient(0, 0, 0, H);
+            grad.addColorStop(0, '#f4fbff');
+            grad.addColorStop(0.25, '#bfe2f7');
+            grad.addColorStop(1, '#5b9bd0');
+            g.fillStyle = grad;
+            g.fillRect(0, 0, W, H);
+            g.fillStyle = '#ffffff';
+            g.fillRect(0, 0, W, 4);
+            for (let x = 0; x < W; x += 4) g.fillRect(x, 4, 2, 1 + Math.floor(rng() * 3));
+            g.fillStyle = '#e9f7ff';
+            for (let i = 0; i < 7; i++) {
+                const x = Math.floor(rng() * W);
+                const y = 8 + Math.floor(rng() * (H - 16));
+                g.fillRect(x, y, 1, 7);
+                g.fillRect(x + 1, y + 3, 2, 1);
+            }
+            g.fillStyle = '#3f79b3';
+            for (let i = 0; i < 6; i++) g.fillRect(Math.floor(rng() * W), 10 + Math.floor(rng() * (H - 14)), 1, 5);
+        } else {
+            // dungeon
+            bricks('#4b4a54', '#17161b', ['#4b4a54', '#55545f', '#403f48', '#5c5a66'], 16, 8);
+            speckle(g, W, H, ['#34333a', '#2a292f'], 60, rng, 2);
+            g.fillStyle = '#4f7a35';
+            for (let x = 0; x < W; x += 2) g.fillRect(x, H - 3 - Math.floor(rng() * 4), 2, 7);
+            speckle(g, W, H, ['#4f7a35', '#6b9a47'], 26, rng, 2);
+            if (kind === 1) {
+                // grade enferrujada
+                g.fillStyle = '#0d0c10';
+                g.fillRect(8, 14, 16, 26);
+                g.fillStyle = '#a3542a';
+                for (let x = 9; x < 24; x += 3) g.fillRect(x, 14, 1, 26);
+                g.fillRect(8, 20, 16, 1);
+                g.fillRect(8, 32, 16, 1);
+            } else if (kind === 2) {
+                // estante antiga
+                g.fillStyle = '#3b2616';
+                g.fillRect(4, 10, 24, 32);
+                g.fillStyle = '#1e130b';
+                g.fillRect(6, 12, 20, 8); g.fillRect(6, 22, 20, 8); g.fillRect(6, 32, 20, 8);
+                const spines = ['#8a221f', '#2a6f9c', '#ba8524', '#408339', '#633c91', '#c9bda6'];
+                [14, 24, 34].forEach(sy => {
+                    for (let x = 7; x < 25; x += 2) {
+                        g.fillStyle = spines[Math.floor(rng() * spines.length)];
+                        g.fillRect(x, sy + Math.floor(rng() * 2), 2, 6);
+                    }
+                });
             }
         }
+        return c;
+    }
 
-        g.fillStyle = fl.carpet;
-        g.fillRect(10, 0, 28, size);
-        g.fillStyle = fl.carpetMid;
-        g.fillRect(14, 0, 20, size);
-        g.fillStyle = fl.carpetTrim;
-        g.fillRect(10, 0, 2, size);
-        g.fillRect(36, 0, 2, size);
-
-        g.fillStyle = fl.grout;
-        g.fillRect(0, 0, size, 2);
-        g.fillRect(0, 0, 2, size);
-
-        for (let i = 0; i < 40; i++) {
-            g.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.07)';
-            g.fillRect(((rnd() * 44) | 0) + 2, ((rnd() * 44) | 0) + 2, 1, 1);
+    function makeCeilingTexture() {
+        const c = makeCanvas(32, 32);
+        const g = c.getContext('2d');
+        const rng = mulberry32(4242);
+        g.fillStyle = '#131217';
+        g.fillRect(0, 0, 32, 32);
+        for (let y = 0; y < 32; y += 8) {
+            for (let x = (y % 16 ? -8 : 0); x < 32; x += 16) {
+                g.fillStyle = ['#2c2b33', '#34333c', '#26252c'][Math.floor(rng() * 3)];
+                g.fillRect(x + 1, y + 1, 15, 7);
+            }
         }
         return c;
     }
 
-    function makeCeilingTexture(floorNum) {
-        const size = 48;
-        const c = makeCanvas(size, size);
+    // Céu equirretangular pixelado (256x128). O horizonte fica na metade da altura.
+    function makeSkyTexture(biome) {
+        const W = 256;
+        const H = 128;
+        const c = makeCanvas(W, H);
         const g = c.getContext('2d');
-        const fl = FLOOR_THEMES[floorNum] || FLOOR_THEMES[1];
-        g.fillStyle = fl.ceilBg;
-        g.fillRect(0, 0, size, size);
-        g.fillStyle = fl.ceilMid;
-        g.fillRect(3, 3, size - 6, size - 6);
-        g.fillStyle = fl.ceilBeam;
-        g.fillRect(0, 0, size, 3);
-        g.fillRect(0, 0, 3, size);
-        g.fillStyle = '#474f66';
-        g.fillRect(10, 18, 28, 12);
-        g.fillStyle = fl.lampGlow;
-        g.fillRect(13, 21, 22, 6);
-        g.fillStyle = fl.lampCore;
-        g.fillRect(15, 23, 18, 2);
+        const rng = mulberry32(biome.length * 53 + 7);
+        const bands = (stops) => {
+            const grad = g.createLinearGradient(0, 0, 0, H);
+            stops.forEach(s => grad.addColorStop(s[0], s[1]));
+            g.fillStyle = grad;
+            g.fillRect(0, 0, W, H);
+        };
+        const disc = (cx, cy, r, color) => {
+            g.fillStyle = color;
+            for (let y = -r; y <= r; y++) {
+                const half = Math.round(Math.sqrt(r * r - y * y));
+                g.fillRect(cx - half, cy + y, half * 2, 1);
+            }
+        };
+        if (biome === 'beach') {
+            bands([[0, '#123a5e'], [0.22, '#1f8fa0'], [0.36, '#5fd0c4'], [0.44, '#ffc266'], [0.5, '#ff7a3d'], [0.52, '#0d2a38'], [1, '#081a24']]);
+            disc(64, 60, 9, '#fff1b8');
+            disc(64, 60, 7, '#ffffff');
+            disc(192, 60, 9, '#fff1b8');
+            g.fillStyle = '#ffd9a0';
+            for (let i = 0; i < 26; i++) g.fillRect(Math.floor(rng() * W), 40 + Math.floor(rng() * 20), 6 + Math.floor(rng() * 14), 1);
+            g.fillStyle = '#ff9f6b';
+            for (let i = 0; i < 14; i++) g.fillRect(Math.floor(rng() * W), 48 + Math.floor(rng() * 12), 10 + Math.floor(rng() * 16), 2);
+        } else if (biome === 'city') {
+            bands([[0, '#05070f'], [0.3, '#0c1222'], [0.5, '#27324a'], [0.52, '#0a0d16'], [1, '#05070c']]);
+            speckle(g, W, 56, ['#8fa4c9', '#c8d6f0', '#56658a'], 90, rng);
+            disc(64, 30, 11, '#59658a');
+            disc(64, 30, 9, '#dfe6f2');
+            g.fillStyle = '#b9c3d6';
+            g.fillRect(60, 26, 3, 2); g.fillRect(66, 32, 4, 2); g.fillRect(62, 34, 2, 1);
+            disc(192, 30, 9, '#dfe6f2');
+            // silhueta de torres ao longe
+            g.fillStyle = '#0a0d16';
+            for (let x = 0; x < W; x += 9) {
+                const h = 6 + Math.floor(rng() * 16);
+                g.fillRect(x, 64 - h, 7, h);
+                g.fillRect(x + 3, 64 - h - 4, 1, 4);
+            }
+        } else if (biome === 'snow') {
+            bands([[0, '#071433'], [0.25, '#12306e'], [0.44, '#3f73c0'], [0.5, '#a9c9ee'], [0.52, '#dcebfb'], [1, '#c7dbf2']]);
+            speckle(g, W, 50, ['#ffffff', '#bcd4ff'], 110, rng);
+            g.fillStyle = '#e8f3ff';
+            for (let x = 0; x < W; x += 5) {
+                const h = 5 + Math.round(Math.abs(Math.sin(x * 0.09)) * 15 + rng() * 4);
+                g.fillRect(x, 66 - h, 5, h);
+            }
+            g.fillStyle = '#9db9de';
+            for (let x = 0; x < W; x += 5) g.fillRect(x + 3, 58, 2, 6);
+            g.fillStyle = '#7fe0c9';
+            for (let i = 0; i < 18; i++) g.fillRect(Math.floor(rng() * W), 14 + Math.floor(rng() * 14), 8 + Math.floor(rng() * 10), 1);
+        } else {
+            // abismo estrelado
+            g.fillStyle = '#020108';
+            g.fillRect(0, 0, W, H);
+            for (let i = 0; i < 40; i++) {
+                g.fillStyle = ['rgba(90,50,160,0.20)', 'rgba(40,90,170,0.18)', 'rgba(150,60,170,0.14)'][i % 3];
+                g.fillRect(Math.floor(rng() * W), Math.floor(rng() * H), 16 + Math.floor(rng() * 30), 4 + Math.floor(rng() * 8));
+            }
+            speckle(g, W, H, ['#ffffff', '#ffffff', '#9fe8ff', '#ffd9a0', '#c59bff'], 420, rng);
+            g.fillStyle = '#ffffff';
+            for (let i = 0; i < 26; i++) {
+                const x = Math.floor(rng() * W);
+                const y = Math.floor(rng() * H);
+                g.fillRect(x - 1, y, 3, 1);
+                g.fillRect(x, y - 1, 1, 3);
+            }
+        }
+        return c;
+    }
+
+    function makeWaterTexture() {
+        const c = makeCanvas(32, 32);
+        const g = c.getContext('2d');
+        const rng = mulberry32(909);
+        g.fillStyle = '#0b2c3c';
+        g.fillRect(0, 0, 32, 32);
+        speckle(g, 32, 32, ['#0f3a4d', '#082230'], 60, rng, 5);
+        g.fillStyle = '#ff9f5a';
+        for (let i = 0; i < 9; i++) g.fillRect(Math.floor(rng() * 28), Math.floor(rng() * 32), 3 + Math.floor(rng() * 4), 1);
+        g.fillStyle = '#7fe0d8';
+        for (let i = 0; i < 7; i++) g.fillRect(Math.floor(rng() * 28), Math.floor(rng() * 32), 2 + Math.floor(rng() * 3), 1);
         return c;
     }
 
@@ -1068,6 +1405,7 @@
         for (const key of Object.keys(SPRITE_GRIDS)) {
             const grid = SPRITE_GRIDS[key];
             sheets[key] = {
+                bounds: gridBounds(grid),
                 normal: renderGrid(grid),
                 white: renderGrid(grid, '#ffffff'),
                 red: renderGrid(grid, '#ff3a2a')
@@ -1081,6 +1419,7 @@
         }
     }
 
+    validateGrids().forEach(msg => console.error('[Hells Castle] Sprite inválido — ' + msg));
     init();
 
     window.GameSprites = {
@@ -1093,6 +1432,10 @@
         makeWallTexture: makeWallTexture,
         makeFloorTexture: makeFloorTexture,
         makeCeilingTexture: makeCeilingTexture,
+        makeSkyTexture: makeSkyTexture,
+        makeWaterTexture: makeWaterTexture,
+        validateGrids: validateGrids,
+        hasSheet: function (name) { return !!sheets[name]; },
         makeTorchCanvas: makeTorchCanvas
     };
 })();

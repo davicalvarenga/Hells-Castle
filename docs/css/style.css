@@ -25,6 +25,7 @@
 html, body {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     margin: 0;
     padding: 0;
     overflow: hidden;
@@ -41,6 +42,14 @@ button {
     color: inherit;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+html {
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
 }
 
 img, canvas, svg {
@@ -92,6 +101,7 @@ img, canvas, svg {
 .stage {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -845,6 +855,7 @@ body.daydream-transition .viewport-frame {
 .card-btn:nth-child(2) { transform: rotate(-1deg); }
 .card-btn:nth-child(3) { transform: rotate(1deg); }
 .card-btn:nth-child(4) { transform: rotate(3deg) translateY(4px); }
+.card-btn:nth-child(5) { transform: rotate(4deg) translateY(8px); }
 
 .card-btn:hover:not(:disabled) {
     transform: translateY(-16px) scale(1.06) rotate(0deg) !important;
@@ -1002,6 +1013,10 @@ body.daydream-transition .viewport-frame {
 }
 
 .modal-box {
+    max-height: 90vh;
+    max-height: 90dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     width: min(760px, 100%);
     background: #1a1524;
     border: 3px solid var(--ink);
@@ -1439,6 +1454,7 @@ body.daydream-transition .viewport-frame {
     inset: 0;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     background: #e2e8f0;
     color: #0f172a;
@@ -1781,5 +1797,602 @@ body.daydream-transition .viewport-frame {
     }
     .card-desc {
         font-size: 9px;
+    }
+}
+
+
+/* ---------- CAMPANHA DOS 5 BIOMAS: NARRATIVA, PAUSA, EPÍLOGO ---------- */
+
+.levelup-count {
+    color: #9fe8ff !important;
+    font-size: 17px !important;
+    margin-bottom: 4px !important;
+}
+
+.badge-card.solo {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: min(320px, 100%);
+    cursor: default;
+}
+
+.narrative-overlay {
+    background: rgba(6, 5, 12, 0.9);
+}
+
+.narrative-overlay.biome-beach { background: linear-gradient(180deg, rgba(18, 58, 94, 0.94) 0%, rgba(255, 122, 61, 0.88) 100%); }
+.narrative-overlay.biome-city { background: linear-gradient(180deg, rgba(5, 7, 15, 0.96) 0%, rgba(39, 50, 74, 0.94) 100%); }
+.narrative-overlay.biome-snow { background: linear-gradient(180deg, rgba(7, 20, 51, 0.95) 0%, rgba(120, 165, 220, 0.9) 100%); }
+.narrative-overlay.biome-dungeon { background: linear-gradient(180deg, rgba(11, 10, 14, 0.97) 0%, rgba(54, 40, 26, 0.94) 100%); }
+.narrative-overlay.biome-abyss { background: radial-gradient(circle at 50% 40%, rgba(61, 44, 115, 0.92) 0%, rgba(2, 1, 8, 0.98) 75%); }
+
+.narrative-box {
+    width: min(620px, 100%);
+    text-align: left;
+}
+
+.narrative-box h2 {
+    font-size: clamp(26px, 5vw, 38px);
+}
+
+.narrative-lines p {
+    margin: 0 0 8px;
+    color: #e9e2f2;
+    font-size: clamp(16px, 2.6vw, 20px);
+    line-height: 1.15;
+}
+
+.narrative-box .modal-restart {
+    margin: 8px 0 0 auto;
+}
+
+.modal-box.sunset {
+    background: linear-gradient(180deg, #2a3f6e 0%, #c4623f 62%, #f2a25a 100%);
+    border-top-color: #ffd98a;
+    box-shadow: inset 0 0 0 2px #ffcf8a, 0 12px 32px rgba(0, 0, 0, 0.85);
+}
+
+.modal-box.sunset h2 {
+    color: #fff3c4;
+    font-size: clamp(34px, 7vw, 56px);
+}
+
+.modal-box.sunset .narrative-lines p {
+    color: #fff6e6;
+    text-shadow: 0 2px 0 rgba(40, 14, 8, 0.75);
+    text-align: center;
+}
+
+.modal-box.sunset .end-stats {
+    color: #ffe9a8 !important;
+    text-shadow: 0 2px 0 rgba(40, 14, 8, 0.75);
+}
+
+#end-box .narrative-lines p {
+    text-align: center;
+}
+
+.epilogue-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 0 6% 5%;
+    text-align: center;
+    background: linear-gradient(180deg, rgba(2, 1, 8, 0) 35%, rgba(2, 1, 8, 0.82) 78%);
+    z-index: 14;
+}
+
+.epilogue-overlay h2 {
+    margin: 0;
+    font-size: clamp(22px, 4.4vh, 38px);
+    color: #fff3c4;
+    text-shadow: 0 3px 0 var(--ink);
+}
+
+.epilogue-lines p {
+    margin: 0 0 2px;
+    font-size: clamp(13px, 2.3vh, 18px);
+    color: #e9e2f2;
+    text-shadow: 0 2px 0 #000;
+    line-height: 1.1;
+}
+
+.punch-clock-btn {
+    margin-top: 6px;
+    padding: 8px 28px;
+    font-size: clamp(20px, 3.6vh, 30px);
+    background: linear-gradient(180deg, #4ade80 0%, #15803d 100%);
+    color: #06200f;
+    border: 3px solid var(--ink);
+    box-shadow: inset 0 0 0 2px #c9ffd9, 0 5px 0 var(--ink), 0 0 26px rgba(74, 222, 128, 0.75);
+    animation: punch-pulse 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes punch-pulse {
+    0% { filter: brightness(1); }
+    100% { filter: brightness(1.22); }
+}
+
+/* ---------- LAYOUT MOBILE DEDICADO (retrato / telas estreitas) ---------- */
+
+@media (max-width: 768px) {
+    :root {
+        --m-top: 42px;      /* faixa do topo: relógio + ferramentas */
+        --m-strip: 64px;    /* faixa de status: coração, combo, cafeína */
+    }
+
+    html, body {
+        font-size: 16px;
+    }
+
+    .postit-note {
+        display: none !important;
+    }
+
+    .stage {
+        padding-top: var(--m-top);
+        gap: 0;
+    }
+
+    .viewport-frame {
+        width: calc(100vw - 8px);
+        height: 44vh;
+        height: 44dvh;
+        border-width: 2px;
+    }
+
+    /* laterais viram itens soltos reposicionados em faixas compactas */
+    .side-left, .side-right {
+        display: contents;
+    }
+
+    .left-top-stack {
+        position: fixed;
+        left: 6px;
+        top: 6px;
+        width: auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        z-index: 30;
+    }
+
+    .timeclock-visor {
+        width: auto;
+        padding: 3px 7px;
+        gap: 4px;
+    }
+
+    .clock-lbl {
+        display: none;
+    }
+
+    .clock-digits {
+        font-size: 17px;
+    }
+
+    .left-top-strips {
+        flex-direction: row;
+        width: auto;
+        max-width: calc(100vw - 210px);
+        overflow: hidden;
+    }
+
+    .passives-grid {
+        flex-wrap: nowrap;
+        gap: 3px;
+    }
+
+    .passive-icon-box {
+        width: 26px !important;
+        height: 26px !important;
+        flex: none;
+    }
+
+    .passive-icon-box img {
+        width: 20px !important;
+        height: 20px !important;
+    }
+
+    .top-right-tools {
+        top: 6px;
+        right: 6px;
+        gap: 4px;
+    }
+
+    .tool-btn {
+        width: 30px;
+        height: 30px;
+        padding: 4px;
+    }
+
+    .heart-wrap, .mana-wrap, .combo-flame {
+        position: fixed;
+        top: calc(var(--m-top) + 44vh + 5px);
+        top: calc(var(--m-top) + 44dvh + 5px);
+        z-index: 26;
+        margin: 0;
+    }
+
+    .heart-wrap {
+        left: 10px;
+        width: 62px;
+        height: 56px;
+    }
+
+    .heart-val {
+        font-size: 16px;
+    }
+
+    .shield-orb {
+        right: auto;
+        left: 66px;
+        bottom: 14px;
+        font-size: 16px;
+        white-space: nowrap;
+    }
+
+    .mana-wrap {
+        right: 12px;
+        width: 54px;
+        height: 54px;
+    }
+
+    .orb-val {
+        font-size: 24px;
+    }
+
+    .orb-sub {
+        bottom: 18px;
+        right: 60px;
+        font-size: 14px;
+    }
+
+    .combo-flame {
+        left: calc(50% - 30px);
+        width: 60px;
+        height: 60px;
+    }
+
+    .combo-lbl {
+        font-size: 9px;
+    }
+
+    .combo-num {
+        font-size: 21px;
+    }
+
+    .combo-bonus {
+        font-size: 10px;
+        margin-top: 0;
+    }
+
+    .bottom-dock {
+        width: 100vw;
+        max-width: none;
+        margin-top: var(--m-strip);
+        height: calc(100vh - var(--m-top) - 44vh - var(--m-strip) - 6px);
+        height: calc(100dvh - var(--m-top) - 44dvh - var(--m-strip) - 6px);
+        align-items: flex-start;
+        padding: 0 6px;
+    }
+
+    /* Exploração: 6 botões + minimapa lado a lado, proporcionais e sem sobreposição */
+    .explore-dock {
+        width: 100%;
+        height: auto;
+        gap: 12px;
+        align-items: center;
+        justify-content: center;
+        padding-top: 6px;
+    }
+
+    .dpad-grid {
+        grid-template-columns: repeat(3, min(15.5vw, 64px));
+        grid-template-rows: repeat(2, min(15.5vw, 64px));
+        gap: 7px;
+    }
+
+    #minimap-canvas {
+        width: min(34vw, 150px);
+        height: min(34vw, 150px);
+    }
+
+    /* Combate: cartas em 1 fileira + botões de ação em uma linha abaixo */
+    .combat-dock {
+        height: auto;
+        flex-wrap: wrap;
+        align-items: stretch;
+        justify-content: center;
+        gap: 8px 8px;
+        padding-top: 8px;
+    }
+
+    .cards-fan {
+        order: 1;
+        flex: 0 0 100%;
+        gap: 5px;
+        margin-top: 0;
+    }
+
+    .action-side-btn {
+        order: 2;
+        flex: 1 1 0;
+        max-width: 190px;
+        width: auto;
+        height: 46px;
+        margin-top: 0;
+        flex-direction: row;
+        gap: 8px;
+        font-size: 15px;
+        box-shadow: 0 3px 0 var(--ink);
+    }
+
+    .action-side-btn br {
+        display: none;
+    }
+
+    .action-side-btn span {
+        white-space: nowrap;
+    }
+
+    .btn-px-ico {
+        width: 20px;
+        height: 20px;
+    }
+
+    .card-btn {
+        width: calc((100vw - 12px - 15px) / 4);
+        max-width: 112px;
+        height: clamp(150px, 27vh, 186px);
+        height: clamp(150px, 27dvh, 186px);
+        padding: 3px;
+        gap: 2px;
+        border-width: 2px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3), 0 4px 0 var(--ink) !important;
+        transform: none !important;
+    }
+
+    .cards-fan[data-count="5"] .card-btn {
+        width: calc((100vw - 12px - 20px) / 5);
+    }
+
+    .card-btn:hover:not(:disabled) {
+        transform: none !important;
+    }
+
+    .card-btn:active:not(:disabled) {
+        filter: brightness(1.25);
+    }
+
+    .card-cost {
+        top: -9px;
+        left: -4px;
+        width: 19px;
+        height: 19px;
+        font-size: 15px;
+    }
+
+    .card-power-tag {
+        top: -9px;
+        right: -4px;
+        font-size: 11px;
+        line-height: 1.2;
+        padding: 0 3px;
+    }
+
+    /* o nome começa abaixo das etiquetas de custo/poder e quebra linha em vez de cortar */
+    .card-banner {
+        min-height: 34px;
+        padding: 9px 1px 1px;
+        border-width: 1px;
+        overflow: visible;
+    }
+
+    .card-name {
+        font-size: 11px;
+        line-height: 0.92;
+        letter-spacing: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .card-art {
+        height: 36px;
+        border-width: 1px;
+    }
+
+    .card-art img {
+        width: 30px;
+        height: 30px;
+    }
+
+    .card-textbox {
+        padding: 2px 2px;
+        border-width: 1px;
+        overflow: hidden;
+    }
+
+    .card-origin {
+        font-size: 9px !important;
+        line-height: 1 !important;
+        margin-bottom: 2px !important;
+        padding-bottom: 1px !important;
+    }
+
+    .card-desc {
+        font-size: 10.5px !important;
+        line-height: 0.98 !important;
+    }
+
+    .cards-fan[data-count="5"] .card-name { font-size: 10px; }
+    .cards-fan[data-count="5"] .card-desc { font-size: 9.5px !important; }
+
+    /* Janela 3D: textos menores para não cobrir os inimigos */
+    .vp-top-lv {
+        font-size: 11px;
+        padding: 1px 5px;
+        top: 8px;
+        left: 4px;
+    }
+
+    .vp-top-stats {
+        font-size: 11px;
+        padding: 1px 5px;
+        top: 8px;
+        right: 4px;
+    }
+
+    .vp-toast {
+        top: 28px;
+        font-size: 12px;
+        max-width: 96%;
+        white-space: normal;
+        line-height: 1.05;
+        padding: 2px 8px;
+    }
+
+    .overkill-banner {
+        font-size: 26px;
+        padding: 4px 12px;
+        white-space: nowrap;
+    }
+
+    .evo-banner {
+        font-size: 17px;
+        white-space: normal;
+        width: 92%;
+        text-align: center;
+    }
+
+    .float-dmg { font-size: 20px; }
+    .float-dmg.player-hit { font-size: 22px; }
+    .float-dmg.buff { font-size: 17px; }
+    .float-dmg.blocked { font-size: 30px; }
+    .float-dmg.big-hit { font-size: 46px; }
+
+    /* Modais: sempre dentro da tela, com rolagem interna se preciso */
+    .modal-overlay {
+        padding: 8px;
+    }
+
+    .modal-box {
+        padding: 12px 10px;
+    }
+
+    .modal-box h2 {
+        font-size: 26px;
+    }
+
+    .modal-box p {
+        font-size: 15px;
+        margin-bottom: 8px;
+    }
+
+    .reward-grid, .shop-grid {
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
+    .reward-card, .shop-item-card {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        grid-auto-rows: auto;
+        column-gap: 8px;
+        align-items: center;
+        text-align: left;
+        padding: 7px 8px;
+        min-height: 0;
+    }
+
+    .reward-card img, .shop-item-card img {
+        grid-column: 1;
+        grid-row: 1 / span 4;
+        width: 40px;
+        height: 40px;
+        margin: 0;
+    }
+
+    .reward-card > :not(img), .shop-item-card > :not(img) {
+        grid-column: 2;
+    }
+
+    .reward-kind {
+        position: static !important;
+        justify-self: start;
+        font-size: 11px;
+    }
+
+    .reward-title, .shop-item-title {
+        font-size: 18px;
+        line-height: 1;
+        margin: 0;
+    }
+
+    .reward-origin {
+        font-size: 12px;
+        margin: 0;
+    }
+
+    .reward-desc, .shop-item-desc {
+        font-size: 13px;
+        line-height: 1.05;
+        margin: 0;
+        min-height: 0;
+    }
+
+    .shop-item-price {
+        justify-self: start;
+        margin-top: 3px;
+    }
+
+    .shop-header h2 {
+        font-size: 22px;
+    }
+
+    .event-choice-btn {
+        padding: 9px 10px;
+        font-size: 16px;
+    }
+
+    .badge-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .intranet-title {
+        font-size: 22px;
+    }
+
+    .epilogue-lines p {
+        font-size: 12px;
+    }
+
+    .epilogue-overlay h2 {
+        font-size: 20px;
+    }
+
+    .punch-clock-btn {
+        font-size: 20px;
+        padding: 7px 20px;
+    }
+}
+
+/* celulares baixos (ex.: 360x640): cartas um pouco mais curtas */
+@media (max-width: 768px) and (max-height: 700px) {
+    .card-btn {
+        height: clamp(138px, 26vh, 170px);
+        height: clamp(138px, 26dvh, 170px);
+    }
+
+    .card-art {
+        height: 30px;
+    }
+
+    .card-art img {
+        width: 26px;
+        height: 26px;
     }
 }
