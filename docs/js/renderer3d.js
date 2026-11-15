@@ -1092,7 +1092,7 @@
                 h: it.botY - (safeBy - 20)
             });
 
-            if (hoveredCard && ((hoveredCard.target === 'all' && !it.isRear) || (hoveredCard.target === 'single' && it.isTarget))) {
+            if (hoveredCard && hoveredCard.previewUids && hoveredCard.previewUids.includes(enemy.uid)) {
                 drawReticle(it.sx, (it.topY + it.botY) * 0.5, Math.min(it.widthPx, it.botY - it.topY) * 0.95, now, hoveredCard.target === 'all');
             }
 
@@ -1116,6 +1116,12 @@
                 hctx.fillStyle = '#69c8f0';
                 hctx.fillRect(bx, safeBy + bh - 2, bw, 2);
             }
+            if (enemy.isBoss && !enemy.overkill) {
+                // marcas das fases do chefe (66% e 33%)
+                hctx.fillStyle = '#0d0812';
+                hctx.fillRect(Math.round(bx + bw * 0.66), safeBy, 2, bh);
+                hctx.fillRect(Math.round(bx + bw * 0.33), safeBy, 2, bh);
+            }
             const hpText = enemy.overkill
                 ? 'OVERKILL!'
                 : (enemy.shield > 0 ? enemy.hp + ' (+' + enemy.shield + ')' : enemy.hp + '/' + enemy.maxHp);
@@ -1132,12 +1138,14 @@
             } else if (enemy.disarmed) {
                 drawPixelStun(Math.round(cx - 42), Math.round(iy));
                 drawOutlined('DESARMADO!', cx + 8, iy, 13, '#69c8f0');
+            } else if (enemy.intent === 'armor') {
+                drawOutlined('ESCUDO +' + enemy.armorGain, cx, iy, 14, '#69c8f0');
             } else if (enemy.hasIntent !== false) {
                 let tag = '';
                 if (enemy.attacksPerTurn > 1) tag = ' x' + enemy.attacksPerTurn;
                 else if (enemy.drainMana) tag = ' [DRENA]';
                 else if (enemy.shieldPerTurn) tag = ' [+ESC]';
-                else if (enemy.curseCard) tag = ' [+FOLHA]';
+                else if (enemy.curseCard) tag = ' [+LIXO]';
                 else if (enemy.summonKind) tag = ' [INVOCA]';
                 else if (enemy.buffAllies) tag = ' [+BUFF]';
                 if (enemy.stunImmune > 0) tag = ' [IMUNE 1t]';

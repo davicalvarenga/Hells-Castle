@@ -199,11 +199,189 @@
         }
     }
 
+    // ---------- AMBIÊNCIA PROCEDURAL POR BIOMA ----------
+    // wantedBiome = o que o jogo pediu; ambience = o que está de fato tocando (ou null).
+    // Nada é criado antes do unlock(): sem AudioContext, setAmbience só guarda o pedido.
+    const FADE_IN_S = 1.5;
+    const FADE_OUT_S = 0.6;
+    let wantedBiome = null;
+    let ambience = null;
+    let noiseBuffer = null;
+
+    function loopedNoise(a) {
+        if (!noiseBuffer) {
+            noiseBuffer = a.createBuffer(1, a.sampleRate * 3, a.sampleRate);
+            const data = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        }
+        const src = a.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.loop = true;
+        return src;
+    }
+
+    function oscillator(a, amb, type, freq) {
+        const osc = a.createOscillator();
+        osc.type = type;
+        osc.frequency.value = freq;
+        amb.sources.push(osc);
+        return osc;
+    }
+
+    // Oscilador lento que modula um AudioParam (depth em unidades do próprio parâmetro).
+    function modulate(a, amb, param, rate, depth) {
+        const lfo = oscillator(a, amb, 'sine', rate);
+        const amount = a.createGain();
+        amount.gain.value = depth;
+        lfo.connect(amount);
+        amount.connect(param);
+    }
+
+    // Evento esparso em intervalo aleatório; o timer é guardado para ser cancelado no stop.
+    function scheduleSparse(amb, minMs, maxMs, fn) {
+        amb.timer = setTimeout(() => {
+            fn();
+            scheduleSparse(amb, minMs, maxMs, fn);
+        }, minMs + Math.random() * (maxMs - minMs));
+    }
+
+    function ambientTone(a, amb, freq, dur, vol) {
+        const t0 = a.currentTime;
+        const osc = a.createOscillator();
+        const gain = a.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(gain);
+        gain.connect(amb.out);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.05);
+    }
+
+    // Cada construtor liga seus nós em amb.out e devolve o volume final da camada.
+    const AMBIENCE_BUILDERS = {
+        beach(a, amb) {
+            // Ondas: ruído grave cujo volume sobe e desce devagar.
+            const src = loopedNoise(a);
+            const filter = a.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 520;
+            const swell = a.createGain();
+            swell.gain.value = 0.5;
+            modulate(a, amb, swell.gain, 0.11, 0.4);
+            src.connect(filter);
+            filter.connect(swell);
+            swell.connect(amb.out);
+            amb.sources.push(src);
+            return 0.16;
+        },
+        city(a, amb) {
+            // Drone grave desafinado + sino distante.
+            [55, 82.9].forEach(f => {
+                const osc = oscillator(a, amb, 'sine', f);
+                osc.connect(amb.out);
+            });
+            scheduleSparse(amb, 7000, 14000, () => {
+                ambientTone(a, amb, 392, 4, 0.05);
+                ambientTone(a, amb, 1082, 3, 0.02);
+            });
+            return 0.14;
+        },
+        snow(a, amb) {
+            // Vento: ruído em banda média, com frequência e volume oscilando.
+            const src = loopedNoise(a);
+            const filter = a.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 700;
+            filter.Q.value = 0.8;
+            modulate(a, amb, filter.frequency, 0.07, 260);
+            const gust = a.createGain();
+            gust.gain.value = 0.6;
+            modulate(a, amb, gust.gain, 0.13, 0.35);
+            src.connect(filter);
+            filter.connect(gust);
+            gust.connect(amb.out);
+            amb.sources.push(src);
+            return 0.18;
+        },
+        dungeon(a, amb) {
+            // Drone grave com leve pulsação + gotas esparsas.
+            const drone = a.createGain();
+            drone.gain.value = 0.8;
+            modulate(a, amb, drone.gain, 0.2, 0.2);
+            drone.connect(amb.out);
+            [49, 73.5].forEach(f => oscillator(a, amb, 'sine', f).connect(drone));
+            scheduleSparse(amb, 1500, 5000, () => {
+                ambientTone(a, amb, 900 + Math.random() * 500, 0.18, 0.05);
+            });
+            return 0.14;
+        },
+        abyss(a, amb) {
+            // Pad de senoides desafinadas respirando muito devagar.
+            const pad = a.createGain();
+            pad.gain.value = 0.7;
+            modulate(a, amb, pad.gain, 0.05, 0.3);
+            pad.connect(amb.out);
+            [110, 110.9, 164.8, 221.3].forEach(f => oscillator(a, amb, 'sine', f).connect(pad));
+            return 0.1;
+        }
+    };
+
+    function teardownAmbience(amb, fadeS) {
+        clearTimeout(amb.timer);
+        const t = actx.currentTime;
+        amb.out.gain.cancelScheduledValues(t);
+        amb.out.gain.setTargetAtTime(0, t, fadeS / 4);
+        // Depois do fade, para as fontes e solta o grafo inteiro.
+        setTimeout(() => {
+            amb.sources.forEach(s => { try { s.stop(); } catch (e) { /* já parado */ } });
+            amb.out.disconnect();
+        }, fadeS * 1000 + 100);
+    }
+
+    // Reconcilia o que toca com o que foi pedido, respeitando mute e unlock.
+    function syncAmbience() {
+        if (!actx) return;
+        const a = ensureAudio();
+        const target = a ? wantedBiome : null;
+        if (ambience && ambience.biome === target) return;
+        if (ambience) {
+            teardownAmbience(ambience, muted ? 0.05 : FADE_OUT_S);
+            ambience = null;
+        }
+        const build = target && AMBIENCE_BUILDERS[target];
+        if (!build) return;
+        const amb = { biome: target, out: a.createGain(), sources: [], timer: null };
+        amb.out.gain.setValueAtTime(0.0001, a.currentTime);
+        amb.out.connect(master);
+        const level = build(a, amb);
+        amb.out.gain.linearRampToValueAtTime(level, a.currentTime + FADE_IN_S);
+        amb.sources.forEach(s => s.start());
+        ambience = amb;
+    }
+
+    function setAmbience(biome) {
+        wantedBiome = biome || null;
+        syncAmbience();
+    }
+
+    function stopAmbience() {
+        setAmbience(null);
+    }
+
+    function unlock() {
+        const a = ensureAudio();
+        syncAmbience();
+        return a;
+    }
+
     function toggleMute() {
         muted = !muted;
         if (master) {
             master.gain.value = muted ? 0 : 0.42;
         }
+        syncAmbience();
         return muted;
     }
 
@@ -215,6 +393,8 @@
         play: play,
         toggleMute: toggleMute,
         isMuted: isMuted,
-        unlock: ensureAudio
+        unlock: unlock,
+        setAmbience: setAmbience,
+        stopAmbience: stopAmbience
     };
 })();

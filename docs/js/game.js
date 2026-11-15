@@ -45,6 +45,9 @@
         comboBadge: $('combo-badge'),
         comboNum: $('combo-num'),
         comboBonus: $('combo-bonus'),
+        comboChain: $('combo-chain'),
+        comboChainCards: $('combo-chain-cards'),
+        pileCounts: $('pile-counts'),
         overkillBanner: $('overkill-banner'),
         evolutionBanner: $('evolution-banner'),
         ambushBanner: $('ambush-banner'),
@@ -226,6 +229,12 @@
             drawPile: [],
             hand: [],
             handReturnCounts: [],
+            handCostMods: [],
+            comboPile: [],
+            comboChain: [],
+            combatBuff: { Might: 0, Area: 0, Amount: 0 },
+            manaBombTicks: 0,
+            extraBreath: false,
             discardPile: [],
             destroyedPile: [],
             enemies: [],
@@ -278,6 +287,7 @@
         R.buildMap(fl.layout, state);
         R.syncState(state);
         A.play('levelup');
+        A.setAmbience(fl.biome);
         document.body.classList.remove('daydream-transition');
         void document.body.offsetWidth;
         document.body.classList.add('daydream-transition');
@@ -361,11 +371,21 @@
         return (state && state.cardLevels && state.cardLevels[cardId]) || 1;
     }
 
+    // Stat efetivo = permanente (state.stats) + buff de cartas suporte do combate atual.
+    function getStat(name) {
+        if (!state) return 0;
+        return ((state.stats && state.stats[name]) || 0) + ((state.combatBuff && state.combatBuff[name]) || 0);
+    }
+
+    function getManaBombDamage() {
+        return B.manaBombBase + B.manaBombStep * ((state && state.manaBombTicks) || 0);
+    }
+
     function getCardPreviewValues(card, comboMult) {
         const mult = Math.max(1, comboMult || 1);
-        const stats = (state && state.stats) || { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0 };
-        const mightMult = 1 + ((stats.Might || 0) / 100);
-        const statAmt = stats.Amount || 0;
+        const mightMult = 1 + (getStat('Might') / 100);
+        const statAmt = getStat('Amount');
+        const supportMult = card.scalesWithCombo ? mult : 1;
 
         let hits = card.baseAmount || card.hits || (card.damage > 0 ? 1 : 0);
         if (card.amountScalesWithCombo) {
@@ -394,7 +414,10 @@
             damage: dmg,
             shield: shield,
             heal: heal,
-            burn: card.burn || 0
+            burn: card.burn || 0,
+            might: (card.buffMight || 0) * supportMult,
+            area: (card.buffArea || 0) * supportMult,
+            draw: (card.draw || 0) * supportMult
         };
     }
 
@@ -405,7 +428,11 @@
             .replace(/\{DMG\}/g, String(pv.damage))
             .replace(/\{SHIELD\}/g, String(pv.shield))
             .replace(/\{HEAL\}/g, String(pv.heal))
-            .replace(/\{BURN\}/g, String(pv.burn));
+            .replace(/\{BURN\}/g, String(pv.burn))
+            .replace(/\{MIGHT\}/g, String(pv.might))
+            .replace(/\{AREA\}/g, String(pv.area))
+            .replace(/\{DRAW\}/g, String(pv.draw))
+            .replace(/\{BOMB\}/g, String(getManaBombDamage()));
     }
 
     function hasCardInCollection(cardId) {
@@ -798,7 +825,7 @@
 
     // ---------- MODAL: PONTO DE PAUSA / FOGUEIRA ----------
     function restFlags() {
-        if (!state.restUsed[state.floor]) state.restUsed[state.floor] = { remove: false, relic: false };
+        if (!state.restUsed[state.floor]) state.restUsed[state.floor] = { removed: 0, relic: false };
         return state.restUsed[state.floor];
     }
 
@@ -835,12 +862,13 @@
         const fl = currentFloor();
         const rest = B.rest;
         const flags = restFlags();
+        const removePrice = rest.removePrices[flags.removed];
         els.restTitle.textContent = fl.restName.toUpperCase();
         els.restVrVal.textContent = String(state.vr);
         els.restItemsGrid.innerHTML = '';
 
         if (activeModal.view === 'remove') {
-            els.restDesc.textContent = 'Escolha 1 carta para deixar para trás (' + rest.removePrice + ' VR):';
+            els.restDesc.textContent = 'Escolha 1 carta para deixar para trás (' + removePrice + ' VR):';
             const counts = {};
             state.deck.forEach(id => { counts[id] = (counts[id] || 0) + 1; });
             Object.keys(counts).forEach(id => {
@@ -851,9 +879,9 @@
                     icon: card.icon,
                     priceText: 'REMOVER',
                     onPick: () => {
-                        state.vr -= rest.removePrice;
+                        state.vr -= removePrice;
                         state.deck.splice(state.deck.indexOf(id), 1);
-                        flags.remove = true;
+                        flags.removed++;
                         activeModal.view = 'main';
                         A.play('card');
                         setLog(card.name + ' ficou para trás. Baralho mais leve.');
@@ -888,13 +916,29 @@
         });
 
         const canRemove = state.deck.length > B.minDeckSize;
+        const removeSoldOut = flags.removed >= rest.removePrices.length;
         addRestItem({
             title: 'Deixar um Peso',
-            desc: 'Remove 1 carta fraca/lixo do baralho (1 vez por fase).',
+            desc: 'Remove 1 carta fraca/lixo do baralho (até ' + rest.removePrices.length + ' por fase, preço crescente).',
             icon: 'ata',
-            disabled: flags.remove || !canRemove || state.vr < rest.removePrice,
-            priceText: flags.remove ? 'JÁ USADO' : !canRemove ? 'BARALHO MÍNIMO' : rest.removePrice + ' VR',
+            disabled: removeSoldOut || !canRemove || state.vr < removePrice,
+            priceText: removeSoldOut ? 'ESGOTADO' : !canRemove ? 'BARALHO MÍNIMO' : removePrice + ' VR',
             onPick: () => { activeModal.view = 'remove'; A.play('card'); }
+        });
+
+        addRestItem({
+            title: 'Fôlego Extra',
+            desc: '+12 Escudo e +1 Cafeína no 1º turno do próximo combate.',
+            icon: 'shield',
+            disabled: !!state.extraBreath || state.vr < rest.breathPrice,
+            priceText: state.extraBreath ? 'JÁ PREPARADO' : rest.breathPrice + ' VR',
+            onPick: () => {
+                state.vr -= rest.breathPrice;
+                state.extraBreath = true;
+                state.passives.push({ label: 'Fôlego Extra (próximo combate)', icon: 'shield' });
+                A.play('shield');
+                setLog('Valter respira fundo. Escudo e Cafeína extras no próximo combate.');
+            }
         });
 
         const relic = D.EVOLUTIONS.find(ev => !state.relics.includes(ev.passiveId));
@@ -1039,10 +1083,11 @@
         R.settleCamera();
         R.showEpilogue({
             bosses: [
-                { kind: 'kraken', x: 3, y: 3 },
-                { kind: 'mensageiro', x: 5, y: 3 },
-                { kind: 'estrategista', x: 2, y: 2 },
-                { kind: 'guardia', x: 6, y: 2 }
+                // Leque aberto: cada chefe ocupa uma faixa de ângulo própria, sem se sobrepor
+                { kind: 'kraken', x: 2.3, y: 2.8 },
+                { kind: 'mensageiro', x: 5.7, y: 2.8 },
+                { kind: 'estrategista', x: 3.1, y: 1.7 },
+                { kind: 'guardia', x: 4.9, y: 1.7 }
             ],
             clock: { x: 4, y: 1 }
         });
@@ -1312,13 +1357,18 @@
             vr: tpl.vr,
             col: typeof col === 'number' ? Math.max(0, Math.min(4, col)) : 2,
             row: typeof row === 'number' ? Math.max(0, row) : 0,
+            intent: null,
             hasIntent: false,
             disarmed: false,
             overkill: false,
             killedOnce: false,
-            immuneKnockback: !!tpl.immuneKnockback,
+            phase: 1,
+            kbResist: tpl.kbResist || 0,
+            armorEvery: tpl.armorEvery || 0,
+            armorGain: tpl.armorGain || 0,
             buffAllies: tpl.buffAllies || 0,
             curseCard: tpl.curseCard || null,
+            curseEvery: tpl.curseEvery || 1,
             attacksPerTurn: tpl.attacksPerTurn || 1,
             shieldPerTurn: tpl.shieldPerTurn || 0,
             drainMana: tpl.drainMana || 0,
@@ -1364,12 +1414,43 @@
         normalizeColumns();
         state.enemies.forEach(e => {
             if (e.hp <= 0) {
-                e.hasIntent = false;
-                return;
+                e.intent = null;
+            } else if (isNewTurn) {
+                // Só a frente de cada coluna decide: EnemyActionArmor a cada armorEvery turnos, senão ataque.
+                e.disarmed = false;
+                const armorTurn = e.armorEvery > 0 && (e.turns + 1) % e.armorEvery === 0;
+                e.intent = (e.row !== 0 || e.stunned) ? null : (armorTurn ? 'armor' : 'attack');
             }
-            if (isNewTurn) e.disarmed = false;
-            e.hasIntent = e.row === 0 && !e.disarmed && !e.stunned && (e.atk > 0 || e.attacksPerTurn > 0);
+            e.hasIntent = e.intent === 'attack' && !e.disarmed;
         });
+    }
+
+    // Carta-lixo temporária: entra no topo da compra e nunca em state.deck (some após o combate).
+    function addJunkCard(cardId, enemy) {
+        state.drawPile.push(cardId);
+        const pos = getEnemyTargetPos(enemy);
+        spawnFloatingText(pos.x, pos.y - 30, '+' + D.CARDS[cardId].name + ' no topo da compra!', 'buff');
+    }
+
+    // Chefes mudam de fase ao cruzar 66% e 33% do HP (sem travar o dano no limiar).
+    function advanceBossPhase(enemy) {
+        const phases = D.getEnemyStats(enemy.kind).phases || {};
+        const target = D.getBossPhase(enemy.hp, enemy.maxHp);
+        while (enemy.phase < target) {
+            enemy.phase += 1;
+            const ph = phases[enemy.phase];
+            if (!ph) continue;
+            if (ph.armor) enemy.shield += ph.armor;
+            if (ph.atk) enemy.atk += ph.atk;
+            if (ph.set) Object.assign(enemy, ph.set);
+            if (ph.junk) addJunkCard(ph.junk, enemy);
+            const pos = getEnemyTargetPos(enemy);
+            R.triggerEnemyBuffAnim(enemy.uid, 'gold');
+            R.triggerShake(0.08, 0.3);
+            A.play('buff');
+            spawnFloatingText(pos.x, pos.y - 48, 'FASE ' + enemy.phase + ': ' + ph.label + '!', 'buff');
+            setLog(enemy.name + ' entra na FASE ' + enemy.phase + ': ' + ph.label + '!');
+        }
     }
 
     function getEnemyTargetPos(enemy) {
@@ -1398,9 +1479,21 @@
         state.comboCount = 0;
         state.lastComboCost = null;
         state.combo = 1;
+        state.comboChain = [];
+        state.comboPile = [];
+        state.combatBuff = { Might: 0, Area: 0, Amount: 0 };
+        state.manaBombTicks = 0;
         state.bossOverkillActive = false;
         state.columnBurn = [0, 0, 0, 0, 0];
         state.pendingDrop = null;
+
+        if (state.extraBreath) {
+            // Fôlego Extra comprado na fogueira: vale só para o 1º turno deste combate.
+            state.extraBreath = false;
+            state.shield += B.extraBreathShield;
+            state.mana += B.extraBreathMana;
+            state.passives = state.passives.filter(p => !p.label || p.label.indexOf('Fôlego Extra') !== 0);
+        }
 
         const formation = Array.isArray(enc.formation) && enc.formation.length > 0
             ? enc.formation
@@ -1417,6 +1510,7 @@
         state.destroyedPile = [];
         state.hand = [];
         state.handReturnCounts = [];
+        state.handCostMods = [];
         drawCards(state.dealCount || B.dealCount);
 
         A.play('encounter');
@@ -1449,17 +1543,39 @@
         renderAll();
     }
 
+    // hand, handReturnCounts e handCostMods são arrays paralelos: só mexa neles por aqui.
+    function pushToHand(cardId, returnCount) {
+        state.hand.push(cardId);
+        state.handReturnCounts.push(returnCount || 0);
+        state.handCostMods.push(0);
+    }
+
+    function getHandCost(handIndex) {
+        return D.getEffectiveCost(D.CARDS[state.hand[handIndex]], state.handCostMods[handIndex]);
+    }
+
+    // Compra -> Mão; com a compra vazia, o Descarte é reembaralhado (a ComboPile do turno fica de fora).
     function drawCards(count) {
-        for (let i = 0; i < count; i++) {
+        let scramble = 0;
+        for (let i = 0; i < count && state.hand.length < B.maxHandSize; i++) {
             if (state.drawPile.length === 0) {
                 if (state.discardPile.length === 0) break;
                 state.drawPile = shuffle(state.discardPile);
                 state.discardPile = [];
             }
-            if (state.drawPile.length > 0) {
-                state.hand.push(state.drawPile.pop());
-                state.handReturnCounts.push(0);
-            }
+            const cardId = state.drawPile.pop();
+            pushToHand(cardId, 0);
+            scramble = Math.max(scramble, D.CARDS[cardId].scrambleCosts || 0);
+        }
+        if (scramble > 0) {
+            // Confusão: custos da mão variam em ±N até o fim do turno (as cartas-lixo não mudam).
+            state.hand.forEach((id, idx) => {
+                if (D.CARDS[id].type !== 'curse') {
+                    state.handCostMods[idx] = Math.floor(Math.random() * (scramble * 2 + 1)) - scramble;
+                }
+            });
+            const p = viewportPoint(0.5, 0.62);
+            spawnFloatingText(p.x, p.y, 'CONFUSÃO! Custos embaralhados', 'buff');
         }
     }
 
@@ -1476,35 +1592,81 @@
         return tgt;
     }
 
-    function pickTargetForCard(card, hitIndex) {
+    // Alvos do próximo acerto conforme o padrão de mira (WeaponTargeting) da carta.
+    // aim = { lastCol, bag } guarda o cursor do padrão entre os acertos de uma mesma carta.
+    function pickTargetsForCard(card, aim) {
         const fronts = getFrontEnemies(true);
-        const pool = fronts.length > 0 ? fronts : state.enemies.filter(e => e.hp > 0 || e.overkill);
-        if (pool.length === 0) return null;
+        if (fronts.length === 0) return [];
+        if (card.targeting === 'FrontRow') return fronts;
 
-        const attackers = pool.filter(e => e.hp > 0 && e.hasIntent && !e.disarmed && !e.stunned);
-        if (card && card.target === 'all' && card.amountScalesWithCombo) {
-            if (attackers.length > 0) return attackers[(hitIndex || 0) % attackers.length];
-            const living = pool.filter(e => e.hp > 0);
-            if (living.length > 0) return living[(hitIndex || 0) % living.length];
-            return pool[(hitIndex || 0) % pool.length];
+        // Priority = Attacking: pula quem não ataca neste turno até esgotar os atacantes.
+        let pool = fronts;
+        if (card.priority === 'Attacking') {
+            const attackers = fronts.filter(e => e.hp > 0 && e.hasIntent);
+            if (attackers.length > 0) pool = attackers;
         }
 
-        const current = getTargetEnemy();
-        if (card && card.prioritizeAttackers) {
-            if (current && current.hp > 0 && current.hasIntent && !current.disarmed && !current.stunned) {
-                return current;
-            }
-            if (attackers.length > 0) return attackers[0];
+        if (!card.targeting || card.targeting === 'Target') {
+            const current = getTargetEnemy();
+            return [pool.includes(current) ? current : pool[0]];
         }
-        return current;
+        const cols = pool.map(e => e.col);
+        const col = card.targeting === 'Random'
+            ? D.drawColumnFromBag(aim.bag, cols)
+            : D.nextTargetColumn(card.targeting, cols, aim.lastCol);
+        aim.lastCol = col;
+        return [pool.find(e => e.col === col)];
     }
 
-    function comboBonusLabel(mult) {
-        const m = Math.max(1, mult || 1);
+    // Pierce: para onde o acerto segue depois de atingir `enemy`.
+    function nextPierceTarget(card, enemy, alreadyHit, aim) {
+        const alive = e => e.hp > 0 || e.overkill;
+        if (card.pierceType === 'MultiHitSwitchTarget' && card.targeting !== 'FrontRow') {
+            return pickTargetsForCard(card, aim)[0] || null;
+        }
+        if (card.pierceType === 'MultiHit' && alive(enemy)) return enemy;
+        // OncePerEnemy (e MultiHit com alvo morto): atravessa para quem está atrás na mesma coluna.
+        return state.enemies
+            .filter(e => e.col === enemy.col && alive(e) && !alreadyHit.includes(e.uid))
+            .sort((a, b) => a.row - b.row)[0] || null;
+    }
+
+    // Um acerto completo em `target`: dano + knockback, seguido dos pierces (fixos e Bouncy).
+    function resolveHit(card, pv, usedMult, target, aim, opts) {
+        let overkill = false;
+        let pierceLeft = card.pierce || 0;
+        let bounceChance = (card.bouncy || 0) * getLuckMultiplier();
+        const alreadyHit = [];
+        let enemy = target;
+        while (enemy) {
+            alreadyHit.push(enemy.uid);
+            if (pv.damage > 0 && applyDamageToEnemy(enemy, pv.damage, card, usedMult, opts).overkill) overkill = true;
+            if (card.knockback && enemy.hp > 0) tryKnockback(enemy, card, getEnemyTargetPos(enemy));
+
+            if (pierceLeft > 0) pierceLeft -= 1;
+            else if (bounceChance > 0 && Math.random() < bounceChance) bounceChance *= B.bouncyDecay;
+            else break;
+            enemy = nextPierceTarget(card, enemy, alreadyHit, aim);
+        }
+        return overkill;
+    }
+
+    // Splash de Area nas frentes das OUTRAS colunas ocupadas: dmg * (Area/100) * 0.2 por acerto recebido.
+    function applyAreaSplash(sourceCol, dmg, card, usedMult, times) {
+        const areaPct = getStat('Area');
+        if (areaPct <= 0 || dmg <= 0) return;
+        const splash = Math.max(1, Math.round(dmg * (areaPct / 100) * B.areaSplashRatio)) * (times || 1);
+        getFrontEnemies(true).forEach(front => {
+            if (front.col !== sourceCol) applyDamageToEnemy(front, splash, card, usedMult, { isSplash: true });
+        });
+    }
+
+    // O multiplicador já aparece no badge; o rótulo curto cabe na coluna direita sem cortar.
+    function comboBonusLabel() {
         const nextReq = (state && state.lastComboCost !== null && state.lastComboCost !== undefined)
             ? 'PRÓX: C' + (state.lastComboCost + 1) + ' ou WILD'
-            : 'INICIE C/ C0 ou WILD';
-        return 'COMBO ' + m + 'x • ' + nextReq;
+            : 'INICIE A CADEIA';
+        return nextReq;
     }
 
     function applyDamageToEnemy(enemy, rawDmg, card, usedMult, opts) {
@@ -1607,18 +1769,19 @@
             }
         }
 
-        // Splash de Area (%) nas colunas vizinhas (col - 1 e col + 1)
-        const areaPct = (!o.isSplash && !o.isBurn && state.stats && state.stats.Area) ? state.stats.Area : 0;
-        if (areaPct > 0 && dmg > 0) {
-            const splashDmg = Math.max(1, Math.round(dmg * (areaPct / 100)));
+        if (enemy.isBoss && enemy.hp > 0) advanceBossPhase(enemy);
+
+        // Crit Explosion: parte do dano crítico atinge as frentes de col-1 e col+1.
+        if (isCrit && card.critExplosion) {
+            const blast = Math.max(1, Math.round(dmg * B.critExplosionRatio));
             [enemy.col - 1, enemy.col + 1].forEach(adjCol => {
-                if (adjCol < 0 || adjCol > 4) return;
                 const adjFront = getFrontEnemyAtCol(adjCol, true);
                 if (adjFront && adjFront.uid !== enemy.uid) {
-                    applyDamageToEnemy(adjFront, splashDmg, card, usedMult, { isSplash: true });
+                    applyDamageToEnemy(adjFront, blast, card, usedMult, { isSplash: true });
                 }
             });
         }
+        if (!o.isSplash && !o.isBurn && !o.noSplash) applyAreaSplash(enemy.col, dmg, card, usedMult, 1);
 
         return { overkill: overkill, dealt: dmg };
     }
@@ -1626,7 +1789,7 @@
     // Knockback (Desarme): compara knockbackChance * LuckMultiplier > rand(); se passar, CANCELA intenção de ataque.
     function tryKnockback(enemy, card, pos) {
         if (!enemy || enemy.hp <= 0 || enemy.overkill) return;
-        if (enemy.immuneKnockback) {
+        if (enemy.kbResist >= 100) {
             A.play('immune');
             spawnFloatingText(pos.x, pos.y + 16, 'IMUNE!', 'player-hit');
             return;
@@ -1640,7 +1803,7 @@
         if (!enemy.hasIntent) return;
         const baseChance = typeof card.knockbackChance === 'number' ? card.knockbackChance : 0.6;
         const chance = Math.min(0.98, baseChance * getLuckMultiplier());
-        if (chance > Math.random()) {
+        if (D.rollKnockback(chance, enemy.kbResist, Math.random())) {
             enemy.disarmed = true;
             enemy.hasIntent = false;
             A.play('stun');
@@ -1668,7 +1831,7 @@
 
     function applyBurnForCard(card, singleTarget) {
         if (!card || !card.burn) return;
-        if (card.id === 'julgamento_final') {
+        if (card.burnAllColumns) {
             for (let c = 0; c < 5; c++) {
                 state.columnBurn[c] += card.burn;
             }
@@ -1676,7 +1839,7 @@
             spawnFloatingText(cp.x, cp.y - 34, '+' + card.burn + ' BURN (5 Colunas)', 'player-hit');
             return;
         }
-        if (card.target === 'all') {
+        if (card.targeting === 'FrontRow') {
             const cols = [];
             getFrontEnemies(true).forEach(e => {
                 if (!cols.includes(e.col)) cols.push(e.col);
@@ -1701,69 +1864,52 @@
     function playCard(handIndex) {
         if (state.mode !== 'combat' || state.busy) return false;
         const cardId = state.hand[handIndex];
-        if (!cardId) return false;
         const card = D.CARDS[cardId];
-        const effCost = D.getEffectiveCost(card);
-        if (!card || state.mana < effCost) return false;
+        if (!card) return false;
+        const costMod = state.handCostMods[handIndex] || 0;
+        const effCost = D.getEffectiveCost(card, costMod);
+        if (state.mana < effCost) return false;
 
         A.unlock();
         R.setHoveredCard(null);
         state.mana -= effCost;
         state.hand.splice(handIndex, 1);
         const returnCount = state.handReturnCounts.splice(handIndex, 1)[0] || 0;
+        state.handCostMods.splice(handIndex, 1);
 
-        if (card.purgeOnPlay) {
-            state.destroyedPile.push(cardId);
-            state.comboCount = 0;
-            state.lastComboCost = null;
-            state.combo = 1;
-            A.play('card');
-            setLog(card.name + ' queimada da luta!');
-            R.syncState(state);
-            renderAll();
-            checkCombatEnd();
-            return true;
-        }
-
-        // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild (custo 0, continua a cadeia)
-        const chained = state.lastComboCost !== null && D.canCardCombo(card, state.lastComboCost);
+        // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild. Quebrar a sequência
+        // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a escada recomeça no custo 0.
+        const chained = D.canCardCombo(card, state.lastComboCost, costMod);
         state.comboCount = chained ? state.comboCount + 1 : 0;
-        const isWild = !!(card.isWild || card.type === 'wild');
-        if (isWild) {
-            if (state.lastComboCost === null) state.lastComboCost = 0;
-        } else {
-            state.lastComboCost = effCost;
-        }
+        state.comboChain = chained ? state.comboChain.concat(cardId) : [cardId];
+        state.lastComboCost = D.getComboCostAfter(card, costMod);
         const usedMult = D.getComboMult(state.comboCount);
         state.combo = usedMult;
+        const isWild = D.isWildCard(card);
 
-        // Destino da carta jogada: Destroy / Return / Discard
+        // Destino da carta jogada: Destroy / Return / ComboPile (vai ao Descarte no fim do turno)
         let returnedToHand = false;
         if (card.destroy) {
             state.destroyedPile.push(cardId);
-            if (card.permMaxHp > 0) {
-                state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
-                state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
-            }
-            if (card.permGrowth > 0) {
-                state.stats.Growth += card.permGrowth;
-            }
             if (card.permMaxHp > 0 || card.permGrowth > 0) {
-                const p = viewportPoint(0.5, 0.56);
-                spawnFloatingText(p.x, p.y, '+' + (card.permMaxHp || 0) + ' HP Máx / +' + (card.permGrowth || 0) + '% Grw', 'combo');
-                if (!state.passives.some(item => item.label && item.label.indexOf(card.name) === 0)) {
-                    state.passives.push({
-                        label: card.name + ': +' + (card.permMaxHp || 0) + ' HP Máx, +' + (card.permGrowth || 0) + '% Growth',
-                        icon: card.icon
-                    });
+                // Bônus permanente é de uso único: a carta sai do baralho da run, não só da luta.
+                const deckIdx = state.deck.indexOf(cardId);
+                if (deckIdx >= 0) state.deck.splice(deckIdx, 1);
+                if (card.permMaxHp > 0) {
+                    state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
+                    state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
                 }
+                state.stats.Growth += card.permGrowth || 0;
+                const p = viewportPoint(0.5, 0.56);
+                spawnFloatingText(p.x, p.y, card.permMaxHp > 0
+                    ? '+' + card.permMaxHp + ' HP Máx permanente'
+                    : '+' + card.permGrowth + '% Growth permanente', 'combo');
             }
-        } else if (card.returnTimes && returnCount < card.returnTimes && state.hand.length < 7) {
-            state.hand.push(cardId);
-            state.handReturnCounts.push(returnCount + 1);
+        } else if (card.returnTimes && returnCount < card.returnTimes && state.hand.length < B.maxHandSize) {
+            pushToHand(cardId, returnCount + 1);
             returnedToHand = true;
         } else {
-            state.discardPile.push(cardId);
+            state.comboPile.push(cardId);
         }
 
         const pv = getCardPreviewValues(card, usedMult);
@@ -1784,145 +1930,133 @@
             spawnFloatingText(p.x, p.y, '+' + card.manaGain + ' Cafeína', 'combo');
         }
 
-        const totalHits = pv.hits > 0 ? pv.hits : 1;
-        if (pv.damage > 0 && totalHits > 1) {
-            state.busy = true;
-            let hitNum = 0;
-            let anyOverkill = false;
-            let burnApplied = false;
-            if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
+        // Cartas suporte: buffs valem só neste combate (state.combatBuff)
+        const buffs = [];
+        if (pv.might > 0) {
+            state.combatBuff.Might += pv.might;
+            buffs.push('+' + pv.might + '% Might');
+        }
+        if (pv.area > 0) {
+            state.combatBuff.Area += pv.area;
+            buffs.push('+' + pv.area + '% Area');
+        }
+        if (card.buffAmount > 0 && state.combatBuff.Amount < B.combatAmountCap) {
+            state.combatBuff.Amount = Math.min(B.combatAmountCap, state.combatBuff.Amount + card.buffAmount);
+            buffs.push('+' + card.buffAmount + ' Amount');
+        }
+        if (pv.draw > 0) {
+            const before = state.hand.length;
+            drawCards(pv.draw);
+            buffs.push('Comprou ' + (state.hand.length - before));
+        }
+        if (buffs.length > 0) {
+            const p = viewportPoint(0.5, 0.58);
+            spawnFloatingText(p.x, p.y, buffs.join(' • '), 'combo');
+        }
 
-            const runHit = () => {
-                if (state.mode !== 'combat') {
-                    state.busy = false;
-                    return;
-                }
-                const target = pickTargetForCard(card, hitNum);
-                if (!target || hitNum >= totalHits) {
-                    state.busy = false;
-                    if (anyOverkill) triggerOverkillBanner();
-                    let msg = card.name + ': ' + hitNum + ' golpes!' +
-                        (usedMult > 1 ? ' [COMBO ' + usedMult + 'x]' : '');
-                    if (returnedToHand) msg += ' [RETURN]';
-                    if (card.destroy) msg += ' [DESTROY]';
-                    setLog(msg);
-                    getTargetEnemy();
-                    R.syncState(state);
-                    renderAll(true);
-                    checkCombatEnd();
-                    return;
-                }
-                if (!burnApplied && card.burn > 0) {
-                    applyBurnForCard(card, target);
-                    burnApplied = true;
-                }
-                A.play(card.sfx);
-                if (applyDamageToEnemy(target, pv.damage, card, usedMult).overkill) anyOverkill = true;
-                if (card.knockback && target.hp > 0) {
-                    tryKnockback(target, card, getEnemyTargetPos(target));
-                }
-                hitNum++;
-                R.syncState(state);
-                renderAll();
-                later(155, runHit);
-            };
-            runHit();
+        let hitNum = 0;
+        let anyOverkill = false;
+        const finish = () => {
+            if (anyOverkill) triggerOverkillBanner();
+            let msg = card.name;
+            if (hitNum > 1) msg += ': ' + hitNum + ' golpes!';
+            if (usedMult > 1) msg += ' [COMBO ' + usedMult + 'x]';
+            else if (isWild) msg += ' [WILD]';
+            if (returnedToHand) msg += ' [RETURN]';
+            if (card.destroy) msg += ' [DESTROY]';
+            if (anyOverkill) msg += ' — OVERKILL!';
+            setLog(msg);
+            getTargetEnemy();
+            R.syncState(state);
+            renderAll(true);
+            checkCombatEnd();
+        };
+
+        if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
+        if (!(pv.damage > 0 || card.knockback || card.burn > 0)) {
+            A.play(card.sfx);
+            finish();
             return true;
         }
 
-        A.play(card.sfx);
-        if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
-
-        let targets = [];
-        if (card.target === 'all') {
-            targets = getFrontEnemies(true);
-        } else if (card.target === 'single') {
-            const t = pickTargetForCard(card, 0);
-            if (t) targets = [t];
-        }
-
-        if (card.burn > 0) {
-            applyBurnForCard(card, targets[0] || null);
-        }
-
-        let logMsg = card.name;
-        if (usedMult > 1) logMsg += ' [COMBO ' + usedMult + 'x]';
-        else if (isWild) logMsg += ' [WILD]';
-        if (returnedToHand) logMsg += ' [RETURN]';
-        if (card.destroy) logMsg += ' [DESTROY]';
-
-        let overkillTriggered = false;
-        targets.forEach(enemy => {
-            const pos = getEnemyTargetPos(enemy);
-            if (pv.damage > 0 && applyDamageToEnemy(enemy, pv.damage, card, usedMult).overkill) {
-                overkillTriggered = true;
+        // Cada acerto escolhe o alvo pelo padrão de mira com o tabuleiro atual (inimigos morrem no meio).
+        const totalHits = Math.max(1, pv.hits);
+        const isWave = card.targeting === 'FrontRow';
+        const aim = { lastCol: null, bag: [] };
+        let burnApplied = false;
+        const runHit = () => {
+            if (state.mode !== 'combat') {
+                state.busy = false;
+                return;
             }
-            if (card.knockback && enemy.hp > 0) tryKnockback(enemy, card, pos);
-        });
-
-        if (overkillTriggered) {
-            triggerOverkillBanner();
-            logMsg += ' — OVERKILL!';
-        }
-
-        setLog(logMsg);
-        getTargetEnemy();
-        R.syncState(state);
-        renderAll(true);
-        checkCombatEnd();
+            const targets = pickTargetsForCard(card, aim);
+            if (targets.length > 0) {
+                if (!burnApplied && card.burn > 0) {
+                    applyBurnForCard(card, targets[0]);
+                    burnApplied = true;
+                }
+                A.play(card.sfx);
+                targets.forEach(target => {
+                    if (resolveHit(card, pv, usedMult, target, aim, { noSplash: isWave })) anyOverkill = true;
+                });
+                // Onda: cada frente recebe de uma vez o splash das outras colunas atingidas.
+                if (isWave && targets.length > 1) applyAreaSplash(-1, pv.damage, card, usedMult, targets.length - 1);
+                hitNum++;
+            }
+            if (targets.length === 0 || hitNum >= totalHits) {
+                state.busy = false;
+                finish();
+                return;
+            }
+            R.syncState(state);
+            renderAll();
+            later(155, runHit);
+        };
+        state.busy = true;
+        runHit();
         return true;
     }
 
-    function isUsefulCard(id) {
+    // handIndex é opcional: sem ele vale o custo base da carta (sem o modificador da Confusão).
+    function isUsefulCard(id, handIndex) {
         const c = D.CARDS[id];
-        if (!c || c.purgeOnPlay) return false;
-        if (D.getEffectiveCost(c) > state.mana) return false;
+        if (!c) return false;
+        const cost = typeof handIndex === 'number' ? getHandCost(handIndex) : D.getEffectiveCost(c);
+        if (cost > state.mana) return false;
+        // Lixo quebra a cadeia: o Jogar Tudo só gasta Cafeína para desarmar a Bomba de Mana.
+        if (c.type === 'curse') return !!c.endTurnBomb && state.enemies.some(e => e.hp > 0);
         const hasTarget = state.enemies.some(e => e.hp > 0 || e.overkill);
         if (c.damage > 0 || c.knockback || c.burn > 0) return hasTarget;
-        return c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.destroy || c.permMaxHp > 0 || c.permGrowth > 0;
+        if (c.buffAmount > 0) return state.combatBuff.Amount < B.combatAmountCap;
+        return c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.buffMight > 0 || c.buffArea > 0 ||
+            c.draw > 0 || c.permMaxHp > 0 || c.permGrowth > 0;
     }
 
-    // Ordena os índices da mão começando em targetCost = 0 (ou lastComboCost + 1) e seguindo +1 / Wild.
+    // SortCardsByCombo: começa em targetCost = 0 (ou lastComboCost + 1) e avança +1. Sem carta do custo
+    // exigido joga um Wild (que devolve o targetCost a 0); sem Wild, a de menor custo disponível.
     function sortCardsByCombo(indices, currentLastCost, availableMana) {
-        const remaining = (indices || state.hand.map((_, i) => i)).filter(idx => isUsefulCard(state.hand[idx]));
+        const cardAt = idx => D.CARDS[state.hand[idx]];
+        const remaining = (indices || state.hand.map((_, i) => i)).filter(idx => isUsefulCard(state.hand[idx], idx));
         const ordered = [];
         let simLastCost = currentLastCost !== undefined ? currentLastCost : state.lastComboCost;
         let simMana = availableMana !== undefined ? availableMana : state.mana;
 
         while (remaining.length > 0) {
-            const feasible = remaining.filter(idx => D.getEffectiveCost(D.CARDS[state.hand[idx]]) <= simMana);
+            const feasible = remaining.filter(idx => getHandCost(idx) <= simMana);
             if (feasible.length === 0) break;
 
             const targetCost = (simLastCost === null || simLastCost === undefined) ? 0 : simLastCost + 1;
-
-            let chosenIdx = feasible.find(idx => {
-                const c = D.CARDS[state.hand[idx]];
-                return !c.isWild && c.type !== 'wild' && D.getEffectiveCost(c) === targetCost;
-            });
-
+            let chosenIdx = feasible.find(idx =>
+                !D.isWildCard(cardAt(idx)) && cardAt(idx).type !== 'curse' && getHandCost(idx) === targetCost);
+            if (chosenIdx === undefined) chosenIdx = feasible.find(idx => D.isWildCard(cardAt(idx)));
             if (chosenIdx === undefined) {
-                chosenIdx = feasible.find(idx => {
-                    const c = D.CARDS[state.hand[idx]];
-                    return c.isWild || c.type === 'wild';
-                });
+                chosenIdx = feasible.slice().sort((a, b) => getHandCost(a) - getHandCost(b))[0];
             }
 
-            if (chosenIdx === undefined) {
-                feasible.sort((a, b) => D.getEffectiveCost(D.CARDS[state.hand[a]]) - D.getEffectiveCost(D.CARDS[state.hand[b]]));
-                chosenIdx = feasible[0];
-            }
-
-            const chosenCard = D.CARDS[state.hand[chosenIdx]];
             ordered.push(chosenIdx);
             remaining.splice(remaining.indexOf(chosenIdx), 1);
-
-            const effCost = D.getEffectiveCost(chosenCard);
-            simMana = Math.max(0, simMana - effCost + (chosenCard.manaGain || 0));
-            if (chosenCard.isWild || chosenCard.type === 'wild') {
-                if (simLastCost === null || simLastCost === undefined) simLastCost = 0;
-            } else {
-                simLastCost = effCost;
-            }
+            simMana = Math.max(0, simMana - getHandCost(chosenIdx) + (cardAt(chosenIdx).manaGain || 0));
+            simLastCost = D.getComboCostAfter(cardAt(chosenIdx), state.handCostMods[chosenIdx]);
         }
         return ordered;
     }
@@ -1965,7 +2099,7 @@
         stepNext();
     }
 
-    function startPlayerTurn(pendingCurses) {
+    function startPlayerTurn() {
         state.mana = Math.max(1, state.maxMana - (state.manaDrain || 0));
         const drained = state.manaDrain || 0;
         state.manaDrain = 0;
@@ -1976,28 +2110,16 @@
         state.shield = 0;
 
         // Cartas com Retain permanecem na mão; demais vão para o descarte.
-        const retainedIds = [];
-        const retainedReturns = [];
-        for (let i = 0; i < state.hand.length; i++) {
-            const cid = state.hand[i];
-            const c = D.CARDS[cid];
-            if (c && c.retain) {
-                retainedIds.push(cid);
-                retainedReturns.push(0);
-            } else {
-                state.discardPile.push(cid);
-            }
-        }
-        state.hand = retainedIds;
-        state.handReturnCounts = retainedReturns;
+        const retainedIds = state.hand.filter(cid => D.CARDS[cid].retain);
+        state.hand.forEach(cid => {
+            if (!D.CARDS[cid].retain) state.discardPile.push(cid);
+        });
+        state.hand = [];
+        state.handReturnCounts = [];
+        state.handCostMods = [];
+        retainedIds.forEach(cid => pushToHand(cid, 0));
 
         drawCards(state.dealCount || B.dealCount);
-        pendingCurses.forEach(curseId => {
-            if (state.hand.length < 7) {
-                state.hand.push(curseId);
-                state.handReturnCounts.push(0);
-            }
-        });
         refreshFrontIntents(true);
         getTargetEnemy();
         state.busy = false;
@@ -2012,7 +2134,7 @@
     }
 
     // Habilidades de suporte antes do golpe. Retorna o tempo (ms) da animação de salto.
-    function runEnemySupport(enemy, pendingCurses) {
+    function runEnemySupport(enemy) {
         let wait = 0;
         const pos = getEnemyTargetPos(enemy);
 
@@ -2028,11 +2150,10 @@
             wait = 520;
         }
 
-        if (enemy.curseCard) {
-            pendingCurses.push(enemy.curseCard);
+        if (enemy.curseCard && enemy.turns % enemy.curseEvery === 0) {
+            addJunkCard(enemy.curseCard, enemy);
             R.triggerEnemyBuffAnim(enemy.uid, 'gold');
             A.play('buff');
-            spawnFloatingText(pos.x, pos.y - 30, '+' + D.CARDS[enemy.curseCard].name + '!', 'buff');
             wait = 520;
         }
 
@@ -2127,6 +2248,30 @@
         state.bossOverkillActive = false;
         state.enemies.forEach(e => { e.overkill = false; });
 
+        // A ComboPile do turno só agora segue para o Descarte (não é recomprada no mesmo turno).
+        state.discardPile.push(...state.comboPile);
+        state.comboPile = [];
+        state.comboChain = [];
+
+        // Bomba de Mana que ficou na mão explode (o Escudo absorve) e cresce para a próxima vez.
+        state.hand.filter(id => D.CARDS[id].endTurnBomb).forEach(() => {
+            const bombDmg = getManaBombDamage();
+            state.manaBombTicks += 1;
+            const absorbed = Math.min(state.shield, bombDmg);
+            state.shield -= absorbed;
+            state.hp = Math.max(0, state.hp - (bombDmg - absorbed));
+            const p = viewportPoint(0.5, 0.6);
+            spawnFloatingText(p.x, p.y, 'BOMBA DE MANA -' + (bombDmg - absorbed), 'player-hit big-hit');
+            A.play('hurt');
+            R.triggerShake(0.09, 0.28);
+            pulseHeart();
+        });
+        if (state.hp <= 0) {
+            state.busy = false;
+            endGame(false);
+            return;
+        }
+
         // Tick de Burn por Coluna (0..4) no fim do turno do jogador, antes dos inimigos agirem.
         let burnTicked = false;
         let anyBurnOverkill = false;
@@ -2156,7 +2301,6 @@
         }
 
         const frontActors = getFrontEnemies(false);
-        const pendingCurses = [];
         const timings = R.getAttackTimings();
         let idx = 0;
 
@@ -2192,7 +2336,7 @@
                 return;
             }
             if (idx >= frontActors.length) {
-                startPlayerTurn(pendingCurses);
+                startPlayerTurn();
                 return;
             }
             const enemy = frontActors[idx++];
@@ -2223,6 +2367,19 @@
                 return;
             }
 
+            if (enemy.intent === 'armor') {
+                // EnemyActionArmor: troca o ataque do turno por Escudo.
+                enemy.turns += 1;
+                enemy.shield += enemy.armorGain;
+                R.triggerEnemyBuffAnim(enemy.uid, 'ice');
+                A.play('shield');
+                spawnFloatingText(pos.x, pos.y - 30, '+' + enemy.armorGain + ' ESCUDO!', 'shield');
+                setLog(enemy.name + ' se protege em vez de atacar.');
+                R.syncState(state);
+                later(520, nextEnemyAction);
+                return;
+            }
+
             if (!enemy.hasIntent) {
                 spawnFloatingText(pos.x, pos.y, 'AVANÇOU!', 'shield');
                 later(260, nextEnemyAction);
@@ -2231,7 +2388,7 @@
 
             enemy.stunImmune = 0;
             enemy.turns += 1;
-            const supportWait = runEnemySupport(enemy, pendingCurses);
+            const supportWait = runEnemySupport(enemy);
             later(supportWait, () => attackOnce(enemy, enemy.attacksPerTurn, nextEnemyAction));
         };
 
@@ -2258,6 +2415,9 @@
             state.comboCount = 0;
             state.lastComboCost = null;
             state.combo = 1;
+            state.comboChain = [];
+            state.comboPile = [];
+            state.combatBuff = { Might: 0, Area: 0, Amount: 0 };
             state.shield = 0;
             state.busy = false;
             state.autoPlaying = false;
@@ -2288,6 +2448,7 @@
 
     function endGame(victory) {
         state.mode = 'gameover';
+        A.stopAmbience();
         state.busy = false;
         state.autoPlaying = false;
         state.finalVictory = !!victory;
@@ -2334,9 +2495,9 @@
         els.statVr.textContent = String(state.vr);
         els.clockTime.textContent = state.finalVictory ? D.FLOOR_CLOCKS.victory : (D.FLOOR_CLOCKS[state.floor] || '08:17');
 
-        if (els.statMight) els.statMight.textContent = '+' + ((state.stats && state.stats.Might) || 0) + '%';
-        if (els.statAmount) els.statAmount.textContent = '+' + ((state.stats && state.stats.Amount) || 0);
-        if (els.statArea) els.statArea.textContent = '+' + ((state.stats && state.stats.Area) || 0) + '%';
+        if (els.statMight) els.statMight.textContent = '+' + getStat('Might') + '%';
+        if (els.statAmount) els.statAmount.textContent = '+' + getStat('Amount');
+        if (els.statArea) els.statArea.textContent = '+' + getStat('Area') + '%';
         if (els.statLuck) els.statLuck.textContent = '+' + ((state.stats && state.stats.Luck) || 0) + '%';
         if (els.statGrowth) els.statGrowth.textContent = '+' + ((state.stats && state.stats.Growth) || 0) + '%';
 
@@ -2363,7 +2524,10 @@
 
     function buildCardKeywordsHtml(card, idx) {
         const pills = [];
+        const aimLabels = { LeftRight: 'ESQ→DIR', RightLeft: 'DIR→ESQ', FrontRow: 'FRENTE', Random: 'ALEAT.' };
         if (card.isWild || card.type === 'wild') pills.push('<span class="card-kw-pill kw-wild">WILD</span>');
+        if (aimLabels[card.targeting]) pills.push('<span class="card-kw-pill kw-aim">' + aimLabels[card.targeting] + '</span>');
+        if (card.pierce > 0 || card.bouncy > 0) pills.push('<span class="card-kw-pill kw-aim">PIERCE</span>');
         if (card.critChance > 0) pills.push('<span class="card-kw-pill kw-crit">CRIT</span>');
         if (card.knockback) pills.push('<span class="card-kw-pill kw-kb">DESARME</span>');
         if (card.burn > 0) pills.push('<span class="card-kw-pill kw-burn">BURN</span>');
@@ -2382,11 +2546,23 @@
         els.combatPanel.classList.toggle('hidden', !inCombat);
         document.body.classList.toggle('in-combat', inCombat);
 
+        els.comboChain.classList.toggle('hidden', !inCombat);
         if (!inCombat) {
             els.comboBadge.classList.add('hidden');
             R.setHoveredCard(null);
             return;
         }
+
+        // Mini-pilha da cadeia: últimas cartas jogadas + o custo que mantém o combo.
+        const hasChain = state.lastComboCost !== null && state.lastComboCost !== undefined;
+        els.comboChainCards.innerHTML = state.comboChain.slice(-5).map(id =>
+            '<span class="chain-card' + (D.isWildCard(D.CARDS[id]) ? ' wild' : '') + '">' +
+            '<img src="' + S.getIconUrl(D.CARDS[id].icon) + '" alt="" /><b>' +
+            (D.isWildCard(D.CARDS[id]) ? 'W' : D.CARDS[id].cost) + '</b></span>').join('') +
+            '<span class="chain-next" title="Próximo custo que mantém o combo">' +
+            (hasChain ? '▸' + (state.lastComboCost + 1) : '▸?') + '</span>';
+        els.pileCounts.textContent = 'COMPRA ' + state.drawPile.length + ' · DESC ' +
+            (state.discardPile.length + state.comboPile.length);
 
         const currentMult = D.getComboMult(state.comboCount);
         els.comboBadge.classList.remove('hidden');
@@ -2406,9 +2582,10 @@
         els.handGrid.setAttribute('data-count', String(state.hand.length));
         state.hand.forEach((cardId, idx) => {
             const card = D.CARDS[cardId];
-            const effCost = D.getEffectiveCost(card);
-            const isWild = !!(card.isWild || card.type === 'wild');
-            const willCombo = !card.purgeOnPlay && state.lastComboCost !== null && D.canCardCombo(card, state.lastComboCost);
+            const costMod = state.handCostMods[idx] || 0;
+            const effCost = getHandCost(idx);
+            const isWild = D.isWildCard(card);
+            const willCombo = D.canCardCombo(card, state.lastComboCost, costMod);
             const nextMult = willCombo ? (state.comboCount + 2) : 1;
             const pv = getCardPreviewValues(card, nextMult);
             const desc = formatCardDesc(card, pv);
@@ -2427,7 +2604,7 @@
                 (willCombo ? ' combo-ready' : '');
             btn.disabled = locked || state.mana < effCost;
             btn.innerHTML =
-                '<span class="card-cost">' + effCost + '</span>' +
+                '<span class="card-cost' + (costMod > 0 ? ' cost-up' : costMod < 0 ? ' cost-down' : '') + '">' + effCost + '</span>' +
                 (powerTag ? '<span class="card-power-tag">' + powerTag + '</span>' : '') +
                 '<div class="card-banner"><span class="card-name">' + card.name +
                 (lvl >= B.maxCardLevel && card.evolvesTo && !card.evolved ? ' ★MÁX' : '') +
@@ -2437,7 +2614,12 @@
                 buildCardKeywordsHtml(card, idx) +
                 '<div class="card-desc">' + desc + '</div></div>';
             btn.addEventListener('mouseenter', () => {
-                if (!btn.disabled && (card.damage > 0 || card.knockback || card.burn > 0)) R.setHoveredCard(card);
+                if (btn.disabled || !(card.damage > 0 || card.knockback || card.burn > 0)) return;
+                // Prévia da mira: o renderer marca os alvos do 1º acerto (saco Random não é previsível).
+                const preview = card.targeting === 'Random'
+                    ? getFrontEnemies(true)
+                    : pickTargetsForCard(card, { lastCol: null, bag: [] });
+                R.setHoveredCard(Object.assign({}, card, { previewUids: preview.map(e => e.uid) }));
             });
             btn.addEventListener('mouseleave', () => R.setHoveredCard(null));
             btn.addEventListener('click', () => playCard(idx));
@@ -2473,6 +2655,7 @@
 
     function openTitleModal() {
         bossKeyOpen = false;
+        A.stopAmbience();
         els.spreadsheetModal.classList.add('hidden');
         resetModalSystem();
         initWorld();
@@ -2486,6 +2669,7 @@
         A.play('levelup');
         els.titleModal.classList.add('hidden');
         const fl = currentFloor();
+        A.setAmbience(fl.biome);
         enqueueModal(triggerCard(fl, () => {
             document.body.classList.remove('daydream-transition');
             void document.body.offsetWidth;
@@ -2666,6 +2850,21 @@
             R.syncState(state);
         }
     });
+
+    // Gancho de teste/bot (contrato usado pelos scripts de calibragem).
+    window.__hcDebug = {
+        get state() { return state; },
+        get activeModal() { return activeModal; },
+        playCard: playCard,
+        playAllCards: playAllCards,
+        endTurn: endTurn,
+        moveRelative: moveRelative,
+        turnPlayer: turnPlayer,
+        sortCardsByCombo: sortCardsByCombo,
+        isUsefulCard: isUsefulCard,
+        startEncounter: startEncounter,
+        restart: openTitleModal
+    };
 
     openTitleModal();
 })();

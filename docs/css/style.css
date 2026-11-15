@@ -2030,12 +2030,17 @@ body.daydream-transition .viewport-frame {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 6px;
-    padding: 0 6% 5%;
+    /* Texto no céu (abaixo da HUD) e botão no chão: a faixa central fica livre para os chefes */
+    padding: clamp(64px, 14vh, 96px) 6% 4%;
     text-align: center;
-    background: linear-gradient(180deg, rgba(2, 1, 8, 0) 35%, rgba(2, 1, 8, 0.82) 78%);
+    background: linear-gradient(180deg, rgba(2, 1, 8, 0.78) 0%, rgba(2, 1, 8, 0) 40%, rgba(2, 1, 8, 0) 78%, rgba(2, 1, 8, 0.6) 100%);
     z-index: 14;
+}
+
+.epilogue-overlay .punch-clock-btn {
+    margin-top: auto;
 }
 
 .epilogue-overlay h2 {
@@ -2538,8 +2543,14 @@ body.daydream-transition .viewport-frame {
         font-size: 22px;
     }
 
+    .epilogue-overlay {
+        padding-top: 64px;
+        gap: 3px;
+    }
+
     .epilogue-lines p {
         font-size: 12px;
+        margin: 0;
     }
 
     .epilogue-overlay h2 {
@@ -2567,4 +2578,125 @@ body.daydream-transition .viewport-frame {
         width: 26px;
         height: 26px;
     }
+}
+
+/* ===== COMBATE v1.6.1a ===== */
+.combo-chain {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    margin-bottom: 6px;
+}
+
+.combo-chain-cards {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+}
+
+.chain-card, .chain-next {
+    position: relative;
+    width: 18px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0b1f45;
+    border: 1px solid #3cc8ff;
+    box-shadow: 0 2px 0 var(--ink);
+}
+
+.chain-card.wild {
+    border-color: #5eead4;
+}
+
+.chain-card img {
+    width: 14px;
+    height: 14px;
+    image-rendering: pixelated;
+    opacity: 0.55;
+}
+
+.chain-card b {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #ffffff;
+    text-shadow: 1px 1px 0 #05142e;
+}
+
+.chain-next {
+    width: auto;
+    min-width: 18px;
+    padding: 0 2px;
+    border-style: dashed;
+    border-color: #ffe08a;
+    font-size: 13px;
+    color: #ffe08a;
+}
+
+.pile-counts {
+    font-size: 11px;
+    line-height: 1;
+    color: #b8f4ff;
+    text-shadow: 1px 1px 0 #000;
+    white-space: nowrap;
+}
+
+.card-btn.sup {
+    background: linear-gradient(180deg, #2f6b3a 0%, #14301b 100%);
+    box-shadow: inset 0 0 0 2px #9be8a8, 0 7px 0 var(--ink);
+}
+
+.card-cost.cost-up { color: #ff9f8a; }
+.card-cost.cost-down { color: #9be8a8; }
+
+.card-kw-pill.kw-aim {
+    background: #10283d;
+    border-color: #69c8f0;
+    color: #cfefff;
+}
+
+@media (max-width: 768px) {
+    .combo-chain {
+        position: fixed;
+        top: calc(var(--m-top) + 44vh + 9px);
+        top: calc(var(--m-top) + 44dvh + 9px);
+        left: calc(50% + 34px);
+        right: 70px;
+        width: auto;
+        margin: 0;
+        z-index: 26;
+    }
+
+    .chain-card, .chain-next {
+        width: 15px;
+        height: 18px;
+    }
+
+    .chain-card img {
+        width: 11px;
+        height: 11px;
+    }
+
+    .chain-card b, .chain-next {
+        font-size: 11px;
+    }
+
+    .pile-counts {
+        font-size: 9px;
+    }
+
+    .cards-fan[data-count="6"] .card-btn {
+        width: calc((100vw - 12px - 25px) / 6);
+    }
+
+    .cards-fan[data-count="6"] .card-name { font-size: 9px; }
+    .cards-fan[data-count="6"] .card-desc { font-size: 8.5px !important; }
 }
