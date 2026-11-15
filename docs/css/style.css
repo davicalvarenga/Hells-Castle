@@ -2774,3 +2774,20 @@ body.daydream-transition .viewport-frame {
         max-height: 50vh;
     }
 }
+
+/* ===== ETAPA 3: STATS EXTRAS (Freeze, Recovery, Duration, Revival, Curse) ===== */
+/* Só aparecem quando ativos; a barra quebra em duas linhas em vez de estourar a largura. */
+.vp-combat-stats {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 0;
+    max-width: calc(100% - 16px);
+}
+
+.stat-extra {
+    display: contents;
+}
+
+.stat-extra b {
+    color: #b3e5fc;
+}

@@ -75,6 +75,17 @@
         gemDiscardVr: 8,           // VR ao recusar uma gema
         gemRewardChance: 0.2,      // chance (x Luck) de uma opção do Level Up virar gema
         freezeBossAtkRatio: 0.5,   // quem resiste a desarme (chefes) só perde metade do ataque
+        freezeDamageMult: 1.5,     // golpe em inimigo com gelo: ceil(dano * 1.5), consome 1 stack
+        durationFrostStep: 50,     // a cada 50% de Duration, +1 stack de gelo aplicado
+        eliteHpMult: 1.8,
+        eliteAtkMult: 1.25,
+        eliteXpMult: 2,
+        eliteVrBonus: 12,
+        eliteKbResist: 50,
+        eliteHexEvery: 3,          // Elite troca 1 ataque a cada N turnos por Aumentar Curse
+        curseStep: 10,             // % por intenção de Curse
+        curseCap: 50,
+        revivalMax: 3,
         arcanaComboCarryCap: 4,    // Elo da Corrente: combo máximo carregado entre turnos
         arcanaShieldCarryCap: 40,  // Escudo Soberbo
         arcanaManaCarry: 4,        // Mente Afiada
@@ -141,7 +152,7 @@
         leader: { id: 'leader', name: 'Líder', glyph: 'L', color: '#fff176', tags: ['mão'],
             incompatibleWith: [], desc: 'Enquanto está na mão: +20% de dano nos ataques (não acumula).' },
         freeze: { id: 'freeze', name: 'Paralisia', glyph: 'F', color: '#b3e5fc', tags: ['controle'], needsDamage: true,
-            incompatibleWith: [], desc: 'Congela o inimigo atingido: não ataca neste turno (chefes: -50% ATK).' },
+            incompatibleWith: [], desc: 'Aplica 1 Gelo: congelado não ataca (chefes: -50% ATK) e o próximo golpe causa 1.5x.' },
         evolve: { id: 'evolve', name: 'Gema de Evolução', glyph: '\u2605', color: '#ffffff', tags: ['evolução'], instant: true,
             incompatibleWith: [], desc: 'Evolui na hora uma carta que tenha evolução, sem relíquia nem nível.' }
     };
@@ -416,6 +427,26 @@
             icon: 'c_comet', sfx: 'coffee',
             desc: 'Cataclismo: {DMG} dano na fila da frente + {BURN} Burn nas 5 colunas + 75% Desarme.'
         },
+        lanca_geada: {
+            id: 'lanca_geada',
+            name: 'Lança de Geada',
+            origin: 'Ar-Condicionado no 16',
+            cost: 1, type: 'ctrl', target: 'single', targeting: 'LeftRight', priority: 'Attacking',
+            damage: 5, baseAmount: 1, amountScalesWithCombo: true, freeze: 1,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_bolt', sfx: 'whip',
+            desc: '{HITS} estilhaço(s) de {DMG} dano em Atacantes. Cada acerto aplica 1 Gelo (próximo golpe 1.5x).'
+        },
+        tiramisu_recomeco: {
+            id: 'tiramisu_recomeco',
+            name: 'Tiramisù do Recomeço',
+            origin: 'Sobremesa da Copa',
+            cost: 1, type: 'sup', target: 'self',
+            destroy: true, permRevival: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_chalice', sfx: 'shield',
+            desc: 'Destroy: +1 carga de Revival (máx. 3). A carta sai do baralho para sempre.'
+        },
         // ---------- CARTAS EVOLUÍDAS ----------
         vulcao_expresso: {
             id: 'vulcao_expresso',
@@ -579,6 +610,8 @@
               },
               quip: '"PAPEL. PRESO. NA. BANDEJA. DOIS."' }),
 
+        siren: enemy('siren', 'Sereia do Raso', 'Toque de Chamada', 26, 4, 8, 4,
+            { sprite: 'specter', shieldPerTurn: 3, attackStyle: 'wave', quip: '"Sua ligação é muito importante para nós..."' }),
         // ---- Fase 2: Cidade Gótica Amaldiçoada ----
         hunter: enemy('hunter', 'Caçador Frenético', 'Mensagem Urgente', 39, 7, 10, 5,
             { quip: '"Viu minha mensagem? Viu? VIU?"' }),
@@ -594,6 +627,8 @@
               },
               quip: '"Uma coisa de cada vez? Nesta cidade, nunca."' }),
 
+        lamplighter: enemy('lamplighter', 'Acendedor de Lampiões', 'Aviso de Hora Extra', 42, 7, 11, 5,
+            { sprite: 'herald', kbResist: 30, attackStyle: 'orb', quip: '"Só mais uma coisinha antes de você sair."' }),
         // ---- Fase 3: Pico Nevado & Fortaleza de Gelo ----
         wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 52, 8, 14, 6,
             { quip: '"Auuu... para ontem!"' }),
@@ -602,13 +637,15 @@
         sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 64, 7, 15, 6,
             { enemyShield: 14, kbResist: 50, armorEvery: 3, armorGain: 10, quip: '"Este item fica para a próxima reunião."' }),
         estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 149, 10, 45, 24,
-            { isBoss: true, kbResist: 100, shieldPerTurn: 12, attackStyle: 'orb',
+            { isBoss: true, hexEvery: 4, kbResist: 100, shieldPerTurn: 12, attackStyle: 'orb',
               phases: {
                   2: { label: 'Pauta Extra', junk: 'confusao', set: { shieldPerTurn: 16 } },
                   3: { label: 'Prioridade Máxima', atk: 3, junk: 'bomba_mana' }
               },
               quip: '"Tudo é prioridade máxima. Tudo."' }),
 
+        yeti: enemy('yeti', 'Yeti do Desfiladeiro', 'Planilha Congelada', 74, 9, 16, 6,
+            { sprite: 'sentinel', armorEvery: 4, armorGain: 10, quip: '"Carregando... não responde."' }),
         // ---- Fase 4: Dungeon Subterrânea ----
         skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 64, 10, 18, 7,
             { quip: '"Protocolo... em três vias..."' }),
@@ -617,16 +654,18 @@
         gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 82, 9, 20, 7,
             { enemyShield: 16, kbResist: 50, armorEvery: 3, armorGain: 12, attackStyle: 'orb', quip: '"Nada sai daqui. Nada."' }),
         guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 188, 12, 60, 28,
-            { isBoss: true, kbResist: 100, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
+            { isBoss: true, hexEvery: 4, kbResist: 100, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
               phases: {
                   2: { label: 'Gavetas Abertas', armor: 15, set: { summonEvery: 2 } },
                   3: { label: 'Arquivo Morto', atk: 3, junk: 'bomba_mana' }
               },
               dropRelic: 'foto_parque', quip: '"Você guardou tudo... menos o que importava."' }),
 
+        wraith: enemy('wraith', 'Aparição do Corredor', 'Chamado Reaberto', 70, 12, 20, 7,
+            { sprite: 'skeleton', buffAllies: 2, attackStyle: 'wave', quip: '"Este chamado foi reaberto pela 4ª vez."' }),
         // ---- Fase 5: O Abismo Estrelado ----
         horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 250, 14, 0, 0,
-            { isBoss: true, kbResist: 100, drainMana: 1, attackStyle: 'orb',
+            { isBoss: true, hexEvery: 4, kbResist: 100, drainMana: 1, attackStyle: 'orb',
               phases: {
                   2: { label: 'Hora Extra', armor: 20, junk: 'bomba_mana', set: { curseCard: 'bomba_mana', curseEvery: 3 } },
                   3: { label: 'Última Badalada', atk: 4, junk: 'confusao', set: { armorEvery: 3, armorGain: 18 } }
@@ -639,6 +678,49 @@
 
     function getEnemyStats(kind) {
         return ENEMIES[kind] || null;
+    }
+
+    // Pool explícito por fase: comuns (do mais fraco ao mais forte) e chefe.
+    const BIOME_ENEMIES = {
+        1: { common: ['gull', 'crab', 'specter', 'siren'], boss: 'kraken' },
+        2: { common: ['crow', 'hunter', 'herald', 'lamplighter'], boss: 'mensageiro' },
+        3: { common: ['serpent', 'wolf', 'sentinel', 'yeti'], boss: 'estrategista' },
+        4: { common: ['skeleton', 'mimic', 'gargoyle', 'wraith'], boss: 'guardia' },
+        5: { common: [], boss: 'horas' }
+    };
+    Object.keys(BIOME_ENEMIES).forEach(floor => {
+        const pool = BIOME_ENEMIES[floor];
+        pool.common.concat(pool.boss).forEach(kind => { ENEMIES[kind].floor = Number(floor); });
+    });
+
+    function getEnemyPool(floorNum) {
+        return BIOME_ENEMIES[floorNum] || BIOME_ENEMIES[1];
+    }
+
+    // Curse da run (%): escala HP/dano inimigo e o XP ganho.
+    function scaleByCurse(value, cursePct) {
+        return Math.round(value * (1 + Math.max(0, cursePct || 0) / 100));
+    }
+
+    // Gelo: o próximo golpe que acerta causa ceil(dano * mult) e consome 1 stack.
+    function applyFrostToDamage(damage, frostStacks) {
+        if (!(frostStacks > 0) || damage <= 0) return { damage: damage, frost: frostStacks || 0 };
+        return { damage: Math.ceil(damage * BALANCE.freezeDamageMult), frost: frostStacks - 1 };
+    }
+
+    // Duration (%): prolonga efeitos temporários. Burn aplicado cresce na proporção; gelo ganha +1 stack a cada 50%.
+    function withDuration(amount, durationPct) {
+        return Math.round(amount * (1 + Math.max(0, durationPct || 0) / 100));
+    }
+
+    function frostStacksToApply(baseStacks, durationPct) {
+        return baseStacks + Math.floor(Math.max(0, durationPct || 0) / BALANCE.durationFrostStep);
+    }
+
+    // Revival: a 0 de Sanidade, 1 carga revive com HP cheio.
+    function consumeRevival(hp, maxHp, charges) {
+        if (hp > 0 || !(charges > 0)) return { revived: false, hp: hp, charges: charges || 0 };
+        return { revived: true, hp: maxHp, charges: charges - 1 };
     }
 
     function cardReward(cardId, desc) {
@@ -657,6 +739,60 @@
     }
 
     const LEVEL_UP_REWARDS = [
+        {
+            id: 'garrafa_agua',
+            kind: 'passiva',
+            title: 'Cantil do Andarilho',
+            origin: 'Garrafa de Água',
+            icon: 'thermos',
+            desc: 'Passiva: +3 Recovery (cura ao vencer cada encontro).',
+            apply: function (state) {
+                state.stats.Recovery += 3;
+                state.passives.push({ label: 'Cantil do Andarilho (+3 Recovery)', icon: 'thermos' });
+            }
+        },
+        {
+            id: 'ventilador_mesa',
+            kind: 'passiva',
+            title: 'Sopro do Inverno',
+            origin: 'Ventilador de Mesa',
+            icon: 'p_area',
+            desc: 'Passiva: +20% Freeze (chance de cada golpe aplicar 1 Gelo) e +25% Duration.',
+            apply: function (state) {
+                state.stats.Freeze += 20;
+                state.stats.Duration += 25;
+                state.passives.push({ label: 'Sopro do Inverno (+20% Freeze, +25% Duration)', icon: 'p_area' });
+            }
+        },
+        {
+            id: 'segunda_chance',
+            kind: 'passiva',
+            once: true,
+            rare: true,
+            title: 'Segunda Chance',
+            origin: 'Banco de Horas',
+            icon: 'p_luck',
+            desc: 'Rara: +1 carga de Revival (revive com Sanidade cheia ao chegar a 0).',
+            apply: function (state) {
+                state.revival = Math.min(BALANCE.revivalMax, (state.revival || 0) + 1);
+                state.passives.push({ label: 'Segunda Chance (+1 Revival)', icon: 'p_luck' });
+            }
+        },
+        {
+            id: 'pacto_serao',
+            kind: 'passiva',
+            title: 'Pacto do Serão',
+            origin: 'Hora Extra Voluntária',
+            icon: 'vr_boost',
+            desc: 'Risco: +15% Curse (inimigos mais fortes, mais XP) e +25% Growth.',
+            apply: function (state) {
+                state.curse = Math.min(BALANCE.curseCap, (state.curse || 0) + 15);
+                state.stats.Growth += 25;
+                state.passives.push({ label: 'Pacto do Serão (+15% Curse, +25% Growth)', icon: 'vr_boost' });
+            }
+        },
+        cardReward('lanca_geada', 'Nova carta (custo 1): estilhaços que aplicam Gelo. Congelado não ataca e leva 1.5x.'),
+        cardReward('tiramisu_recomeco', 'Nova carta (custo 1, Destroy): +1 carga de Revival.'),
         {
             id: 'fones_anti_ruido',
             kind: 'passiva',
@@ -1442,6 +1578,12 @@
         BALANCE: BALANCE,
         MAX_ENEMIES_IN_COMBAT: MAX_ENEMIES_IN_COMBAT,
         getEnemyStats: getEnemyStats,
+        getEnemyPool: getEnemyPool,
+        scaleByCurse: scaleByCurse,
+        applyFrostToDamage: applyFrostToDamage,
+        withDuration: withDuration,
+        frostStacksToApply: frostStacksToApply,
+        consumeRevival: consumeRevival,
         getXpForLevel: getXpForLevel,
         getEffectiveCost: getEffectiveCost,
         isWildCard: isWildCard,

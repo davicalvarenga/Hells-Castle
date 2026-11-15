@@ -26,6 +26,7 @@
         statArea: $('stat-area'),
         statLuck: $('stat-luck'),
         statGrowth: $('stat-growth'),
+        statExtra: $('stat-extra'),
         clockTime: $('clock-time'),
         hpText: $('hp-text'),
         shieldBadge: $('shield-badge'),
@@ -137,8 +138,48 @@
         return copy;
     }
 
+    // Seed da run: ?seed=N vale para a primeira run da página (reproduzível); reiniciar sorteia outra.
+    let urlSeedUsed = false;
+    function pickRunSeed() {
+        const fromUrl = urlSeedUsed ? 0 : Number(new URLSearchParams(window.location.search).get('seed'));
+        urlSeedUsed = true;
+        if (fromUrl > 0) return Math.floor(fromUrl);
+        return window.GameDungeon ? window.GameDungeon.randomSeed() : Math.floor(Math.random() * 1e9);
+    }
+
+    // Andar procedural (DungeonGenerator). Sem gerador ou com geração inválida, vale o layout base.
+    function generateRunFloor(run, floorNum) {
+        const base = D.getFloorConfig(floorNum);
+        const G = window.GameDungeon;
+        if (!G || !base) return base;
+        const pool = D.getEnemyPool(base.floor);
+        const baseSeed = G.floorSeed(run.runSeed, base.floor);
+        for (let attempt = 0; attempt < 6; attempt++) {
+            try {
+                const fl = G.generateFloor(base, {
+                    seed: baseSeed + attempt,
+                    size: 11,
+                    enemyPool: pool.common,
+                    bossKind: pool.boss,
+                    eliteKind: pool.common[2],
+                    enemyStats: kind => ({ hp: D.ENEMIES[kind].hp, atk: D.ENEMIES[kind].atk }),
+                    enemyNames: kind => D.ENEMIES[kind].name
+                });
+                if (fl && G.validateGeneratedFloor(fl).length === 0) return fl;
+            } catch (err) {
+                console.warn('Gerador de mapa falhou (tentativa ' + attempt + '):', err);
+            }
+        }
+        return base;
+    }
+
+    function runFloor(run, floorNum) {
+        if (!run.floors[floorNum]) run.floors[floorNum] = generateRunFloor(run, floorNum);
+        return run.floors[floorNum];
+    }
+
     function currentFloor() {
-        return D.getFloorConfig(state.floor);
+        return runFloor(state, state.floor);
     }
 
     function isTitleOpen() {
@@ -169,6 +210,7 @@
                     y: y,
                     enc: enc,
                     isBoss: !!enc.isBoss,
+                    isElite: !!enc.isElite,
                     alive: true
                 });
             }
@@ -180,16 +222,27 @@
         return state.encounters.find(e => e.alive && e.x === x && e.y === y) || null;
     }
 
+    // Mapas gerados podem pôr o início colado numa parede: o jogador nasce olhando o corredor mais longo.
+    function openestDir(layout, x, y) {
+        const run = d => {
+            let n = 0;
+            while (D.isWalkableTile(layout, x + DIR_DX[d] * (n + 1), y + DIR_DY[d] * (n + 1))) n++;
+            return n;
+        };
+        return [0, 1, 3, 2].reduce((best, d) => (run(d) > run(best) ? d : best), 0);
+    }
+
     function findStartPos(layout) {
         for (let y = 0; y < layout.length; y++) {
             const x = layout[y].indexOf('S');
-            if (x >= 0) return { x: x, y: y };
+            if (x >= 0) return { x: x, y: y, dir: openestDir(layout, x, y) };
         }
         return { x: 4, y: 7 };
     }
 
     function createInitialState() {
-        const fl = D.getFloorConfig(1);
+        const run = { runSeed: pickRunSeed(), floors: {} };
+        const fl = runFloor(run, 1);
         const start = findStartPos(fl.layout);
         const hero = D.CHARACTERS[0];
         uidCounter = 1;
@@ -203,7 +256,11 @@
             heroTitle: hero.title,
             turn1Shield: hero.turn1Shield || 0,
             floor: 1,
-            player: { x: start.x, y: start.y, dir: 0 },
+            runSeed: run.runSeed,
+            floors: run.floors,
+            curse: 0,
+            revival: 0,
+            player: { x: start.x, y: start.y, dir: start.dir || 0 },
             hp: hero.maxHp,
             maxHp: hero.maxHp,
             mana: B.baseMana,
@@ -218,7 +275,7 @@
             combo: 1,
             comboCount: 0,
             lastComboCost: null,
-            stats: { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0 },
+            stats: { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0, Freeze: 0, Recovery: 0, Duration: 0 },
             healPerCombat: 0,
             relics: [],
             specialRelics: [],
@@ -270,7 +327,7 @@
     }
 
     function revealAround(s, px, py, layout) {
-        const map = layout || D.getFloorConfig(s.floor).layout;
+        const map = layout || runFloor(s, s.floor).layout;
         for (let dy = -3; dy <= 3; dy++) {
             for (let dx = -3; dx <= 3; dx++) {
                 const nx = px + dx;
@@ -283,12 +340,12 @@
     }
 
     function loadFloor(floorNum) {
-        const fl = D.getFloorConfig(floorNum);
+        const fl = runFloor(state, floorNum);
         const start = findStartPos(fl.layout);
         state.floor = fl.floor;
         state.player.x = start.x;
         state.player.y = start.y;
-        state.player.dir = 0;
+        state.player.dir = start.dir || 0;
         state.bossDefeated = false;
         state.exploredTiles = new Set();
         state.clearedTiles = new Set();
@@ -586,7 +643,7 @@
     // {type:'levelup'} na fila. Nenhum modal é aberto dentro do loop.
     function gainXp(amount) {
         if (state.mode === 'gameover' || amount <= 0) return;
-        const effectiveXp = Math.max(1, Math.round((1 + ((state.stats && state.stats.Growth) || 0) / 100) * amount));
+        const effectiveXp = Math.max(1, D.scaleByCurse(Math.round((1 + ((state.stats && state.stats.Growth) || 0) / 100) * amount), state.curse));
         state.xp += effectiveXp;
         A.play('xpTick');
         els.xpTrack.classList.remove('pulse');
@@ -691,6 +748,7 @@
             if (state.banishedIds && state.banishedIds.includes(rw.id)) return false;
             if (rw.once && (state.takenRewards.includes(rw.id) || state.relics.includes(rw.id))) return false;
             if (rw.id && rw.id.indexOf('up_') === 0 && getCardLevel(rw.id.slice(3)) >= B.maxCardLevel) return false;
+            if (rw.rare && Math.random() > 0.35) return false;
             return true;
         });
     }
@@ -1231,7 +1289,7 @@
     // Saída da fase: frase de conclusão -> gatilho do próximo devaneio -> carrega o bioma.
     function requestNextFloor() {
         const fl = currentFloor();
-        const next = D.getFloorConfig(state.floor + 1);
+        const next = runFloor(state, state.floor + 1);
         enqueueModal({
             type: 'narrative',
             biome: 'office',
@@ -1248,6 +1306,9 @@
         state.player.x = 4;
         state.player.y = 5;
         state.player.dir = 0;
+        // As coordenadas do leque valem para a arena base 9x9 da fase final, não para o mapa gerado.
+        state.encounters = [];
+        R.buildMap(D.getFloorConfig(D.FLOORS.length).layout, state);
         R.syncState(state);
         R.settleCamera();
         R.showEpilogue({
@@ -1411,7 +1472,7 @@
     function patrolEncounters() {
         const moved = [];
         state.encounters.forEach(enc => {
-            if (!enc.alive || enc.isBoss) return;
+            if (!enc.alive || enc.isBoss || enc.isElite) return;
             const dist = Math.abs(enc.x - state.player.x) + Math.abs(enc.y - state.player.y);
             if (dist > B.patrolRadius || dist <= 1) return;
             const step = nextStepToward(enc);
@@ -1464,6 +1525,10 @@
 
     function collectChest(key) {
         state.clearedTiles.add(key);
+        grantChestLoot();
+    }
+
+    function grantChestLoot() {
         const loot = D.CHEST_LOOT[chestIndex % D.CHEST_LOOT.length];
         chestIndex++;
         state.hp = Math.min(state.maxHp, state.hp + loot.hp);
@@ -1514,9 +1579,9 @@
     }
 
     // ---------- COMBATE (5 COLUNAS: FRENTE VS. RETAGUARDA) ----------
-    function makeEnemy(kind, summoned, col, row) {
+    function makeEnemy(kind, summoned, col, row, elite) {
         const tpl = D.getEnemyStats(kind);
-        return {
+        const e = {
             uid: 'e_' + (uidCounter++),
             kind: tpl.kind,
             name: tpl.name,
@@ -1552,8 +1617,55 @@
             summoned: !!summoned,
             turns: 0,
             stunned: false,
-            stunImmune: 0
+            stunImmune: 0,
+            frost: 0,
+            hexEvery: tpl.hexEvery || 0,
+            elite: !!elite
         };
+        if (e.elite) {
+            e.name = 'Elite: ' + e.name;
+            e.hp = Math.round(e.hp * B.eliteHpMult);
+            e.atk = Math.round(e.atk * B.eliteAtkMult);
+            e.xp = Math.round(e.xp * B.eliteXpMult);
+            e.vr += B.eliteVrBonus;
+            e.kbResist = Math.max(e.kbResist, B.eliteKbResist);
+            e.hexEvery = B.eliteHexEvery;
+        }
+        // Curse da run: quem nasce agora já vem com HP e dano escalados.
+        e.hp = D.scaleByCurse(e.hp, state.curse);
+        e.maxHp = e.hp;
+        e.atk = D.scaleByCurse(e.atk, state.curse);
+        return e;
+    }
+
+    // Gelo cancela o ataque de inimigos comuns; quem resiste a desarme (chefes) só ataca mais fraco.
+    function frostBlocksAttack(e) {
+        return e.frost > 0 && !(e.isBoss || e.kbResist >= 100);
+    }
+
+    function raiseCurse(amount) {
+        const before = state.curse;
+        state.curse = Math.min(B.curseCap, state.curse + amount);
+        if (state.curse === before) return;
+        // Inimigos já em campo só ganham dano; o HP escalado vale para os próximos encontros.
+        const ratio = (100 + state.curse) / (100 + before);
+        state.enemies.forEach(e => { if (e.hp > 0) e.atk = Math.round(e.atk * ratio); });
+    }
+
+    // Revival: a 0 de Sanidade, 1 carga revive com HP cheio. Retorna true se reviveu.
+    function tryRevive() {
+        const r = D.consumeRevival(state.hp, state.maxHp, state.revival);
+        if (!r.revived) return false;
+        state.hp = r.hp;
+        state.revival = r.charges;
+        A.play('levelup');
+        showBanner(els.evolutionBanner, 'REVIVAL!');
+        R.triggerScreenFlash('#8dffb0', 0.45, 0.5);
+        const p = viewportPoint(0.5, 0.6);
+        spawnFloatingText(p.x, p.y, 'REVIVEU! Sanidade cheia (' + state.revival + ' carga(s) restante(s))', 'heal');
+        setLog('Revival! Valter se levanta com a Sanidade cheia.');
+        renderHud();
+        return true;
     }
 
     function normalizeColumns() {
@@ -1588,13 +1700,16 @@
             if (e.hp <= 0) {
                 e.intent = null;
             } else if (isNewTurn) {
-                // Só a frente de cada coluna decide: EnemyActionArmor a cada armorEvery turnos, senão ataque.
+                // Só a frente de cada coluna decide: armadura a cada armorEvery turnos, Aumentar Curse a cada
+                // hexEvery (Elites e chefes avançados, até o teto), senão ataque.
                 e.disarmed = false;
-                e.chilled = false;
+                // O gelo que não foi consumido por um golpe derrete 1 stack por turno.
+                if (e.frost > 0) e.frost -= 1;
                 const armorTurn = e.armorEvery > 0 && (e.turns + 1) % e.armorEvery === 0;
-                e.intent = (e.row !== 0 || e.stunned) ? null : (armorTurn ? 'armor' : 'attack');
+                const hexTurn = e.hexEvery > 0 && (e.turns + 1) % e.hexEvery === 0 && state.curse < B.curseCap;
+                e.intent = (e.row !== 0 || e.stunned) ? null : (armorTurn ? 'armor' : (hexTurn ? 'curse' : 'attack'));
             }
-            e.hasIntent = e.intent === 'attack' && !e.disarmed;
+            e.hasIntent = e.intent === 'attack' && !e.disarmed && !frostBlocksAttack(e);
         });
     }
 
@@ -1673,8 +1788,10 @@
         const formation = Array.isArray(enc.formation) && enc.formation.length > 0
             ? enc.formation
             : enc.enemies.map((kind, i) => ({ kind: kind, col: [2, 1, 3, 0, 4][i % 5], row: Math.floor(i / 5) }));
+        // Encontro Elite sem slot marcado: o primeiro da formação vira o Elite.
+        const eliteFallback = !!enc.isElite && !formation.some(slot => slot.elite);
         state.enemies = formation.slice(0, D.MAX_ENEMIES_IN_COMBAT)
-            .map(slot => makeEnemy(slot.kind, false, slot.col, slot.row));
+            .map((slot, i) => makeEnemy(slot.kind, false, slot.col, slot.row, slot.elite || (eliteFallback && i === 0)));
 
         refreshFrontIntents(true);
         const fronts = getFrontEnemies(false);
@@ -1820,7 +1937,9 @@
             alreadyHit.push(enemy.uid);
             if (pv.damage > 0 && applyDamageToEnemy(enemy, pv.damage, card, usedMult, opts).overkill) overkill = true;
             if (card.knockback && enemy.hp > 0) tryKnockback(enemy, card, getEnemyTargetPos(enemy));
-            if (D.cardHasGem(card, 'freeze')) freezeEnemy(enemy);
+            const frost = (D.cardHasGem(card, 'freeze') ? 1 : 0) + (card.freeze || 0) +
+                (pv.damage > 0 && Math.random() * 100 < getStat('Freeze') ? 1 : 0);
+            if (frost > 0) applyFrost(enemy, frost);
 
             if (pierceLeft > 0) pierceLeft -= 1;
             else if (bounceChance > 0 && Math.random() < bounceChance) bounceChance *= B.bouncyDecay;
@@ -1831,18 +1950,14 @@
     }
 
     // Paralisia: cancela o ataque do turno; quem é imune a desarme (chefes) só perde parte do ATK.
-    function freezeEnemy(enemy) {
-        if (enemy.hp <= 0 || !enemy.hasIntent || enemy.chilled) return;
+    // Freeze: stacks de gelo. Diferente do Desarme: além de segurar o ataque, o próximo golpe causa 1.5x.
+    function applyFrost(enemy, baseStacks) {
+        if (enemy.hp <= 0 || enemy.overkill) return;
+        enemy.frost += D.frostStacksToApply(baseStacks, getStat('Duration'));
         const pos = getEnemyTargetPos(enemy);
-        if (enemy.kbResist >= 100 || enemy.isBoss) {
-            enemy.chilled = true;
-            spawnFloatingText(pos.x, pos.y + 16, 'GELADO! ATK -50%', 'shield');
-        } else {
-            enemy.disarmed = true;
-            enemy.hasIntent = false;
-            spawnFloatingText(pos.x, pos.y + 16, 'CONGELADO!', 'shield');
-        }
+        spawnFloatingText(pos.x, pos.y + 16, frostBlocksAttack(enemy) ? 'CONGELADO!' : 'GELADO! ATK -50%', 'shield');
         A.play('stun');
+        refreshFrontIntents(false);
     }
 
     // Splash de Area nas frentes das OUTRAS colunas ocupadas: dmg * (Area/100) * 0.2 por acerto recebido.
@@ -1894,6 +2009,14 @@
                 dmg = Math.round(dmg * (card.critMult || 1.5));
                 isCrit = true;
             }
+        }
+
+        if (!o.isBurn && !o.isSplash && enemy.frost > 0) {
+            const iced = D.applyFrostToDamage(dmg, enemy.frost);
+            dmg = iced.damage;
+            enemy.frost = iced.frost;
+            spawnFloatingText(pos.x, pos.y - 34, 'GELO x' + B.freezeDamageMult, 'shield');
+            refreshFrontIntents(false);
         }
 
         let remaining = dmg;
@@ -2037,12 +2160,13 @@
 
     function applyBurnForCard(card, singleTarget) {
         if (!card || !card.burn) return;
+        const burnAmt = D.withDuration(card.burn, getStat('Duration'));
         if (card.burnAllColumns) {
             for (let c = 0; c < 5; c++) {
-                state.columnBurn[c] += card.burn;
+                state.columnBurn[c] += burnAmt;
             }
             const cp = R.getColumnScreenPos(2);
-            spawnFloatingText(cp.x, cp.y - 34, '+' + card.burn + ' BURN (5 Colunas)', 'player-hit');
+            spawnFloatingText(cp.x, cp.y - 34, '+' + burnAmt + ' BURN (5 Colunas)', 'player-hit');
             return;
         }
         if (card.targeting === 'FrontRow') {
@@ -2054,16 +2178,16 @@
                 for (let c = 0; c < 5; c++) cols.push(c);
             }
             cols.forEach(c => {
-                state.columnBurn[c] += card.burn;
+                state.columnBurn[c] += burnAmt;
                 const cp = R.getColumnScreenPos(c);
-                spawnFloatingText(cp.x, cp.y - 26, '+' + card.burn + ' BURN', 'player-hit');
+                spawnFloatingText(cp.x, cp.y - 26, '+' + burnAmt + ' BURN', 'player-hit');
             });
             return;
         }
         if (singleTarget) {
-            state.columnBurn[singleTarget.col] += card.burn;
+            state.columnBurn[singleTarget.col] += burnAmt;
             const cp = R.getColumnScreenPos(singleTarget.col);
-            spawnFloatingText(cp.x, cp.y - 26, '+' + card.burn + ' BURN', 'player-hit');
+            spawnFloatingText(cp.x, cp.y - 26, '+' + burnAmt + ' BURN', 'player-hit');
         }
     }
 
@@ -2100,7 +2224,7 @@
         let returnedToHand = false;
         if (card.destroy) {
             state.destroyedPile.push(cardId);
-            if (card.permMaxHp > 0 || card.permGrowth > 0) {
+            if (card.permMaxHp > 0 || card.permGrowth > 0 || card.permRevival > 0) {
                 // Bônus permanente é de uso único: a carta sai do baralho da run, não só da luta.
                 const deckIdx = state.deck.indexOf(cardId);
                 if (deckIdx >= 0) state.deck.splice(deckIdx, 1);
@@ -2109,8 +2233,9 @@
                     state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
                 }
                 state.stats.Growth += card.permGrowth || 0;
+                state.revival = Math.min(B.revivalMax, state.revival + (card.permRevival || 0));
                 const p = viewportPoint(0.5, 0.56);
-                spawnFloatingText(p.x, p.y, card.permMaxHp > 0
+                spawnFloatingText(p.x, p.y, card.permRevival > 0 ? '+1 carga de Revival' : card.permMaxHp > 0
                     ? '+' + card.permMaxHp + ' HP Máx permanente'
                     : '+' + card.permGrowth + '% Growth permanente', 'combo');
             }
@@ -2250,7 +2375,7 @@
         if (c.damage > 0 || c.knockback || c.burn > 0) return hasTarget;
         if (c.buffAmount > 0) return state.combatBuff.Amount < B.combatAmountCap;
         return c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.buffMight > 0 || c.buffArea > 0 ||
-            c.draw > 0 || c.permMaxHp > 0 || c.permGrowth > 0;
+            c.draw > 0 || c.permMaxHp > 0 || c.permGrowth > 0 || (c.permRevival > 0 && state.revival < B.revivalMax);
     }
 
     // SortCardsByCombo: começa em targetCost = 0 (ou lastComboCost + 1) e avança +1. Sem carta do custo
@@ -2430,7 +2555,7 @@
     // Impacto do golpe no jogador (fim da investida / chegada do projétil).
     function resolveEnemyHit(enemy) {
         const c = viewportPoint(0.5, 0.6);
-        let dmg = enemy.chilled ? Math.ceil(enemy.atk * B.freezeBossAtkRatio) : enemy.atk;
+        let dmg = enemy.frost > 0 ? Math.ceil(enemy.atk * B.freezeBossAtkRatio) : enemy.atk;
         const absorbed = Math.min(state.shield, dmg);
         state.shield -= absorbed;
         dmg -= absorbed;
@@ -2507,7 +2632,7 @@
             R.triggerShake(0.09, 0.28);
             pulseHeart();
         });
-        if (state.hp <= 0) {
+        if (state.hp <= 0 && !tryRevive()) {
             state.busy = false;
             endGame(false);
             return;
@@ -2560,7 +2685,7 @@
             later(timings.impact, () => {
                 if (!stillFighting()) return;
                 resolveEnemyHit(enemy);
-                if (state.hp <= 0) {
+                if (state.hp <= 0 && !tryRevive()) {
                     state.busy = false;
                     endGame(false);
                     return;
@@ -2605,6 +2730,27 @@
                 setLog(enemy.name + ' perdeu o turno!');
                 R.syncState(state);
                 later(420, nextEnemyAction);
+                return;
+            }
+
+            if (enemy.intent === 'attack' && frostBlocksAttack(enemy)) {
+                spawnFloatingText(pos.x, pos.y, 'CONGELADO!', 'shield');
+                setLog(enemy.name + ' está congelado e perde o ataque.');
+                later(380, nextEnemyAction);
+                return;
+            }
+
+            if (enemy.intent === 'curse') {
+                // Troca o ataque do turno por Curse: inimigos mais fortes, mais XP.
+                enemy.turns += 1;
+                raiseCurse(B.curseStep);
+                R.triggerEnemyBuffAnim(enemy.uid, 'purple');
+                A.play('buff');
+                spawnFloatingText(pos.x, pos.y - 30, 'CURSE +' + B.curseStep + '%!', 'buff');
+                setLog(enemy.name + ' aumenta a Curse: inimigos mais fortes, mais XP.');
+                R.syncState(state);
+                renderHud();
+                later(520, nextEnemyAction);
                 return;
             }
 
@@ -2672,16 +2818,28 @@
                 state.pendingDrop = null;
             }
 
+            const recovery = getStat('Recovery');
+            if (recovery > 0 && state.hp < state.maxHp) {
+                state.hp = Math.min(state.maxHp, state.hp + recovery);
+                const heart = els.hpText.getBoundingClientRect();
+                spawnFloatingText(heart.left + heart.width / 2, heart.top, '+' + recovery, 'heal');
+                pulseHeart();
+                renderHud();
+            }
+            // Elite derrotado: recompensa garantida de baú (loot + gema pela fila única).
+            if (enc && enc.isElite) grantChestLoot();
+
             if (state.bossDefeated && state.floor === D.FLOORS.length) {
                 setLog('O Senhor das Horas parou.');
                 modalQueue.push({ type: 'epilogue' });
-            } else if (state.bossDefeated) {
-                setLog('CHEFE DERROTADO! "' + fl.conclusion + '" — ' + fl.exitHint);
             } else {
-                setLog('Devaneio dispersado! Continue explorando ' + fl.name + '.');
+                setLog(state.bossDefeated
+                    ? 'CHEFE DERROTADO! "' + fl.conclusion + '" — ' + fl.exitHint
+                    : 'Devaneio dispersado! Continue explorando ' + fl.name + '.');
                 // O combate pode ter interrompido o evento do tile onde o jogador está
+                // (inclusive a saída, quando o chefe é enfrentado de cima dela).
                 const tile = fl.layout[state.player.y][state.player.x];
-                if (tile === 'M' || tile === '?') handleTileEvent(state.player.x, state.player.y, tile);
+                if (tile === 'M' || tile === '?' || tile === 'E') handleTileEvent(state.player.x, state.player.y, tile);
             }
             processModalQueue();
         });
@@ -2718,7 +2876,7 @@
             els.endTitle.textContent = 'BURNOUT...';
         }
         els.endStats.textContent =
-            'FASE ' + state.floor + '/' + D.FLOORS.length + '  |  LV ' + state.level +
+            'Seed ' + state.runSeed + '  |  FASE ' + state.floor + '/' + D.FLOORS.length + '  |  LV ' + state.level +
             '  |  VR: ' + state.vr + '  |  Abates: ' + state.kills + '  |  Overkills: ' + state.overkills;
         els.btnPlayAgain.textContent = victory ? 'VIVER OUTRO DIA' : 'TENTAR DE NOVO';
         els.endModal.classList.remove('hidden');
@@ -2741,6 +2899,15 @@
         if (els.statArea) els.statArea.textContent = '+' + getStat('Area') + '%';
         if (els.statLuck) els.statLuck.textContent = '+' + ((state.stats && state.stats.Luck) || 0) + '%';
         if (els.statGrowth) els.statGrowth.textContent = '+' + ((state.stats && state.stats.Growth) || 0) + '%';
+        if (els.statExtra) {
+            // Stats raros só ocupam espaço na HUD quando ativos.
+            const extras = [
+                ['FRZ', getStat('Freeze'), '%'], ['REC', getStat('Recovery'), ''], ['DUR', getStat('Duration'), '%'],
+                ['REV', state.revival, ''], ['CURSE', state.curse, '%']
+            ].filter(item => item[1] > 0);
+            els.statExtra.innerHTML = extras.map(item => '<span>' + item[0] + ' <b>+' + item[1] + item[2] + '</b></span>').join('');
+        }
+        els.statFloor.title = 'Seed ' + state.runSeed;
 
         els.hpText.textContent = state.hp + '/' + state.maxHp;
         if (state.shield > 0) {
@@ -3111,6 +3278,8 @@
     window.__hcDebug = {
         get state() { return state; },
         get activeModal() { return activeModal; },
+        get seed() { return state.runSeed; },
+        getFloor: currentFloor,
         playCard: playCard,
         playAllCards: playAllCards,
         endTurn: endTurn,

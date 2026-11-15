@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { serve } from './serve.mjs';
 
-const REPO = fileURLToPath(new URL('..', import.meta.url));
+const REPO = process.env.HC_REPO || fileURLToPath(new URL('..', import.meta.url));
 const arg = (name, def) => {
     const i = process.argv.indexOf('--' + name);
     return i < 0 ? def : (process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : true);
@@ -55,7 +55,7 @@ function botStep(policy) {
     const el = id => document.getElementById(id);
     const vis = id => { const e = el(id); return !!e && !e.classList.contains('hidden'); };
     const good = policy === 'good';
-    const snapshot = () => ({ arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
+    const snapshot = () => ({ seed: h.seed, map: (h.getFloor ? h.getFloor().layout.join('') : ''), arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
 
     if (vis('end-modal')) {
         return { done: true, victory: !!s.finalVictory, floor: s.floor, final: snapshot(), floors: mem.floors,
@@ -133,7 +133,7 @@ function botStep(policy) {
     if (s.mode !== 'explore' || s.busy || h.activeModal) return { wait: true };
 
     // ---------- Exploração: BFS até o próximo objetivo ----------
-    const fl = D.getFloorConfig(s.floor);
+    const fl = h.getFloor ? h.getFloor() : D.getFloorConfig(s.floor);
     const L = fl.layout;
     const DX = [0, 1, 0, -1];
     const DY = [-1, 0, 1, 0];
@@ -160,31 +160,35 @@ function botStep(policy) {
     if (goals.length === 0) return { wait: true, idle: true };
 
     const start = s.player.x + ',' + s.player.y;
-    const prev = new Map([[start, null]]);
-    const queue = [[s.player.x, s.player.y]];
-    const isGoal = (x, y) => goals.some(g => g.x === x && g.y === y);
-    // Fora da ida deliberada à fogueira, o bot ruim nem pisa nela; o bom evita reabrir o modal à toa.
-    const avoidRest = !(goals.length && L[goals[0].y][goals[0].x] === 'M');
-    let found = null;
-    while (queue.length && !found) {
-        const [cx, cy] = queue.shift();
-        for (let d = 0; d < 4; d++) {
-            const x = cx + DX[d];
-            const y = cy + DY[d];
-            const key = x + ',' + y;
-            if (prev.has(key) || !D.isWalkableTile(L, x, y)) continue;
-            const goal = isGoal(x, y);
-            if (!goal && (encAt(x, y) || (avoidRest && L[y][x] === 'M'))) continue;
-            prev.set(key, cx + ',' + cy);
-            if (goal) { found = key; break; }
-            queue.push([x, y]);
+    let prev;
+    // BFS até o objetivo; inimigos (e a fogueira, quando não é o destino) contam como parede.
+    const search = (targets, avoidRest) => {
+        prev = new Map([[start, null]]);
+        const queue = [[s.player.x, s.player.y]];
+        while (queue.length) {
+            const [cx, cy] = queue.shift();
+            for (let d = 0; d < 4; d++) {
+                const x = cx + DX[d];
+                const y = cy + DY[d];
+                const key = x + ',' + y;
+                if (prev.has(key) || !D.isWalkableTile(L, x, y)) continue;
+                const goal = targets.some(g => g.x === x && g.y === y);
+                if (!goal && (encAt(x, y) || (avoidRest && L[y][x] === 'M'))) continue;
+                prev.set(key, cx + ',' + cy);
+                if (goal) return key;
+                queue.push([x, y]);
+            }
         }
-    }
+        return null;
+    };
+    const wantsRest = L[goals[0].y][goals[0].x] === 'M';
+    // Caminho bloqueado (baú atrás do Elite, fogueira numa porta): cruza a fogueira ou luta com quem bloqueia.
+    const found = search(goals, !wantsRest) || search(goals, false) ||
+        search(alive.map(e => ({ x: e.x, y: e.y })), false);
     if (!found) {
         // Sem caminho livre (ex.: fogueira no corredor): tenta de novo permitindo pisar na fogueira.
-        if (avoidRest && !mem.forceRest) { mem.forceRest = true; }
         mem.stuck += 1;
-        if (mem.stuck > 40) return { done: true, stuck: true, floor: s.floor, final: snapshot(), floors: mem.floors, bossStart: mem.bossStart, turns: mem.turns };
+        if (mem.stuck > 40) return { dump: JSON.stringify({ L: L, p: s.player, goals: goals, alive: alive.map(e => [e.x, e.y, e.isBoss]), cleared: Array.from(s.clearedTiles), bd: s.bossDefeated }), done: true, stuck: true, floor: s.floor, final: snapshot(), floors: mem.floors, bossStart: mem.bossStart, turns: mem.turns };
         h.turnPlayer(1);
         return { act: 'spin' };
     }

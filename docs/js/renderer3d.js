@@ -250,7 +250,8 @@
         mapCols = layout[0].length;
         currentState = state;
 
-        const floorCfg = window.GameData.getFloorConfig(state.floor);
+        // O andar da run é gerado por seed; o layout base só vale como fallback.
+        const floorCfg = (state.floors && state.floors[state.floor]) || window.GameData.getFloorConfig(state.floor);
         biomeName = floorCfg.biome || 'dungeon';
         biome = BIOMES[biomeName] || BIOMES.dungeon;
 
@@ -513,12 +514,34 @@
         worldPickups.set(x + ',' + y, { sprite: bb.sprite, kind: kind, visW: bb.visW, baseScale: bb.scale });
     }
 
+    function spriteKindOf(kind) {
+        const tpl = window.GameData.ENEMIES[kind];
+        return (tpl && tpl.sprite) || kind;
+    }
+
+    // Coroa pixel art dos Elites, centrada em (cx, cy) com unidade u (px).
+    function drawEliteCrown(cx, cy, u, now) {
+        const x = Math.round(cx - u * 3.5);
+        const y = Math.round(cy - u * 2 + Math.sin(now / 260) * u * 0.4);
+        hctx.fillStyle = '#0d0812';
+        hctx.fillRect(x - u, y - u, u * 9, u * 5);
+        hctx.fillStyle = '#ffd147';
+        hctx.fillRect(x, y + u, u * 7, u * 2);
+        hctx.fillRect(x, y, u, u);
+        hctx.fillRect(x + u * 3, y - 0, u, u);
+        hctx.fillRect(x + u * 6, y, u, u);
+        hctx.fillStyle = '#e24a33';
+        hctx.fillRect(x + u * 3, y + u, u, u);
+    }
+
     // Encontros são entidades móveis (patrulha): um sprite por encontro, com posição interpolada.
     function buildEncounterSprites(state) {
         const list = (state && state.encounters) || [];
         list.forEach(enc => {
             const kinds = enc.enc && enc.enc.enemies ? enc.enc.enemies : ['crab'];
-            const previewKind = enc.isBoss ? kinds[Math.floor(kinds.length / 2)] : kinds[0];
+            const eliteSlot = enc.isElite && enc.enc.formation ? enc.enc.formation.find(slot => slot.elite) : null;
+            const previewKind = spriteKindOf(eliteSlot ? eliteSlot.kind
+                : (enc.isBoss ? kinds[Math.floor(kinds.length / 2)] : kinds[0]));
             let bb = null;
             if (webglOk) {
                 // largura < 1 tile para o billboard nunca entrar em paredes vizinhas
@@ -532,6 +555,7 @@
                 visW: bb ? bb.visW : 1,
                 visH: bb ? bb.visH : COMMON_HEIGHT,
                 isBoss: !!enc.isBoss,
+                isElite: !!enc.isElite,
                 x: enc.x,
                 z: enc.y,
                 tx: enc.x,
@@ -755,7 +779,7 @@
         state.enemies.forEach(enemy => {
             if (combatSprites.has(enemy.uid)) return;
             // Comuns: mesma altura visível. Chefes: maiores. Pés sempre em y = 0.
-            const bb = makeBillboard(enemy.kind, enemy.isBoss ? BOSS_HEIGHT : COMMON_HEIGHT, 0);
+            const bb = makeBillboard(spriteKindOf(enemy.kind), enemy.isBoss ? BOSS_HEIGHT : COMMON_HEIGHT, 0);
             const shadow = new THREE.Mesh(
                 new THREE.CircleGeometry(0.5, 14),
                 new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false, fog: false })
@@ -1103,6 +1127,21 @@
                 drawReticle(it.sx, (it.topY + it.botY) * 0.5, Math.min(it.widthPx, it.botY - it.topY) * 0.95, now, hoveredCard.target === 'all');
             }
 
+            if (enemy.elite) {
+                // Aura pulsante dourada em volta do Elite + coroa acima do nome
+                const auraR = Math.max(it.widthPx, it.botY - it.topY) * (0.56 + Math.sin(now / 240) * 0.04);
+                hctx.save();
+                hctx.globalAlpha = 0.28 + Math.sin(now / 240) * 0.1;
+                hctx.fillStyle = '#ffd147';
+                hctx.beginPath();
+                hctx.arc(it.sx, (it.topY + it.botY) * 0.5, auraR, 0, Math.PI * 2);
+                hctx.fill();
+                hctx.restore();
+                drawEliteCrown(cx, safeBy - (it.showName ? 30 : 14), 3, now);
+            }
+            if (enemy.frost > 0) {
+                drawOutlined('GELO x' + enemy.frost, cx, it.botY - 10, 13, '#b3e5fc');
+            }
             if (it.showName) {
                 const labelName = it.isRear ? enemy.name + ' [RET]' : enemy.name;
                 drawOutlined(labelName, cx, safeBy - 11, it.nameSize, it.isTarget ? '#fff5d4' : (it.isRear ? '#b8adc4' : '#efe6d8'));
@@ -1117,7 +1156,7 @@
             hctx.fillStyle = '#3b1518';
             hctx.fillRect(bx, safeBy, bw, bh);
             const hpPct = clamp(enemy.hp / enemy.maxHp, 0, 1);
-            hctx.fillStyle = enemy.overkill ? '#ffd147' : (enemy.isBoss ? '#e84545' : (it.isRear ? '#9e3829' : '#d8452f'));
+            hctx.fillStyle = enemy.overkill ? '#ffd147' : (enemy.frost > 0 ? '#69c8f0' : (enemy.isBoss ? '#e84545' : (it.isRear ? '#9e3829' : '#d8452f')));
             hctx.fillRect(bx, safeBy, Math.max(enemy.overkill ? bw : 2, bw * hpPct), bh);
             if (enemy.shield > 0) {
                 hctx.fillStyle = '#69c8f0';
@@ -1147,6 +1186,10 @@
                 drawOutlined('DESARMADO!', cx + 8, iy, 13, '#69c8f0');
             } else if (enemy.intent === 'armor') {
                 drawOutlined('ESCUDO +' + enemy.armorGain, cx, iy, 14, '#69c8f0');
+            } else if (enemy.intent === 'curse') {
+                drawOutlined('CURSE +' + window.GameData.BALANCE.curseStep + '%', cx, iy, 14, '#c084fc');
+            } else if (enemy.intent === 'attack' && enemy.hasIntent === false) {
+                drawOutlined('CONGELADO', cx, iy, 13, '#b3e5fc');
             } else if (enemy.hasIntent !== false) {
                 let tag = '';
                 if (enemy.attacksPerTurn > 1) tag = ' x' + enemy.attacksPerTurn;
@@ -1607,6 +1650,28 @@
         damageNumbers.forEach(drawDamageNumber);
     }
 
+    // A coroa é desenhada na HUD (sem teste de profundidade): só aparece sem parede no caminho.
+    function hasClearLine(x0, z0, x1, z1) {
+        const steps = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(z1 - z0)) * 3);
+        for (let i = 1; i < steps; i++) {
+            const row = mapGrid[Math.round(z0 + (z1 - z0) * i / steps)];
+            if (!row || row[Math.round(x0 + (x1 - x0) * i / steps)] === '#') return false;
+        }
+        return true;
+    }
+
+    // Coroa flutuando sobre os Elites vistos no mapa (exploração).
+    function drawEliteMarkers(now) {
+        if (!webglOk || !currentState || currentState.mode === 'combat') return;
+        for (const entry of encounterSprites.values()) {
+            if (!entry.isElite || !entry.alive || !entry.sprite || !entry.sprite.visible) continue;
+            if (!hasClearLine(camX, camZ, entry.x, entry.z)) continue;
+            const p = project3D(entry.x * TILE, entry.visH + 0.2, entry.z * TILE);
+            if (!p || p.x < 0 || p.x > viewW || p.y < 0 || p.y > viewH) continue;
+            drawEliteCrown(p.x, p.y, clamp(Math.round(p.s * 0.06), 2, 5), now);
+        }
+    }
+
     // Ícone de alerta "!" vermelho sobre o encontro que avistou o jogador
     function drawEncounterAlert(now) {
         if (!encounterAlert) return;
@@ -1713,7 +1778,7 @@
             const ecx = ox + entry.x * cell + cell / 2;
             const ecy = oy + entry.z * cell + cell / 2;
             const alerted = encounterAlert && encounterAlert.id === encId;
-            mctx.fillStyle = alerted ? '#ff2a1a' : (entry.isBoss ? '#b81414' : '#d9480f');
+            mctx.fillStyle = alerted ? '#ff2a1a' : (entry.isBoss ? '#b81414' : (entry.isElite ? '#e0a80f' : '#d9480f'));
             mctx.strokeStyle = '#3a1208';
             mctx.lineWidth = 1;
             mctx.beginPath();
@@ -1869,7 +1934,8 @@
                 const alertHop = encounterAlert && encounterSprites.get(encounterAlert.id) === entry
                     ? Math.abs(Math.sin(now / 70)) * 0.1 : 0;
                 entry.sprite.position.set(entry.x * TILE, alertHop, entry.z * TILE);
-                entry.sprite.scale.set(entry.baseScale * (1 - breath * 0.015), entry.baseScale * (1 + breath * 0.03), 1);
+                const grow = entry.isElite ? 1.18 + Math.sin(now / 240) * 0.04 : 1;
+                entry.sprite.scale.set(entry.baseScale * grow * (1 - breath * 0.015), entry.baseScale * grow * (1 + breath * 0.03), 1);
             }
 
             const kBase = 1 - Math.exp(-dt * 9);
@@ -2055,6 +2121,7 @@
         drawCombatHud(now);
         drawHudParticles();
         drawFx();
+        drawEliteMarkers(now);
         drawEncounterAlert(now);
 
         // Flash de dano nas bordas da janela 3D

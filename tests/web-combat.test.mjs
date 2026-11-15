@@ -130,3 +130,37 @@ test('arcanas: as 5 existem com ícone e descrição', () => {
         ['elo_corrente', 'escudo_soberbo', 'fluxo_combo', 'golpe_escudo', 'mente_afiada']);
     Object.values(D.ARCANAS).forEach(a => assert.ok(a.name && a.desc && a.icon, a.id));
 });
+
+test('gelo: próximo golpe causa ceil(1.5x) e consome 1 stack', () => {
+    assert.deepEqual({ ...D.applyFrostToDamage(5, 2) }, { damage: 8, frost: 1 });
+    assert.deepEqual({ ...D.applyFrostToDamage(5, 0) }, { damage: 5, frost: 0 });
+    assert.equal(D.frostStacksToApply(1, 0), 1);
+    assert.equal(D.frostStacksToApply(1, 100), 3);
+    assert.equal(D.withDuration(4, 25), 5);
+});
+
+test('curse: escala em % e não reduz com valor negativo', () => {
+    assert.equal(D.scaleByCurse(100, 20), 120);
+    assert.equal(D.scaleByCurse(7, 0), 7);
+    assert.equal(D.scaleByCurse(7, -30), 7);
+});
+
+test('revival: só revive a 0 de Sanidade e com carga', () => {
+    assert.deepEqual({ ...D.consumeRevival(0, 50, 2) }, { revived: true, hp: 50, charges: 1 });
+    assert.equal(D.consumeRevival(0, 50, 0).revived, false);
+    assert.equal(D.consumeRevival(3, 50, 2).revived, false);
+});
+
+test('pool por bioma: todo inimigo tem fase e sprite existente', () => {
+    for (let floor = 1; floor <= 5; floor++) {
+        const pool = D.getEnemyPool(floor);
+        assert.ok(D.ENEMIES[pool.boss].isBoss, 'chefe da fase ' + floor);
+        pool.common.forEach(kind => {
+            const e = D.ENEMIES[kind];
+            assert.equal(e.floor, floor, kind);
+            assert.ok(!e.isBoss, kind);
+            if (e.sprite) assert.ok(D.ENEMIES[e.sprite], kind + ' reaproveita sprite ' + e.sprite);
+        });
+    }
+    Object.keys(D.ENEMIES).forEach(kind => assert.ok(D.ENEMIES[kind].floor, kind + ' sem fase'));
+});
