@@ -55,7 +55,7 @@ function botStep(policy) {
     const el = id => document.getElementById(id);
     const vis = id => { const e = el(id); return !!e && !e.classList.contains('hidden'); };
     const good = policy === 'good';
-    const snapshot = () => ({ level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
+    const snapshot = () => ({ arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
 
     if (vis('end-modal')) {
         return { done: true, victory: !!s.finalVictory, floor: s.floor, final: snapshot(), floors: mem.floors,
@@ -66,6 +66,17 @@ function botStep(policy) {
     if (vis('epilogue-overlay')) { el('btn-punch-clock').click(); return { act: 'punch' }; }
     if (!mem.floors[s.floor]) mem.floors[s.floor] = snapshot();
 
+    if (vis('arcana-modal')) {
+        const picks = Array.from(document.querySelectorAll('#arcana-modal .arcana-choice'));
+        if (picks.length === 0) return { wait: true };
+        picks[Math.floor(Math.random() * picks.length)].click();
+        return { act: 'arcana' };
+    }
+    if (vis('gem-modal')) {
+        const target = document.querySelector('#gem-modal .gem-target-card:not([disabled])');
+        (target || el('btn-gem-discard')).click();
+        return { act: 'gem' };
+    }
     if (vis('levelup-modal')) {
         const cards = Array.from(document.querySelectorAll('#reward-grid .reward-card'));
         if (cards.length === 0) return { wait: true };
@@ -80,6 +91,8 @@ function botStep(policy) {
         if (good) {
             const heal = byTitle('Descansar');
             if (heal && s.hp <= s.maxHp - 12) { heal.click(); return { act: 'heal' }; }
+            const gem = byTitle('Gema Bruta');
+            if (gem) { gem.click(); return { act: 'buyGem' }; }
             const breath = byTitle('Fôlego Extra');
             if (breath) { breath.click(); return { act: 'breath' }; }
             const back = byTitle('Voltar');
@@ -239,7 +252,7 @@ results.forEach((r, i) => {
     const floors = Object.entries(r.floors || {}).map(([n, v]) => 'F' + n + ':L' + v.level + ' hp' + v.hp + '/' + v.maxHp).join(' ');
     const bosses = Object.entries(r.bossStart || {}).map(([n, v]) => 'B' + n + ':L' + v.level + ' hp' + v.hp).join(' ');
     console.log('#' + i + ' ' + (r.victory ? 'WIN ' : r.timeout ? 'TIMEOUT(' + r.mode + ',busy=' + r.busy + ') ' : r.stuck ? 'STUCK ' : 'LOSS') +
-        ' fase ' + r.floor + ' | L' + f.level + ' hp ' + f.hp + '/' + f.maxHp + ' vr ' + f.vr + ' turnos ' + r.turns +
+        ' fase ' + r.floor + ' ' + (f.arcana || '-') + ' | L' + f.level + ' hp ' + f.hp + '/' + f.maxHp + ' vr ' + f.vr + ' turnos ' + r.turns +
         ' | ' + floors + ' | ' + bosses + (r.dump ? ' | ' + r.dump : '') + (r.errors.length ? ' | ERROS: ' + r.errors.slice(0, 2).join(' / ') : ''));
 });
 const avg = key => (results.reduce((a, r) => a + ((r.final || {})[key] || 0), 0) / results.length).toFixed(1);

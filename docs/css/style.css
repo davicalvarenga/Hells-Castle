@@ -2700,3 +2700,77 @@ body.daydream-transition .viewport-frame {
     .cards-fan[data-count="6"] .card-name { font-size: 9px; }
     .cards-fan[data-count="6"] .card-desc { font-size: 8.5px !important; }
 }
+
+/* ===== GEMAS E ARCANAS ===== */
+.gem-slots {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -7px;
+    display: flex;
+    justify-content: center;
+    gap: 3px;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.gem-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 8px;
+    line-height: 1;
+    color: #1a1026;
+    background: #7a68a0;
+    /* losango por recorte: o glifo da gema continua reto */
+    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+    box-shadow: inset 0 0 0 2px #5b4d75;
+}
+
+.gem-slot.filled {
+    background: var(--gem, #4fc3f7);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+    font-weight: bold;
+}
+
+.gem-slot.big {
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
+    margin: 0 10px 0 4px;
+    vertical-align: middle;
+}
+
+.shop-item-card .gem-slots {
+    position: static;
+    margin-top: 6px;
+}
+
+#gem-targets {
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 2px 2px 8px;
+}
+
+#arcana-choices .reward-card {
+    min-height: 0;
+}
+
+@media (max-width: 680px) {
+    .gem-slot {
+        width: 10px;
+        height: 10px;
+        font-size: 7px;
+    }
+
+    .gem-slots {
+        bottom: -5px;
+        gap: 2px;
+    }
+
+    #gem-targets {
+        max-height: 50vh;
+    }
+}

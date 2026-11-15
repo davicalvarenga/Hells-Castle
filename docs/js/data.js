@@ -69,7 +69,16 @@
         extraBreathShield: 12,
         extraBreathMana: 1,
         minDeckSize: 5,
-        rest: { healPrice: 25, healAmount: 20, removePrices: [30, 50, 70], relicPrice: 45, breathPrice: 45 }
+        gemLeaderBonus: 0.2,       // Líder na mão: +20% de dano (não acumula)
+        gemDrainHeal: 1,
+        gemStealVr: 3,
+        gemDiscardVr: 8,           // VR ao recusar uma gema
+        gemRewardChance: 0.2,      // chance (x Luck) de uma opção do Level Up virar gema
+        freezeBossAtkRatio: 0.5,   // quem resiste a desarme (chefes) só perde metade do ataque
+        arcanaComboCarryCap: 4,    // Elo da Corrente: combo máximo carregado entre turnos
+        arcanaShieldCarryCap: 40,  // Escudo Soberbo
+        arcanaManaCarry: 4,        // Mente Afiada
+        rest: { healPrice: 25, healAmount: 20, removePrices: [30, 50, 70], relicPrice: 45, breathPrice: 45, gemPrice: 40 }
     };
 
     function getXpForLevel(level) {
@@ -88,11 +97,13 @@
         return !!card && (card.isWild || card.type === 'wild');
     }
 
-    function canCardCombo(card, lastComboCost, costMod) {
+    // reverse: a carta anterior tinha a gema Combo Reverso, então descer 1 no custo também comba.
+    function canCardCombo(card, lastComboCost, costMod, reverse) {
         if (!card || card.type === 'curse') return false;
         if (lastComboCost === null || lastComboCost === undefined) return false;
         if (isWildCard(card)) return true;
-        return (getEffectiveCost(card, costMod) - 1) === lastComboCost;
+        const cost = getEffectiveCost(card, costMod);
+        return cost - 1 === lastComboCost || (!!reverse && cost + 1 === lastComboCost);
     }
 
     // Custo que a carta jogada registra na cadeia. Wild registra -1: a escada recomeça no custo 0.
@@ -103,6 +114,92 @@
     function getComboMult(comboCount) {
         return Math.max(0, comboCount || 0) + 1;
     }
+
+    // ---------- GEMAS (CardGemsModel) ----------
+    // needsDamage: só encaixa em carta que causa dano. incompatibleWith vale nos dois sentidos.
+    const GEMS = {
+        mana_minus: { id: 'mana_minus', name: 'Mana -1', glyph: '-1', color: '#4fc3f7', tags: ['custo'],
+            incompatibleWith: ['mana_plus'], desc: 'Custo -1: encaixa a carta um degrau abaixo na escada de combo.' },
+        mana_plus: { id: 'mana_plus', name: 'Mana +1', glyph: '+1', color: '#7986cb', tags: ['custo'],
+            incompatibleWith: ['mana_minus'], desc: 'Custo +1: encaixa a carta um degrau acima na escada de combo.' },
+        wild: { id: 'wild', name: 'Coringa', glyph: 'W', color: '#ffd147', tags: ['combo'],
+            incompatibleWith: ['reverse', 'mana_minus', 'mana_plus'], desc: 'A carta vira Wild: sempre comba.' },
+        ret: { id: 'ret', name: 'Retornar', glyph: 'R', color: '#81c784', tags: ['mão'],
+            incompatibleWith: ['retain'], desc: 'Return: volta para a mão 1x ao ser jogada.' },
+        retain: { id: 'retain', name: 'Reter', glyph: 'T', color: '#a5d6a7', tags: ['mão'],
+            incompatibleWith: ['ret'], desc: 'Retain: permanece na mão no fim do turno.' },
+        swift: { id: 'swift', name: 'Compra Rápida', glyph: 'S', color: '#80deea', tags: ['mão'],
+            incompatibleWith: [], desc: 'Swift: vem garantida na mão inicial de cada combate.' },
+        double: { id: 'double', name: 'Dano Duplo', glyph: '2x', color: '#ef5350', tags: ['dano'], needsDamage: true,
+            incompatibleWith: [], desc: 'Dobra o dano da carta.' },
+        drain: { id: 'drain', name: 'Drenagem', glyph: 'D', color: '#f48fb1', tags: ['abate'], needsDamage: true,
+            incompatibleWith: ['steal'], desc: 'Ao matar com esta carta: +1 Sanidade.' },
+        steal: { id: 'steal', name: 'Saque', glyph: '$', color: '#ffb74d', tags: ['abate'], needsDamage: true,
+            incompatibleWith: ['drain'], desc: 'Ao matar com esta carta: +3 VR.' },
+        reverse: { id: 'reverse', name: 'Combo Reverso', glyph: '\u00b1', color: '#ba68c8', tags: ['combo'],
+            incompatibleWith: ['wild'], desc: 'A próxima carta comba subindo +1 OU descendo -1 no custo.' },
+        leader: { id: 'leader', name: 'Líder', glyph: 'L', color: '#fff176', tags: ['mão'],
+            incompatibleWith: [], desc: 'Enquanto está na mão: +20% de dano nos ataques (não acumula).' },
+        freeze: { id: 'freeze', name: 'Paralisia', glyph: 'F', color: '#b3e5fc', tags: ['controle'], needsDamage: true,
+            incompatibleWith: [], desc: 'Congela o inimigo atingido: não ataca neste turno (chefes: -50% ATK).' },
+        evolve: { id: 'evolve', name: 'Gema de Evolução', glyph: '\u2605', color: '#ffffff', tags: ['evolução'], instant: true,
+            incompatibleWith: [], desc: 'Evolui na hora uma carta que tenha evolução, sem relíquia nem nível.' }
+    };
+
+    // Slots visíveis: 1 a 3 conforme o custo (evoluídas sempre 3). Cartas-lixo não têm slot.
+    function getCardGemSlots(card) {
+        if (!card || card.type === 'curse') return 0;
+        if (card.evolved) return 3;
+        return Math.min(3, 1 + (card.cost || 0));
+    }
+
+    function canSocketGem(card, currentGems, gemId) {
+        const gem = GEMS[gemId];
+        const gems = currentGems || [];
+        if (!gem || !card || card.type === 'curse') return false;
+        if (gem.instant) return !!card.evolvesTo && !card.evolved;
+        if (gems.length >= getCardGemSlots(card) || gems.includes(gemId)) return false;
+        if (gems.some(g => gem.incompatibleWith.includes(g) || GEMS[g].incompatibleWith.includes(gemId))) return false;
+        if (gem.needsDamage && !(card.damage > 0)) return false;
+        // Gema que não mudaria nada na carta não encaixa.
+        if (gemId === 'mana_minus') return (card.cost || 0) >= 1 && !isWildCard(card);
+        if (gemId === 'mana_plus' || gemId === 'reverse' || gemId === 'wild') return !isWildCard(card);
+        if (gemId === 'ret') return !card.returnTimes && !card.destroy;
+        if (gemId === 'retain') return !card.retain && !card.destroy;
+        return true;
+    }
+
+    // "Carta efetiva": a definição base com as gemas aplicadas. Todo o combate lê a carta por aqui.
+    function applyGems(card, gems) {
+        if (!card || !gems || gems.length === 0) return card;
+        const has = id => gems.includes(id);
+        const out = Object.assign({}, card, { gems: gems });
+        if (has('mana_minus')) out.cost = Math.max(0, (card.cost || 0) - 1);
+        if (has('mana_plus')) out.cost = (card.cost || 0) + 1;
+        if (has('wild')) out.isWild = true;
+        if (has('ret')) out.returnTimes = 1;
+        if (has('retain')) out.retain = true;
+        if (has('double')) out.damage = (card.damage || 0) * 2;
+        return out;
+    }
+
+    function cardHasGem(card, gemId) {
+        return !!(card && card.gems && card.gems.includes(gemId));
+    }
+
+    // ---------- ARCANAS ("Estados de Espírito" da run) ----------
+    const ARCANAS = {
+        elo_corrente: { id: 'elo_corrente', name: 'Elo da Corrente', icon: 'c_wild',
+            desc: 'O Combo não zera entre turnos: a 1ª carta do turno continua a cadeia.' },
+        escudo_soberbo: { id: 'escudo_soberbo', name: 'Escudo Soberbo', icon: 'c_aegis',
+            desc: 'O Escudo que sobrar persiste para o próximo turno.' },
+        golpe_escudo: { id: 'golpe_escudo', name: 'Golpe de Escudo', icon: 'c_wall',
+            desc: 'Ao jogar carta que dá Escudo, causa o Escudo atual como dano na fila da frente.' },
+        mente_afiada: { id: 'mente_afiada', name: 'Mente Afiada', icon: 'c_bless',
+            desc: 'Até 4 de Cafeína não gasta passam para o próximo turno.' },
+        fluxo_combo: { id: 'fluxo_combo', name: 'Fluxo e Combo', icon: 'c_crows',
+            desc: 'Ao descartar cartas no fim do turno: 50% de +1 Combo inicial. Se falhar, a próxima é garantida.' }
+    };
 
     // ---------- MIRA NAS 5 COLUNAS (WeaponTargeting) ----------
     // Próxima coluna de um padrão sequencial: LeftRight (0->4) ou RightLeft (4->0), com volta ao início.
@@ -468,13 +565,13 @@
 
     const ENEMIES = {
         // ---- Fase 1: Praia do Crepúsculo ----
-        crab: enemy('crab', 'Caranguejo de Tinta', 'Cartucho Vazando', 24, 4, 7, 4,
+        crab: enemy('crab', 'Caranguejo de Tinta', 'Cartucho Vazando', 25, 4, 7, 4,
             { enemyShield: 4, armorEvery: 3, armorGain: 5, quip: '"Clac-clac... substitua o cartucho ciano!"' }),
-        gull: enemy('gull', 'Gaivota Ladrã', 'Folha Voando', 20, 5, 7, 4,
+        gull: enemy('gull', 'Gaivota Ladrã', 'Folha Voando', 21, 5, 7, 4,
             { quip: '"Minha folha! Minha! MINHA!"' }),
-        specter: enemy('specter', 'Espectro da Maré', 'Fila de Impressão', 22, 4, 8, 4,
+        specter: enemy('specter', 'Espectro da Maré', 'Fila de Impressão', 23, 4, 8, 4,
             { buffAllies: 2, attackStyle: 'wave', quip: '"A fila de impressão nunca acaba..."' }),
-        kraken: enemy('kraken', 'Devorador das Marés', 'A Impressora Faminta — Chefe', 95, 8, 25, 16,
+        kraken: enemy('kraken', 'Devorador das Marés', 'A Impressora Faminta — Chefe', 100, 8, 25, 16,
             { isBoss: true, kbResist: 100, curseCard: 'folha_presa', curseEvery: 2, attackStyle: 'paper',
               phases: {
                   2: { label: 'Bandeja Travada', armor: 8, junk: 'folha_presa' },
@@ -483,13 +580,13 @@
               quip: '"PAPEL. PRESO. NA. BANDEJA. DOIS."' }),
 
         // ---- Fase 2: Cidade Gótica Amaldiçoada ----
-        hunter: enemy('hunter', 'Caçador Frenético', 'Mensagem Urgente', 34, 6, 10, 5,
+        hunter: enemy('hunter', 'Caçador Frenético', 'Mensagem Urgente', 39, 7, 10, 5,
             { quip: '"Viu minha mensagem? Viu? VIU?"' }),
-        crow: enemy('crow', 'Corvo dos Sinos', 'Notificação', 31, 5, 10, 5,
+        crow: enemy('crow', 'Corvo dos Sinos', 'Notificação', 36, 6, 10, 5,
             { buffAllies: 2, attackStyle: 'wave', quip: '"Plim! Plim! Plim!"' }),
-        herald: enemy('herald', 'Arauto da Vigília', 'Lembrete Agendado', 40, 5, 11, 5,
+        herald: enemy('herald', 'Arauto da Vigília', 'Lembrete Agendado', 46, 6, 11, 5,
             { enemyShield: 8, attackStyle: 'orb', quip: '"Lembrete: você tem 14 pendências."' }),
-        mensageiro: enemy('mensageiro', 'Mensageiro do Sino Veloz', 'O Corredor Sem Fim — Chefe', 117, 5, 35, 20,
+        mensageiro: enemy('mensageiro', 'Mensageiro do Sino Veloz', 'O Corredor Sem Fim — Chefe', 135, 6, 35, 20,
             { isBoss: true, kbResist: 40, attacksPerTurn: 2, attackStyle: 'lunge',
               phases: {
                   2: { label: 'Sino Dobrado', armor: 10, junk: 'confusao', set: { curseCard: 'confusao', curseEvery: 3 } },
@@ -498,13 +595,13 @@
               quip: '"Uma coisa de cada vez? Nesta cidade, nunca."' }),
 
         // ---- Fase 3: Pico Nevado & Fortaleza de Gelo ----
-        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 43, 7, 14, 6,
+        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 52, 8, 14, 6,
             { quip: '"Auuu... para ontem!"' }),
-        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 38, 6, 14, 6,
+        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 46, 7, 14, 6,
             { enemyShield: 10, attackStyle: 'orb', quip: '"Ssssegundo o gráfico, estamos atrasssados."' }),
-        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 53, 6, 15, 6,
+        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 64, 7, 15, 6,
             { enemyShield: 14, kbResist: 50, armorEvery: 3, armorGain: 10, quip: '"Este item fica para a próxima reunião."' }),
-        estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 124, 8, 45, 24,
+        estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 149, 10, 45, 24,
             { isBoss: true, kbResist: 100, shieldPerTurn: 12, attackStyle: 'orb',
               phases: {
                   2: { label: 'Pauta Extra', junk: 'confusao', set: { shieldPerTurn: 16 } },
@@ -513,13 +610,13 @@
               quip: '"Tudo é prioridade máxima. Tudo."' }),
 
         // ---- Fase 4: Dungeon Subterrânea ----
-        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 51, 8, 18, 7,
+        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 64, 10, 18, 7,
             { quip: '"Protocolo... em três vias..."' }),
-        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 57, 9, 19, 7,
+        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 71, 11, 19, 7,
             { kbResist: 25, quip: '"NHAC! Faltou o carimbo!"' }),
-        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 66, 7, 20, 7,
+        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 82, 9, 20, 7,
             { enemyShield: 16, kbResist: 50, armorEvery: 3, armorGain: 12, attackStyle: 'orb', quip: '"Nada sai daqui. Nada."' }),
-        guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 150, 10, 60, 28,
+        guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 188, 12, 60, 28,
             { isBoss: true, kbResist: 100, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
               phases: {
                   2: { label: 'Gavetas Abertas', armor: 15, set: { summonEvery: 2 } },
@@ -528,7 +625,7 @@
               dropRelic: 'foto_parque', quip: '"Você guardou tudo... menos o que importava."' }),
 
         // ---- Fase 5: O Abismo Estrelado ----
-        horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 200, 11, 0, 0,
+        horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 250, 14, 0, 0,
             { isBoss: true, kbResist: 100, drainMana: 1, attackStyle: 'orb',
               phases: {
                   2: { label: 'Hora Extra', armor: 20, junk: 'bomba_mana', set: { curseCard: 'bomba_mana', curseEvery: 3 } },
@@ -1354,6 +1451,12 @@
         drawColumnFromBag: drawColumnFromBag,
         rollKnockback: rollKnockback,
         getBossPhase: getBossPhase,
+        GEMS: GEMS,
+        ARCANAS: ARCANAS,
+        getCardGemSlots: getCardGemSlots,
+        canSocketGem: canSocketGem,
+        applyGems: applyGems,
+        cardHasGem: cardHasGem,
         isWalkableTile: isWalkableTile,
         validateFloors: validateFloors,
         getComboMult: getComboMult,

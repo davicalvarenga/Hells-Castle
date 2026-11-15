@@ -674,12 +674,19 @@
         return { x: viewW / 2, y: viewH * 0.45, s: viewH * 0.3 };
     }
 
-    function triggerEnemyHitAnim(enemyId, isCrit) {
+    // Hit flash: silhueta 100% branca (textura "white" do sheet) por ~95 ms; o loop zera sozinho,
+    // então não há estado a restaurar (inimigo morto sai de combatSprites e leva o flash junto).
+    function flashEnemy(enemyId) {
+        const entry = combatSprites.get(enemyId);
+        if (entry) entry.anim.white = 1;
+    }
+
+    function triggerEnemyHitAnim(enemyId) {
         const entry = combatSprites.get(enemyId);
         if (!entry) return;
         entry.anim.hurt = 1;
-        entry.anim.white = isCrit ? 1 : 0.75;
         entry.anim.shake = 0.25;
+        flashEnemy(enemyId);
     }
 
     // style: 'lunge' (investida até a câmera), 'paper' (folha), 'wave' (onda) ou 'orb' (energia)
@@ -1231,6 +1238,375 @@
         hctx.globalAlpha = 1;
     }
 
+    // ---------------------------------------------------------------------------------
+    // EFEITOS ARCADE (canvas da HUD): projéteis de cartas, números de dano e chuva de loot
+    // ---------------------------------------------------------------------------------
+    const fxProjectiles = [];
+    const damageNumbers = [];
+    const lootDrops = [];
+    const LOOT_MAX = 14;
+    const INK = '#0d0812';
+    const PIX = {
+        K: INK, w: '#f4f1e6', g: '#9aa7b8', y: '#ffd147', b: '#7a4a21', B: '#4a2d1a', l: '#c98f55',
+        d: '#2a2236', e: '#ff4a4a'
+    };
+    const PIX_BLADE = [
+        '...K...', '..KwK..', '..KwK..', '..KwK..', '..KwK..', '..KgK..',
+        '..KgK..', '.KKyKK.', '.KyyyK.', '..KbK..', '..KKK..'
+    ];
+    const PIX_FLASK = [
+        '..KKK..', '..KwK..', '..KwK..', '.KKBKK.', 'KBBBBBK',
+        'KBlBBBK', 'KBBBBBK', '.KBBBK.', '..KKK..'
+    ];
+    const PIX_CROW = [
+        ['K.......K', 'KdK.K.KdK', 'KddKdKddK', '.KddddddK', '..KddedK.', '...KKKy..'],
+        ['...KKK...', '.KKdddKK.', 'KdddedddK', 'KdKdddKdK', 'K..KdK..K', '....K....']
+    ];
+    const FX_DEFAULT_MS = { blade: 160, fire: 200, orb: 180, flask: 220, wave: 240, bolt: 160, crow: 220 };
+    const FX_BURST = {
+        blade: ['#ffffff', '#9aa7b8'], fire: ['#ff7a1e', '#ffd147', '#ffffff'], orb: ['#c084fc', '#9fe8ff', '#ffffff'],
+        flask: ['#c98f55', '#4a2d1a', '#ffffff'], bolt: ['#ffe14a', '#ffffff'], crow: ['#2a2236', '#ff4a4a']
+    };
+    // Ícone da carta -> tipo de projétil; sem ícone conhecido, decide pelo alvo/sfx.
+    const PROJECTILE_BY_ICON = {
+        c_dagger: 'blade', c_sword: 'blade', c_blades: 'blade', c_shadow: 'blade',
+        c_wild: 'orb', c_flask: 'flask', c_bolt: 'bolt', c_crows: 'crow',
+        c_comet: 'fire', c_sun: 'fire'
+    };
+
+    function getProjectileKindForCard(card) {
+        if (!card) return 'orb';
+        if (PROJECTILE_BY_ICON[card.icon]) return PROJECTILE_BY_ICON[card.icon];
+        if (card.sfx === 'whip') return 'bolt';
+        if (card.targeting === 'FrontRow') return 'wave';
+        return 'orb';
+    }
+
+    function toLocal(clientX, clientY) {
+        const rect = hudCanvas.getBoundingClientRect();
+        return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
+    function fxUnit() {
+        return Math.max(3, Math.round(viewH / 110));
+    }
+
+    // opts: { kind, toUid, toCol, fromCol, duration (ms), onHit }. Sem canvas utilizável, só chama onHit.
+    function fireProjectile(opts) {
+        const o = opts || {};
+        const kind = FX_DEFAULT_MS[o.kind] ? o.kind : 'orb';
+        const dur = (o.duration || FX_DEFAULT_MS[kind]) / 1000;
+        const pr = { kind: kind, t: 0, dur: dur, done: false, onHit: o.onHit };
+        if (!hctx || !hudCanvas || viewW <= 0 || viewH <= 0) {
+            finishProjectile(pr);
+            return;
+        }
+        let target = { x: viewW / 2, y: viewH * 0.45 };
+        if (o.toUid != null && combatSprites.has(o.toUid)) {
+            target = enemyLocalPos(combatSprites.get(o.toUid), 0.55);
+        } else if (o.toCol != null) {
+            const c = getColumnLocalPos(o.toCol);
+            target = { x: c.x, y: c.y - viewH * 0.12 };
+        }
+        pr.sx = viewW / 2;
+        pr.sy = viewH * 0.92;
+        pr.tx = target.x;
+        pr.ty = target.y;
+        if (kind === 'wave') {
+            // varre a fila da frente: de fromCol (padrão 0) até toCol (padrão 4)
+            const a = getColumnLocalPos(o.fromCol == null ? 0 : o.fromCol);
+            const b = getColumnLocalPos(o.toCol == null ? 4 : o.toCol);
+            const margin = viewW * 0.08 * (b.x >= a.x ? 1 : -1);
+            pr.sx = a.x - margin;
+            pr.tx = b.x + margin;
+            pr.sy = pr.ty = getColumnLocalPos(2).y - viewH * 0.1;
+        }
+        fxProjectiles.push(pr);
+        // se o rAF estiver pausado (aba em segundo plano) o combate não pode travar esperando o hit
+        setTimeout(() => finishProjectile(pr), dur * 1000 + 120);
+    }
+
+    function finishProjectile(pr) {
+        if (pr.done) return;
+        pr.done = true;
+        if (pr.tx != null && pr.kind !== 'wave') {
+            spawnBurstLocal(pr.tx, pr.ty, FX_BURST[pr.kind], 9, { speed: 170, life: 0.35, size: 5, spread: 14, gravity: 120 });
+        }
+        if (pr.onHit) {
+            try { pr.onHit(); } catch (e) { console.error(e); }
+        }
+    }
+
+    // x/y em coordenadas de tela (client), como spawnBurst.
+    function spawnDamageNumber(x, y, amount, opts) {
+        if (!hctx || !hudCanvas || viewW <= 0) return;
+        const p = toLocal(x, y);
+        const crit = !!(opts && opts.crit);
+        damageNumbers.push({
+            x: p.x + (Math.random() - 0.5) * 22,
+            y: p.y,
+            text: String(amount),
+            crit: crit,
+            t: 0,
+            dur: crit ? 0.9 : 0.7
+        });
+        if (damageNumbers.length > 30) damageNumbers.shift();
+    }
+
+    // Chuva de loot: gemas/moedas saltam, quicam uma vez e voam até xpTarget/vrTarget ({x, y} em client).
+    function spawnLootRain(x, y, opts) {
+        const o = opts || {};
+        const gems = Math.max(0, o.gems || 0);
+        const coins = Math.max(0, o.coins || 0);
+        const k = Math.min(1, LOOT_MAX / Math.max(1, gems + coins));
+        const nGems = Math.round(gems * k);
+        const nCoins = Math.min(coins ? Math.max(1, Math.round(coins * k)) : 0, LOOT_MAX - nGems);
+        const total = nGems + nCoins;
+        if (!hctx || !hudCanvas || viewW <= 0 || viewH <= 0) {
+            for (let i = 0; i < total; i++) {
+                if (o.onArrive) o.onArrive({ kind: i < nGems ? 'gem' : 'coin' });
+            }
+            return;
+        }
+        const p = toLocal(x, y);
+        for (let i = 0; i < total; i++) {
+            const isGem = i < nGems;
+            const tgt = isGem ? o.xpTarget : o.vrTarget;
+            lootDrops.push({
+                kind: isGem ? 'gem' : 'coin',
+                color: isGem ? (i % 2 ? '#4be07a' : '#4aa3ff') : '#ffd147',
+                x: p.x + (Math.random() - 0.5) * 20,
+                y: p.y,
+                vx: (Math.random() - 0.5) * viewH * 0.5,
+                vy: -viewH * (0.5 + Math.random() * 0.3),
+                floorY: p.y + viewH * (0.03 + Math.random() * 0.06),
+                bounces: 0,
+                phase: 'air',
+                wait: 0.12 + i * 0.02,
+                t: 0,
+                dur: 0.45 + i * 0.015,
+                target: tgt ? toLocal(tgt.x, tgt.y) : null,
+                onArrive: o.onArrive,
+                spin: Math.random() * 6
+            });
+        }
+    }
+
+    function updateFx(dt) {
+        for (let i = fxProjectiles.length - 1; i >= 0; i--) {
+            const pr = fxProjectiles[i];
+            pr.t += dt;
+            if (pr.t >= pr.dur) finishProjectile(pr);
+            if (pr.done) fxProjectiles.splice(i, 1);
+        }
+        for (let i = damageNumbers.length - 1; i >= 0; i--) {
+            damageNumbers[i].t += dt;
+            if (damageNumbers[i].t >= damageNumbers[i].dur) damageNumbers.splice(i, 1);
+        }
+        const g = viewH * 2.4;
+        for (let i = lootDrops.length - 1; i >= 0; i--) {
+            const d = lootDrops[i];
+            d.spin += dt * 12;
+            let arrived = false;
+            if (d.phase === 'air') {
+                d.vy += g * dt;
+                d.x += d.vx * dt;
+                d.y += d.vy * dt;
+                if (d.vy > 0 && d.y >= d.floorY) {
+                    d.y = d.floorY;
+                    if (d.bounces === 0) {
+                        d.bounces = 1;
+                        d.vy *= -0.42;
+                        d.vx *= 0.6;
+                    } else {
+                        d.phase = 'rest';
+                    }
+                }
+            } else if (d.phase === 'rest') {
+                d.wait -= dt;
+                if (d.wait <= 0) {
+                    if (d.target) {
+                        d.phase = 'fly';
+                        d.sx = d.x;
+                        d.sy = d.y;
+                        d.cx = (d.x + d.target.x) / 2 + (Math.random() - 0.5) * viewW * 0.2;
+                        d.cy = Math.min(d.y, d.target.y) - viewH * 0.15;
+                    } else {
+                        arrived = true;
+                    }
+                }
+            } else {
+                d.t += dt;
+                const p = clamp(d.t / d.dur, 0, 1);
+                const q = p * p;
+                const inv = 1 - q;
+                d.x = inv * inv * d.sx + 2 * inv * q * d.cx + q * q * d.target.x;
+                d.y = inv * inv * d.sy + 2 * inv * q * d.cy + q * q * d.target.y;
+                arrived = p >= 1;
+            }
+            if (arrived) {
+                lootDrops.splice(i, 1);
+                if (d.onArrive) {
+                    try { d.onArrive({ kind: d.kind }); } catch (e) { console.error(e); }
+                }
+            }
+        }
+    }
+
+    function fxPos(pr, p) {
+        const q = Math.max(0, p);
+        let x = pr.sx + (pr.tx - pr.sx) * q;
+        let y = pr.sy + (pr.ty - pr.sy) * q;
+        if (pr.kind === 'flask') y -= Math.sin(q * Math.PI) * viewH * 0.3;
+        if (pr.kind === 'crow') x += Math.sin(q * 9) * viewW * 0.02;
+        return { x: x, y: y };
+    }
+
+    function drawGrid(rows, cx, cy, u) {
+        const x0 = Math.round(cx - rows[0].length * u / 2);
+        const y0 = Math.round(cy - rows.length * u / 2);
+        for (let r = 0; r < rows.length; r++) {
+            for (let c = 0; c < rows[r].length; c++) {
+                const ch = rows[r][c];
+                if (ch === '.') continue;
+                hctx.fillStyle = PIX[ch];
+                hctx.fillRect(x0 + c * u, y0 + r * u, u, u);
+            }
+        }
+    }
+
+    function drawDiamond(cx, cy, r, u, color) {
+        hctx.fillStyle = color;
+        for (let dy = -r; dy <= r; dy++) {
+            const half = r - Math.abs(dy);
+            hctx.fillRect(Math.round(cx - (half + 0.5) * u), Math.round(cy + (dy - 0.5) * u), (half * 2 + 1) * u, u);
+        }
+    }
+
+    function drawPixLine(ax, ay, bx, by, th, color) {
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (th * 0.5)));
+        hctx.fillStyle = color;
+        for (let i = 0; i <= steps; i++) {
+            const f = i / steps;
+            hctx.fillRect(Math.round(ax + (bx - ax) * f - th / 2), Math.round(ay + (by - ay) * f - th / 2), Math.round(th), Math.round(th));
+        }
+    }
+
+    function drawBoltFx(pr, p, u) {
+        const grow = clamp(p / 0.6, 0, 1);
+        const ex = pr.sx + (pr.tx - pr.sx) * grow;
+        const ey = pr.sy + (pr.ty - pr.sy) * grow;
+        const seed = Math.floor(pr.t * 30);
+        const pts = [];
+        for (let i = 0; i <= 9; i++) {
+            const r = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453;
+            const j = i === 0 || i === 9 ? 0 : (r - Math.floor(r) - 0.5) * 2 * u * 5;
+            pts.push({ x: pr.sx + (ex - pr.sx) * i / 9 + j, y: pr.sy + (ey - pr.sy) * i / 9 });
+        }
+        hctx.globalAlpha = p > 0.7 ? 1 - (p - 0.7) / 0.3 : 1;
+        [[u * 2.6, INK], [u * 1.6, '#ffe14a'], [u * 0.8, '#ffffff']].forEach(pass => {
+            for (let i = 0; i < 9; i++) drawPixLine(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, pass[0], pass[1]);
+        });
+        hctx.globalAlpha = 1;
+    }
+
+    // Crista de onda pixelada varrendo a fila da frente (dir = sentido do movimento)
+    function drawWaveFx(pr, p, u) {
+        const x = pr.sx + (pr.tx - pr.sx) * p;
+        const dir = pr.tx >= pr.sx ? 1 : -1;
+        const n = Math.round(viewH / u * 0.13);
+        hctx.globalAlpha = p > 0.85 ? 1 - (p - 0.85) / 0.15 : 1;
+        [[1, INK, 1], [0, '#69c8f0', 0], [-2, '#ffffff', 0]].forEach(layer => {
+            hctx.fillStyle = layer[1];
+            for (let j = -n - layer[2]; j <= n + layer[2]; j++) {
+                const w = Math.round((1 - Math.pow(j / n, 2)) * 5) + 2 + layer[0];
+                if (w <= 0) continue;
+                hctx.fillRect(Math.round(dir > 0 ? x - w * u : x), Math.round(pr.sy + j * u), w * u, u);
+            }
+        });
+        hctx.globalAlpha = 1;
+    }
+
+    function drawFxProjectile(pr) {
+        const p = clamp(pr.t / pr.dur, 0, 1);
+        const u0 = fxUnit();
+        const u = Math.max(2, Math.round(u0 * (1.3 - 0.5 * p)));
+        if (pr.kind === 'wave') return drawWaveFx(pr, p, u0);
+        if (pr.kind === 'bolt') return drawBoltFx(pr, p, u0);
+        const h = fxPos(pr, p);
+        if (pr.kind === 'fire' || pr.kind === 'orb' || pr.kind === 'blade') {
+            const trail = pr.kind === 'fire' ? ['#ff7a1e', '#e0451f'] : pr.kind === 'orb' ? ['#c084fc', '#9fe8ff'] : ['#ffffff', '#9aa7b8'];
+            for (let k = 1; k <= 5; k++) {
+                const q = fxPos(pr, p - k * 0.045);
+                const sz = Math.max(2, Math.round(u * (3.2 - k * 0.5)));
+                hctx.globalAlpha = 0.6 - k * 0.1;
+                hctx.fillStyle = trail[k % 2];
+                hctx.fillRect(Math.round(q.x - sz / 2), Math.round(q.y - sz / 2), sz, sz);
+            }
+            hctx.globalAlpha = 1;
+        }
+        if (pr.kind === 'fire') {
+            drawDiamond(h.x, h.y, 4, u, INK);
+            drawDiamond(h.x, h.y, 3, u, '#e0451f');
+            drawDiamond(h.x, h.y, 2, u, '#ff9f1e');
+            drawDiamond(h.x, h.y, 1, u, '#fff2a8');
+        } else if (pr.kind === 'orb') {
+            const r = 3 + (Math.floor(pr.t * 30) % 2);
+            drawDiamond(h.x, h.y, r + 1, u, INK);
+            drawDiamond(h.x, h.y, r, u, '#c084fc');
+            drawDiamond(h.x, h.y, r - 1, u, '#9fe8ff');
+            drawDiamond(h.x, h.y, 1, u, '#ffffff');
+        } else if (pr.kind === 'crow') {
+            drawGrid(PIX_CROW[Math.floor(pr.t * 18) % 2], h.x, h.y, u);
+        } else {
+            // lâmina/frasco girando em passos discretos (aspecto pixelado)
+            const step = pr.kind === 'flask' ? Math.PI / 2 : Math.PI / 4;
+            hctx.save();
+            hctx.translate(Math.round(h.x), Math.round(h.y));
+            hctx.rotate(Math.floor(pr.t * (pr.kind === 'flask' ? 24 : 40)) * step);
+            drawGrid(pr.kind === 'flask' ? PIX_FLASK : PIX_BLADE, 0, 0, u);
+            hctx.restore();
+        }
+    }
+
+    function drawDamageNumber(d) {
+        const p = d.t / d.dur;
+        const pop = d.t < 0.09 ? 1.5 - (d.t / 0.09) * 0.5 : 1;
+        const size = clamp(viewH * 0.05, 22, 38) * (d.crit ? 1.5 : 1) * pop;
+        const y = d.y - viewH * 0.09 * (1 - Math.pow(1 - clamp(p / 0.6, 0, 1), 2));
+        hctx.globalAlpha = p > 0.65 ? 1 - (p - 0.65) / 0.35 : 1;
+        if (d.crit) drawOutlined('CRIT!', d.x, y - size * 0.85, size * 0.55, '#fff2a8');
+        drawOutlined(d.text, d.x, y, size, d.crit ? '#ff8a1e' : '#ffe14a');
+        hctx.globalAlpha = 1;
+    }
+
+    function drawLootDrop(d) {
+        const u = Math.max(2, Math.round(viewH / 160));
+        if (d.kind === 'gem') {
+            drawDiamond(d.x, d.y, 3, u, INK);
+            drawDiamond(d.x, d.y, 2, u, d.color);
+            hctx.fillStyle = '#ffffff';
+            hctx.fillRect(Math.round(d.x - u), Math.round(d.y - u * 1.5), u, u);
+        } else {
+            const w = Math.max(1, Math.round(Math.abs(Math.cos(d.spin)) * 4));
+            hctx.fillStyle = INK;
+            hctx.fillRect(Math.round(d.x - (w / 2 + 1) * u), Math.round(d.y - 3 * u), (w + 2) * u, u * 6);
+            hctx.fillStyle = '#ffd147';
+            hctx.fillRect(Math.round(d.x - (w / 2) * u), Math.round(d.y - 2 * u), w * u, u * 4);
+            if (w > 2) {
+                hctx.fillStyle = '#fff6c9';
+                hctx.fillRect(Math.round(d.x - (w / 2) * u), Math.round(d.y - 2 * u), u, u * 2);
+            }
+        }
+    }
+
+    function drawFx() {
+        hctx.imageSmoothingEnabled = false;
+        fxProjectiles.forEach(drawFxProjectile);
+        lootDrops.forEach(drawLootDrop);
+        damageNumbers.forEach(drawDamageNumber);
+    }
+
     // Ícone de alerta "!" vermelho sobre o encontro que avistou o jogador
     function drawEncounterAlert(now) {
         if (!encounterAlert) return;
@@ -1418,6 +1794,7 @@
             projectiles[i].t += dt;
             if (projectiles[i].t >= projectiles[i].dur) projectiles.splice(i, 1);
         }
+        updateFx(dt);
         for (let i = hudParticles.length - 1; i >= 0; i--) {
             const pt = hudParticles[i];
             pt.life -= dt;
@@ -1677,6 +2054,7 @@
 
         drawCombatHud(now);
         drawHudParticles();
+        drawFx();
         drawEncounterAlert(now);
 
         // Flash de dano nas bordas da janela 3D
@@ -1811,6 +2189,11 @@
         triggerScreenFlash: triggerScreenFlash,
         triggerEdgeFlash: triggerEdgeFlash,
         triggerEnemyHitAnim: triggerEnemyHitAnim,
+        flashEnemy: flashEnemy,
+        fireProjectile: fireProjectile,
+        getProjectileKindForCard: getProjectileKindForCard,
+        spawnDamageNumber: spawnDamageNumber,
+        spawnLootRain: spawnLootRain,
         triggerEnemyAttackAnim: triggerEnemyAttackAnim,
         triggerEnemyBuffAnim: triggerEnemyBuffAnim,
         showEncounterAlert: showEncounterAlert,

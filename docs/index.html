@@ -374,6 +374,27 @@
         </div>
     </div>
 
+    <!-- Modal de Gema: escolhe a carta do baralho que recebe a gema (fila única de modais) -->
+    <div id="gem-modal" class="modal-overlay hidden">
+        <div class="modal-box shop-box">
+            <div class="shop-header">
+                <h2 id="gem-title">GEMA</h2>
+            </div>
+            <p id="gem-desc"></p>
+            <div id="gem-targets" class="shop-grid"></div>
+            <button id="btn-gem-discard" class="bevel-btn modal-restart" type="button">RECUSAR</button>
+        </div>
+    </div>
+
+    <!-- Modal de Arcana: Estado de Espírito da run (1 de 3) -->
+    <div id="arcana-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h2>ESTADO DE ESPÍRITO</h2>
+            <p>Escolha a Arcana que muda as regras deste devaneio:</p>
+            <div id="arcana-choices" class="reward-grid"></div>
+        </div>
+    </div>
+
     <!-- Modal de Evento (?) -->
     <div id="event-modal" class="modal-overlay hidden">
         <div class="modal-box event-box">

@@ -70,3 +70,63 @@ test('baralho inicial e recompensas só referenciam cartas existentes', () => {
     D.STARTING_DECK.forEach(id => assert.ok(D.CARDS[id], id));
     D.LEVEL_UP_REWARDS.filter(r => r.id.startsWith('add_')).forEach(r => assert.ok(D.CARDS[r.id.slice(4)], r.id));
 });
+
+test('gemas: slots de 1 a 3 e nenhum em carta-lixo', () => {
+    assert.equal(D.getCardGemSlots(D.CARDS.golpe_furtivo), 1);
+    assert.equal(D.getCardGemSlots(D.CARDS.mordida_ferro), 2);
+    assert.equal(D.getCardGemSlots(D.CARDS.julgamento_final), 3);
+    assert.equal(D.getCardGemSlots(D.CARDS.mandibula_ferro), 3);
+    assert.equal(D.getCardGemSlots(D.CARDS.folha_presa), 0);
+});
+
+test('gemas: compatibilidade, repetição, slot cheio e gema inútil', () => {
+    const blade = D.CARDS.mordida_ferro;       // custo 1, 2 slots, causa dano
+    const shield = D.CARDS.escudo_burocratico; // sem dano, já tem Retain
+    assert.ok(D.canSocketGem(blade, [], 'mana_minus'));
+    assert.ok(!D.canSocketGem(blade, ['mana_minus'], 'mana_plus'), 'Mana -1 x Mana +1');
+    assert.ok(!D.canSocketGem(blade, ['mana_minus'], 'mana_minus'), 'não repete');
+    assert.ok(!D.canSocketGem(blade, ['wild'], 'reverse'), 'Coringa x Combo Reverso');
+    assert.ok(!D.canSocketGem(blade, ['ret'], 'retain'), 'Retornar x Reter');
+    assert.ok(!D.canSocketGem(blade, ['swift', 'leader'], 'double'), 'slots cheios');
+    assert.ok(!D.canSocketGem(shield, [], 'double'), 'Dano Duplo exige dano');
+    assert.ok(!D.canSocketGem(shield, [], 'retain'), 'já tem Retain');
+    assert.ok(!D.canSocketGem(D.CARDS.golpe_furtivo, [], 'mana_minus'), 'custo 0 não desce');
+    assert.ok(!D.canSocketGem(D.CARDS.moeda_destino, [], 'wild'), 'já é Wild');
+    assert.ok(!D.canSocketGem(D.CARDS.folha_presa, [], 'swift'), 'lixo não recebe gema');
+    assert.ok(D.canSocketGem(blade, ['swift', 'leader'], 'evolve'), 'evolução não ocupa slot');
+    assert.ok(!D.canSocketGem(D.CARDS.mandibula_ferro, [], 'evolve'), 'evoluída não evolui de novo');
+    Object.values(D.GEMS).forEach(g => g.incompatibleWith.forEach(other => assert.ok(D.GEMS[other], g.id + ' -> ' + other)));
+});
+
+test('gemas: carta efetiva muda custo, Wild, Return, Retain e dano sem tocar na base', () => {
+    const base = D.CARDS.mordida_ferro;
+    assert.equal(D.applyGems(base, []), base);
+    assert.equal(D.applyGems(base, ['mana_minus']).cost, 0);
+    assert.equal(D.applyGems(base, ['mana_plus']).cost, 2);
+    assert.equal(D.applyGems(base, ['double']).damage, base.damage * 2);
+    assert.ok(D.isWildCard(D.applyGems(base, ['wild'])));
+    assert.equal(D.applyGems(base, ['ret']).returnTimes, 1);
+    assert.ok(D.applyGems(base, ['retain']).retain);
+    assert.ok(D.cardHasGem(D.applyGems(base, ['freeze']), 'freeze'));
+    assert.equal(base.cost, 1);
+    // custo de gema soma com o modificador da Confusão
+    assert.equal(D.getEffectiveCost(D.applyGems(base, ['mana_plus']), 2), 4);
+    assert.equal(D.getEffectiveCost(D.applyGems(base, ['mana_minus']), -2), 0);
+});
+
+test('combo reverso: a próxima carta comba subindo ou descendo 1', () => {
+    const c0 = D.CARDS.golpe_furtivo;
+    const c1 = D.CARDS.mordida_ferro;
+    const c3 = D.CARDS.julgamento_final;
+    assert.ok(!D.canCardCombo(c0, 1, 0, false), 'sem a gema, descer quebra');
+    assert.ok(D.canCardCombo(c0, 1, 0, true), 'desce 1');
+    assert.ok(D.canCardCombo(c1, 0, 0, true), 'subir continua valendo');
+    assert.ok(!D.canCardCombo(c3, 1, 0, true), 'pular 2 não comba');
+    assert.ok(!D.canCardCombo(D.CARDS.folha_presa, 2, 0, true), 'lixo nunca comba');
+});
+
+test('arcanas: as 5 existem com ícone e descrição', () => {
+    assert.deepEqual(Object.keys(D.ARCANAS).sort(),
+        ['elo_corrente', 'escudo_soberbo', 'fluxo_combo', 'golpe_escudo', 'mente_afiada']);
+    Object.values(D.ARCANAS).forEach(a => assert.ok(a.name && a.desc && a.icon, a.id));
+});
