@@ -589,8 +589,8 @@
         },
         w_broquel: {
             id: 'w_broquel',
-            name: 'Broquel do Sonhador',
-            origin: 'Tampa da Marmita',
+            name: 'Parmégide',
+            origin: 'Tampa da Marmita de Parmegiana',
             cost: 1, type: 'wild', isWild: true, target: 'self',
             damage: 0, shield: 6, scalesWithCombo: true,
             heal: 0, manaGain: 0, knockback: false,
@@ -660,14 +660,14 @@
         },
         e_sino: {
             id: 'e_sino',
-            name: 'Sino do Meio-Dia',
-            origin: 'Sirene do Almoço',
+            name: 'Rosário',
+            origin: 'Terço da Copeira',
             cost: 0, type: 'wild', isWild: true, target: 'all', targeting: 'FrontRow',
             consumable: true, destroy: true, retain: true,
             damage: 30, baseAmount: 1,
             shield: 0, heal: 0, manaGain: 0, knockback: false,
-            icon: 'c_bell', sfx: 'whip',
-            desc: 'Pickup (uso único). Badalada: {DMG} de dano em toda a linha de frente.'
+            icon: 'c_rosary', sfx: 'whip',
+            desc: 'Pickup (uso único). Prece: {DMG} de dano em toda a linha de frente.'
         },
         e_saco_moedas: {
             id: 'e_saco_moedas',

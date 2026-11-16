@@ -289,7 +289,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         wings.mana === 2 && wings.label === '1' && afterWings.mana === 1 && afterWings.next === 0, wings);
     await arena(['w_broquel']);
     await play('w_broquel');
-    check(vp, 'Wild Broquel: +6 Escudo', (await snap()).shield === 6);
+    check(vp, 'Wild Parmégide: +6 Escudo', (await snap()).shield === 6);
     await arena(['w_pulseira']);
     hp0 = await totalHp();
     await play('w_pulseira');
@@ -318,7 +318,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await st(() => window.__hcDebug.state.enemies.forEach(e => { e.frost = 0; }));
     hp0 = await totalHp();
     await play('e_sino');
-    check(vp, 'pickup Sino: 30 de dano em cada inimigo da frente', hp0 - await totalHp() === 60);
+    check(vp, 'pickup Rosário: 30 de dano em cada inimigo da frente', hp0 - await totalHp() === 60);
     check(vp, 'pickups: uso único, saem do baralho da run', !(await snap()).deck.some(id => id.indexOf('e_') === 0));
 
     // --- Mecânicas únicas: LOOP e Burn persistente ---

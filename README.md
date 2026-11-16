@@ -38,9 +38,9 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 ## Arsenal, Gemas e Eventos de Mapa
 
 - **Custo X:** *Explosão Total* gasta toda a Cafeína e multiplica o dano por X (X também é o degrau dela na escada de combo).
-- **Wild puras:** *Asas do Devaneio* (custo 4; a próxima carta custa 1 a menos), *Amuleto do Elo* (+1 Combo extra), *Pulseira de Contas* (projéteis) e *Broquel do Sonhador* (Escudo x Combo).
+- **Wild puras:** *Asas do Devaneio* (custo 4; a próxima carta custa 1 a menos), *Amuleto do Elo* (+1 Combo extra), *Pulseira de Contas* (projéteis) e *Parmégide* (Escudo x Combo).
 - **Tomos de Mana:** *Despertar* (0→1), *Vigília* (1→2) e *Madrugada* (2→3) devolvem `custo + 1` de Cafeína; a *Canção da Cafeteira* cria uma *Cafeína Pura* temporária (0 Wild, +3 Cafeína, Destroy).
-- **Pickups de baú:** 50% de chance de 1 carta `0 Wild [Destroy]` de uso único, sempre à mão até ser usada: *Ampulheta Parada* (congela a linha de frente), *Sino do Meio-Dia* (30 de dano na frente), *Saco de Moedas* (+25 VR) e *Coraçãozinho* (+5 Sanidade). O **Jogar Tudo** só gasta sozinho as moedas e a cura.
+- **Pickups de baú:** 50% de chance de 1 carta `0 Wild [Destroy]` de uso único, sempre à mão até ser usada: *Ampulheta Parada* (congela a linha de frente), *Rosário* (30 de dano na frente), *Saco de Moedas* (+25 VR) e *Coraçãozinho* (+5 Sanidade). O **Jogar Tudo** só gasta sozinho as moedas e a cura.
 - **Mecânicas únicas:** *Selo do Eclipse → Prisma do Eclipse* (barateia a cada descarte e apaga inimigos comuns), *Anel de Trovões* (dispara de novo no fim do turno), *Orvalho Ardente → Lago de Brasas* (Burn persistente na coluna) e a fusão *Lâmina do Devaneio (MÁX) + Sopro de Brasas (MÁX) → Gládio da Aurora*.
 - **Gemas avançadas (25 no total, com raridade e exclusões):** Eco, Cópia, Ímã, Bombardeio, Dizimar, Quebra-Combo, Troca, Ataque de Armadura, Yin Yang, Pós-Vida, Inquebrável e À Prova de Fogo.
 - **Rachadura:** carta comum usada mais de 5 vezes no mesmo combate fica **Rachada**; usada além do limite de novo, tem 25% de chance de estilhaçar e sair do baralho. *Inquebrável*, *À Prova de Fogo* ou **Reparar Rachaduras** na fogueira (20 VR) resolvem.
