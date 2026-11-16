@@ -51,7 +51,7 @@ function botStep(policy) {
     const D = window.GameData;
     if (!h || !h.state) return { wait: true };
     const s = h.state;
-    const mem = window.__bot || (window.__bot = { rested: {}, floors: {}, bossStart: {}, turns: 0, stuck: 0, lastKey: '' });
+    const mem = window.__bot || (window.__bot = { rested: {}, floors: {}, bossStart: {}, visited: {}, specials: {}, cracks: {}, turns: 0, stuck: 0, lastKey: '' });
     const el = id => document.getElementById(id);
     const vis = id => { const e = el(id); return !!e && !e.classList.contains('hidden'); };
     const good = policy === 'good';
@@ -59,12 +59,17 @@ function botStep(policy) {
 
     if (vis('end-modal')) {
         return { done: true, victory: !!s.finalVictory, floor: s.floor, final: snapshot(), floors: mem.floors,
-            bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills };
+            bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills, specials: mem.specials,
+            arsenal: { arcanas: (s.arcanas || []).length, cracked: Object.keys(mem.cracks).length,
+                gems: Object.keys(s.cardGems || {}).reduce((n, id) => n + s.cardGems[id].length, 0),
+                extraSlots: Object.keys(s.extraGemSlots || {}).length, fused: Object.keys(s.fusedCards || {}).length } };
     }
     if (vis('title-modal')) { el('btn-start-daydream').click(); return { act: 'start' }; }
     if (vis('spreadsheet-modal')) { el('btn-close-spreadsheet').click(); return { act: 'closeSheet' }; }
     if (vis('epilogue-overlay')) { el('btn-punch-clock').click(); return { act: 'punch' }; }
     if (!mem.floors[s.floor]) mem.floors[s.floor] = snapshot();
+    // Rachadura: quantas cartas chegaram a rachar (a fogueira conserta, então o estado final não mostra).
+    Object.keys(s.crackedCards || {}).forEach(id => { mem.cracks[id] = true; });
 
     if (vis('arcana-modal')) {
         const picks = Array.from(document.querySelectorAll('#arcana-modal .arcana-choice'));
@@ -73,8 +78,13 @@ function botStep(policy) {
         return { act: 'arcana' };
     }
     if (vis('gem-modal')) {
-        const target = document.querySelector('#gem-modal .gem-target-card:not([disabled])');
-        (target || el('btn-gem-discard')).click();
+        const targets = Array.from(document.querySelectorAll('#gem-modal .gem-target-card:not([disabled])'));
+        // Sacrifício (Baú de Prata / Mesa de Oferenda): entrega a carta com mais cópias no baralho.
+        if (el('gem-modal').dataset.kind === 'sacrifice') {
+            const copies = b => s.deck.filter(id => id === b.dataset.card).length;
+            targets.sort((a, b) => copies(b) - copies(a));
+        }
+        (targets[0] || el('btn-gem-discard')).click();
         return { act: 'gem' };
     }
     if (vis('levelup-modal')) {
@@ -91,6 +101,8 @@ function botStep(policy) {
         if (good) {
             const heal = byTitle('Descansar');
             if (heal && s.hp <= s.maxHp - 12) { heal.click(); return { act: 'heal' }; }
+            const repair = byTitle('Reparar');
+            if (repair) { repair.click(); return { act: 'repair' }; }
             const gem = byTitle('Gema Bruta');
             if (gem) { gem.click(); return { act: 'buyGem' }; }
             const breath = byTitle('Fôlego Extra');
@@ -103,9 +115,19 @@ function botStep(policy) {
         return { act: 'closeRest' };
     }
     if (vis('event-modal')) {
-        const btn = document.querySelector('#event-choices .event-choice-btn:not([disabled])');
-        if (btn) { btn.click(); return { act: 'event' }; }
-        return { wait: true };
+        const btns = Array.from(document.querySelectorAll('#event-choices .event-choice-btn:not([disabled])'));
+        if (btns.length === 0) return { wait: true };
+        const kind = el('event-modal').dataset.kind;
+        if (kind === 'bau_prata' || kind === 'mesa_oferenda') {
+            // Uma visita por tile: o jogador bom só sacrifica com baralho folgado; o descuidado decide no acaso.
+            mem.visited[s.floor + ':' + s.player.x + ',' + s.player.y] = true;
+            mem.specials[kind] = (mem.specials[kind] || 0) + 1;
+            const accept = good ? s.deck.length >= 11 : Math.random() < 0.5;
+            (accept && btns.length > 1 ? btns[0] : btns[btns.length - 1]).click();
+            return { act: kind };
+        }
+        btns[0].click();
+        return { act: 'event' };
     }
     if (vis('narrative-modal')) { el('btn-narrative-continue').click(); return { act: 'narrative' }; }
 
@@ -113,6 +135,14 @@ function botStep(policy) {
         if (s.busy || s.autoPlaying) return { wait: true };
         const enc = s.encounters.find(e => e.id === s.currentEncounterId);
         if (enc && enc.isBoss && !mem.bossStart[s.floor]) mem.bossStart[s.floor] = snapshot();
+        // Pickups de combate (Ampulheta, Sino) não saem no Jogar Tudo: o bot bom guarda para chefe/Elite,
+        // aperto de Sanidade ou mão entupida; o descuidado gasta assim que vê.
+        const pickups = s.hand.map((id, i) => i).filter(i => D.CARDS[s.hand[i]].consumable && !D.CARDS[s.hand[i]].autoPlay);
+        const tough = s.enemies.some(e => e.hp > 0 && (e.isBoss || e.elite));
+        if (pickups.length > 0 && s.enemies.some(e => e.hp > 0) &&
+            (!good || tough || pickups.length >= 2 || s.hp <= s.maxHp * 0.4)) {
+            if (h.playCard(pickups[0])) return { act: 'pickup' };
+        }
         const playable = s.hand.map((id, i) => i).filter(i => h.isUsefulCard(s.hand[i], i));
         if (playable.length > 0) {
             if (good) {
@@ -145,6 +175,8 @@ function botStep(policy) {
         return out;
     };
     const uncleared = ch => tiles(ch).filter(t => !s.clearedTiles.has(t.x + ',' + t.y));
+    // Baú de Prata e Mesa de Oferenda podem ser recusados e continuar no mapa: o bot só vai até eles uma vez.
+    const unvisited = ch => uncleared(ch).filter(t => !mem.visited[s.floor + ':' + t.x + ',' + t.y]);
     const boss = alive.find(e => e.isBoss);
     const minions = alive.filter(e => !e.isBoss);
 
@@ -152,6 +184,9 @@ function botStep(policy) {
     const hurt = good && s.hp <= s.maxHp * 0.55 && s.vr >= D.BALANCE.rest.healPrice && tiles('M').length && fl.restName;
     if (hurt) goals = tiles('M');
     else if (uncleared('C').length) goals = uncleared('C');
+    else if (uncleared('W').length) goals = uncleared('W');
+    else if (unvisited('P').length) goals = unvisited('P');
+    else if (unvisited('O').length) goals = unvisited('O');
     else if (minions.length) goals = minions.map(e => ({ x: e.x, y: e.y }));
     else if (uncleared('?').length) goals = uncleared('?');
     else if (good && boss && !mem.rested[s.floor] && tiles('M').length && fl.restName) goals = tiles('M');
@@ -257,7 +292,8 @@ results.forEach((r, i) => {
     const bosses = Object.entries(r.bossStart || {}).map(([n, v]) => 'B' + n + ':L' + v.level + ' hp' + v.hp).join(' ');
     console.log('#' + i + ' ' + (r.victory ? 'WIN ' : r.timeout ? 'TIMEOUT(' + r.mode + ',busy=' + r.busy + ') ' : r.stuck ? 'STUCK ' : 'LOSS') +
         ' fase ' + r.floor + ' ' + (f.arcana || '-') + ' | L' + f.level + ' hp ' + f.hp + '/' + f.maxHp + ' vr ' + f.vr + ' turnos ' + r.turns +
-        ' | ' + floors + ' | ' + bosses + (r.dump ? ' | ' + r.dump : '') + (r.errors.length ? ' | ERROS: ' + r.errors.slice(0, 2).join(' / ') : ''));
+        ' | ' + floors + ' | ' + bosses + (r.arsenal ? ' | ' + JSON.stringify(r.arsenal) + ' ' + JSON.stringify(r.specials || {}) : '') +
+        (r.dump ? ' | ' + r.dump : '') + (r.errors.length ? ' | ERROS: ' + r.errors.slice(0, 2).join(' / ') : ''));
 });
 const avg = key => (results.reduce((a, r) => a + ((r.final || {})[key] || 0), 0) / results.length).toFixed(1);
 const byFloor = {};

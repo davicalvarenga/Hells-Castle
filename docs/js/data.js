@@ -89,7 +89,20 @@
         arcanaComboCarryCap: 4,    // Elo da Corrente: combo máximo carregado entre turnos
         arcanaShieldCarryCap: 40,  // Escudo Soberbo
         arcanaManaCarry: 4,        // Mente Afiada
-        rest: { healPrice: 25, healAmount: 20, removePrices: [30, 50, 70], relicPrice: 45, breathPrice: 45, gemPrice: 40 }
+        // ---- Etapa 4: gemas avançadas, rachadura e eventos de mapa ----
+        maxGemSlots: 4,            // teto de slots por carta (3 naturais + 1 da Mesa de Oferenda)
+        gemBombRatio: 0.6,         // Bombardeio: fração do dano da carta na explosão extra
+        gemBombSpread: 0.35,       // chance (x Luck) de a explosão pegar cada coluna vizinha
+        gemDemiRatio: 0.10,        // Dizimar: fração da vida ATUAL do 1º alvo
+        gemDemiBossRatio: 0.05,    // ...pela metade em chefes
+        gemDischargeStep: 0.5,     // Quebra-Combo: +50% de dano por Combo consumido
+        crackAfterUses: 5,         // usos seguidos (no mesmo combate) que uma carta comum aguenta
+        crackShatterChance: 0.25,  // carta Rachada usada além do limite: chance de estilhaçar
+        chestPickupChance: 0.5,    // baú também entrega 1 carta temporária
+        silverGemChance: 0.6,      // Baú de Prata: Gema Épica/Lendária (senão Arcana extra)
+        wellGemChance: 0.7,        // Poço dos Desejos: Gema rara (senão Arcana extra)
+        offeringVr: 20,            // Mesa de Oferenda: VR por carta sacrificada
+        rest: { healPrice: 25, healAmount: 20, removePrices: [30, 50, 70], relicPrice: 45, breathPrice: 45, gemPrice: 40, repairPrice: 20 }
     };
 
     function getXpForLevel(level) {
@@ -117,6 +130,11 @@
         return cost - 1 === lastComboCost || (!!reverse && cost + 1 === lastComboCost);
     }
 
+    // Custo X: a carta gasta TODA a Cafeína disponível e o custo efetivo (que vale para a escada de combo) é X.
+    function getXCostMod(card, mana) {
+        return card && card.xCost ? Math.max(0, mana || 0) - (card.cost || 0) : 0;
+    }
+
     // Custo que a carta jogada registra na cadeia. Wild registra -1: a escada recomeça no custo 0.
     function getComboCostAfter(card, costMod) {
         return isWildCard(card) ? -1 : getEffectiveCost(card, costMod);
@@ -128,55 +146,134 @@
 
     // ---------- GEMAS (CardGemsModel) ----------
     // needsDamage: só encaixa em carta que causa dano. incompatibleWith vale nos dois sentidos.
+    // rarity: comum | rara | epica | lendaria (peso do sorteio e filtro do Poço / Baú de Prata).
     const GEMS = {
-        mana_minus: { id: 'mana_minus', name: 'Mana -1', glyph: '-1', color: '#4fc3f7', tags: ['custo'],
+        mana_minus: { id: 'mana_minus', rarity: 'rara', name: 'Mana -1', glyph: '-1', color: '#4fc3f7', tags: ['custo'],
             incompatibleWith: ['mana_plus'], desc: 'Custo -1: encaixa a carta um degrau abaixo na escada de combo.' },
-        mana_plus: { id: 'mana_plus', name: 'Mana +1', glyph: '+1', color: '#7986cb', tags: ['custo'],
+        mana_plus: { id: 'mana_plus', rarity: 'comum', name: 'Mana +1', glyph: '+1', color: '#7986cb', tags: ['custo'],
             incompatibleWith: ['mana_minus'], desc: 'Custo +1: encaixa a carta um degrau acima na escada de combo.' },
-        wild: { id: 'wild', name: 'Coringa', glyph: 'W', color: '#ffd147', tags: ['combo'],
+        wild: { id: 'wild', rarity: 'epica', name: 'Coringa', glyph: 'W', color: '#ffd147', tags: ['combo'],
             incompatibleWith: ['reverse', 'mana_minus', 'mana_plus'], desc: 'A carta vira Wild: sempre comba.' },
-        ret: { id: 'ret', name: 'Retornar', glyph: 'R', color: '#81c784', tags: ['mão'],
+        ret: { id: 'ret', rarity: 'rara', name: 'Retornar', glyph: 'R', color: '#81c784', tags: ['mão'],
             incompatibleWith: ['retain'], desc: 'Return: volta para a mão 1x ao ser jogada.' },
-        retain: { id: 'retain', name: 'Reter', glyph: 'T', color: '#a5d6a7', tags: ['mão'],
+        retain: { id: 'retain', rarity: 'comum', name: 'Reter', glyph: 'T', color: '#a5d6a7', tags: ['mão'],
             incompatibleWith: ['ret'], desc: 'Retain: permanece na mão no fim do turno.' },
-        swift: { id: 'swift', name: 'Compra Rápida', glyph: 'S', color: '#80deea', tags: ['mão'],
+        swift: { id: 'swift', rarity: 'comum', name: 'Compra Rápida', glyph: 'S', color: '#80deea', tags: ['mão'],
             incompatibleWith: [], desc: 'Swift: vem garantida na mão inicial de cada combate.' },
-        double: { id: 'double', name: 'Dano Duplo', glyph: '2x', color: '#ef5350', tags: ['dano'], needsDamage: true,
+        double: { id: 'double', rarity: 'epica', name: 'Dano Duplo', glyph: '2x', color: '#ef5350', tags: ['dano'], needsDamage: true,
             incompatibleWith: [], desc: 'Dobra o dano da carta.' },
-        drain: { id: 'drain', name: 'Drenagem', glyph: 'D', color: '#f48fb1', tags: ['abate'], needsDamage: true,
+        drain: { id: 'drain', rarity: 'comum', name: 'Drenagem', glyph: 'D', color: '#f48fb1', tags: ['abate'], needsDamage: true,
             incompatibleWith: ['steal'], desc: 'Ao matar com esta carta: +1 Sanidade.' },
-        steal: { id: 'steal', name: 'Saque', glyph: '$', color: '#ffb74d', tags: ['abate'], needsDamage: true,
+        steal: { id: 'steal', rarity: 'comum', name: 'Saque', glyph: '$', color: '#ffb74d', tags: ['abate'], needsDamage: true,
             incompatibleWith: ['drain'], desc: 'Ao matar com esta carta: +3 VR.' },
-        reverse: { id: 'reverse', name: 'Combo Reverso', glyph: '\u00b1', color: '#ba68c8', tags: ['combo'],
+        reverse: { id: 'reverse', rarity: 'rara', name: 'Combo Reverso', glyph: '\u00b1', color: '#ba68c8', tags: ['combo'],
             incompatibleWith: ['wild'], desc: 'A próxima carta comba subindo +1 OU descendo -1 no custo.' },
-        leader: { id: 'leader', name: 'Líder', glyph: 'L', color: '#fff176', tags: ['mão'],
+        leader: { id: 'leader', rarity: 'rara', name: 'Líder', glyph: 'L', color: '#fff176', tags: ['mão'],
             incompatibleWith: [], desc: 'Enquanto está na mão: +20% de dano nos ataques (não acumula).' },
-        freeze: { id: 'freeze', name: 'Paralisia', glyph: 'F', color: '#b3e5fc', tags: ['controle'], needsDamage: true,
+        freeze: { id: 'freeze', rarity: 'rara', name: 'Paralisia', glyph: 'F', color: '#b3e5fc', tags: ['controle'], needsDamage: true,
             incompatibleWith: [], desc: 'Aplica 1 Gelo: congelado não ataca (chefes: -50% ATK) e o próximo golpe causa 1.5x.' },
-        evolve: { id: 'evolve', name: 'Gema de Evolução', glyph: '\u2605', color: '#ffffff', tags: ['evolução'], instant: true,
-            incompatibleWith: [], desc: 'Evolui na hora uma carta que tenha evolução, sem relíquia nem nível.' }
+        evolve: { id: 'evolve', rarity: 'lendaria', name: 'Gema de Evolução', glyph: '\u2605', color: '#ffffff', tags: ['evolução'], instant: true,
+            incompatibleWith: [], desc: 'Evolui na hora uma carta que tenha evolução, sem relíquia nem nível.' },
+        // ---- Gemas avançadas (Etapa 4) ----
+        eco: { id: 'eco', rarity: 'epica', name: 'Eco', glyph: 'Ec', color: '#9fa8da', tags: ['repetição'],
+            incompatibleWith: ['copia'], desc: 'Depois do próprio efeito, repete o efeito da carta anterior jogada neste turno.' },
+        copia: { id: 'copia', rarity: 'epica', name: 'Cópia', glyph: 'Cp', color: '#ce93d8', tags: ['repetição', 'mão'],
+            incompatibleWith: ['eco', 'ret', 'ima'], desc: 'Ao ser jogada, cria 1 cópia temporária na mão [Destroy] (1x por turno; some no fim do turno).' },
+        ima: { id: 'ima', rarity: 'rara', name: 'Ímã', glyph: 'Im', color: '#e57373', tags: ['mão'],
+            incompatibleWith: ['copia'], desc: 'Ao ser jogada, puxa para a mão outra cópia da mesma carta do baralho, se houver.' },
+        bombardeio: { id: 'bombardeio', rarity: 'rara', name: 'Bombardeio', glyph: 'Bo', color: '#ff8a65', tags: ['dano'], needsDamage: true,
+            incompatibleWith: [], desc: 'Explosão extra em coluna aleatória (60% do dano); a Luck aumenta a chance de pegar as colunas vizinhas.' },
+        demi: { id: 'demi', rarity: 'rara', name: 'Dizimar', glyph: '10', color: '#a1887f', tags: ['dano'], needsDamage: true,
+            incompatibleWith: ['spike'], desc: 'O 1º alvo perde 10% da vida ATUAL como dano extra (5% em chefes).' },
+        discharge: { id: 'discharge', rarity: 'epica', name: 'Quebra-Combo', glyph: 'QC', color: '#ffca28', tags: ['dano', 'combo'], needsDamage: true,
+            incompatibleWith: ['double'], desc: 'Consome TODO o Combo atual: +50% de dano por Combo consumido. A cadeia recomeça em 1x.' },
+        switch: { id: 'switch', rarity: 'comum', name: 'Troca', glyph: 'Tr', color: '#4db6ac', tags: ['mão'],
+            incompatibleWith: ['yinyang'], desc: 'Ao ser jogada, descarta 1 carta (lixo ou a mais cara que você não pode pagar) e compra 1 nova.' },
+        spike: { id: 'spike', rarity: 'rara', name: 'Ataque de Armadura', glyph: 'Es', color: '#90a4ae', tags: ['dano'], needsDamage: true,
+            incompatibleWith: ['demi'], desc: 'Soma o seu Escudo atual ao dano do 1º acerto.' },
+        yinyang: { id: 'yinyang', rarity: 'rara', name: 'Yin Yang', glyph: 'YY', color: '#eceff1', tags: ['mão', 'custo'],
+            incompatibleWith: ['switch'], desc: 'Alterna a cada uso: +1 Cafeína, depois Compra 1 carta, e assim por diante.' },
+        afterlife: { id: 'afterlife', rarity: 'lendaria', name: 'Pós-Vida', glyph: 'PV', color: '#b39ddb', tags: ['repetição'],
+            incompatibleWith: ['retain', 'ret'], desc: 'Se for descartada no fim do turno sem ser jogada, dispara os próprios efeitos (1x) antes de sair.' },
+        uncrackable: { id: 'uncrackable', rarity: 'comum', name: 'Inquebrável', glyph: 'In', color: '#bcaaa4', tags: ['proteção'],
+            incompatibleWith: ['preserve'], desc: 'A carta nunca racha (e conserta a rachadura que já tiver).' },
+        preserve: { id: 'preserve', rarity: 'comum', name: 'À Prova de Fogo', glyph: 'PF', color: '#ffab91', tags: ['proteção'],
+            incompatibleWith: ['uncrackable'], desc: 'A carta nunca é destruída: Rachada não estilhaça e Destroy (da luta) volta ao descarte.' }
     };
 
-    // Slots visíveis: 1 a 3 conforme o custo (evoluídas sempre 3). Cartas-lixo não têm slot.
-    function getCardGemSlots(card) {
-        if (!card || card.type === 'curse') return 0;
-        if (card.evolved) return 3;
-        return Math.min(3, 1 + (card.cost || 0));
+    const GEM_RARITY_WEIGHT = { comum: 4, rara: 3, epica: 2, lendaria: 1 };
+    const GEM_RARITY_LABEL = { comum: 'Comum', rara: 'Rara', epica: 'Épica', lendaria: 'Lendária' };
+
+    // Sorteio ponderado pela raridade. roll em [0, 1); devolve null se a lista estiver vazia.
+    function pickGemByRarity(gemIds, roll) {
+        const ids = (gemIds || []).filter(id => GEMS[id]);
+        if (ids.length === 0) return null;
+        const total = ids.reduce((sum, id) => sum + GEM_RARITY_WEIGHT[GEMS[id].rarity], 0);
+        let left = Math.max(0, Math.min(0.999999, roll || 0)) * total;
+        for (const id of ids) {
+            left -= GEM_RARITY_WEIGHT[GEMS[id].rarity];
+            if (left < 0) return id;
+        }
+        return ids[ids.length - 1];
     }
 
-    function canSocketGem(card, currentGems, gemId) {
+    // Bônus permanente de uso único: a carta sai do baralho da run ao ser jogada.
+    function isOneShotCard(card) {
+        return !!card && !!(card.consumable || card.permMaxHp > 0 || card.permGrowth > 0 || card.permRevival > 0);
+    }
+
+    // Rachadura (BreakableCard): só cartas comuns — nem Wild, nem evoluída/fundida, nem Destroy, nem lixo.
+    function isBreakableCard(card) {
+        if (!card || card.type === 'curse' || card.evolved || card.destroy || card.tempOnly) return false;
+        if (isWildCard(card) || cardHasGem(card, 'uncrackable')) return false;
+        return true;
+    }
+
+    // usesInCombat já conta o uso atual. Passou do limite: racha; já Rachada: 25% de estilhaçar
+    // (a gema À Prova de Fogo segura o estilhaço). roll em [0, 1).
+    function rollCrack(usesInCombat, alreadyCracked, roll, preserved) {
+        if (!(usesInCombat > BALANCE.crackAfterUses)) return { cracked: !!alreadyCracked, shattered: false };
+        if (!alreadyCracked) return { cracked: true, shattered: false };
+        return { cracked: true, shattered: !preserved && roll < BALANCE.crackShatterChance };
+    }
+
+    // Quebra-Combo: multiplicador extra de dano pelo Combo consumido (comboCount = cartas encadeadas antes desta).
+    function getDischargeMult(comboCount) {
+        return 1 + BALANCE.gemDischargeStep * Math.max(0, comboCount || 0);
+    }
+
+    // Dizimar: fração da vida atual do alvo (mínimo 1 enquanto ele estiver vivo).
+    function getDemiDamage(currentHp, isBoss) {
+        if (!(currentHp > 0)) return 0;
+        return Math.max(1, Math.ceil(currentHp * (isBoss ? BALANCE.gemDemiBossRatio : BALANCE.gemDemiRatio)));
+    }
+
+    // Slots visíveis: 1 a 3 conforme o custo (evoluídas sempre 3). Cartas-lixo, pickups e cartas geradas
+    // não têm slot. extraSlots: bônus da Mesa de Oferenda (teto BALANCE.maxGemSlots).
+    function getCardGemSlots(card, extraSlots) {
+        if (!card || card.type === 'curse' || card.consumable || card.tempOnly) return 0;
+        const base = card.gemSlots || (card.evolved ? 3 : Math.min(3, 1 + (card.cost || 0)));
+        return Math.min(BALANCE.maxGemSlots, base + Math.max(0, extraSlots || 0));
+    }
+
+    function canSocketGem(card, currentGems, gemId, extraSlots) {
         const gem = GEMS[gemId];
         const gems = currentGems || [];
-        if (!gem || !card || card.type === 'curse') return false;
+        if (!gem || !card || card.type === 'curse' || card.consumable || card.tempOnly) return false;
         if (gem.instant) return !!card.evolvesTo && !card.evolved;
-        if (gems.length >= getCardGemSlots(card) || gems.includes(gemId)) return false;
+        if (gems.length >= getCardGemSlots(card, extraSlots) || gems.includes(gemId)) return false;
         if (gems.some(g => gem.incompatibleWith.includes(g) || GEMS[g].incompatibleWith.includes(gemId))) return false;
         if (gem.needsDamage && !(card.damage > 0)) return false;
         // Gema que não mudaria nada na carta não encaixa.
-        if (gemId === 'mana_minus') return (card.cost || 0) >= 1 && !isWildCard(card);
-        if (gemId === 'mana_plus' || gemId === 'reverse' || gemId === 'wild') return !isWildCard(card);
+        if (gemId === 'mana_minus') return (card.cost || 0) >= 1 && !isWildCard(card) && !card.xCost;
+        if (gemId === 'mana_plus') return !isWildCard(card) && !card.xCost;
+        if (gemId === 'reverse' || gemId === 'wild') return !isWildCard(card);
         if (gemId === 'ret') return !card.returnTimes && !card.destroy;
         if (gemId === 'retain') return !card.retain && !card.destroy;
+        if (gemId === 'copia' || gemId === 'ima') return !card.destroy;
+        if (gemId === 'afterlife') return !card.destroy && !card.retain && !card.xCost;
+        if (gemId === 'uncrackable') return isBreakableCard(card);
+        if (gemId === 'preserve') return isBreakableCard(card) || (!!card.destroy && !isOneShotCard(card));
         return true;
     }
 
@@ -447,7 +544,220 @@
             icon: 'c_chalice', sfx: 'shield',
             desc: 'Destroy: +1 carga de Revival (máx. 3). A carta sai do baralho para sempre.'
         },
+        // ---------- CUSTO X ----------
+        explosao_total: {
+            id: 'explosao_total',
+            name: 'Explosão Total',
+            origin: 'Virada de Prazo',
+            cost: 0, xCost: true, gemSlots: 2, type: 'atk', target: 'all', targeting: 'FrontRow',
+            damage: 7, baseAmount: 1, damageScalesWithCombo: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_xburst', sfx: 'coffee',
+            desc: 'Custo X: gasta TODA a Cafeína (X = {X}). Onda de {DMG} na frente (7 x X x Combo).'
+        },
+        // ---------- WILD PURAS (w_*): sempre combam e reiniciam a escada no custo 0 ----------
+        w_asas: {
+            id: 'w_asas',
+            name: 'Asas do Devaneio',
+            origin: 'Sexta-Feira Chegando',
+            cost: 4, type: 'wild', isWild: true, target: 'self',
+            costDiscount: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_wings', sfx: 'card',
+            desc: 'Wild: sempre comba. A próxima carta jogada custa 1 a menos (e desce 1 degrau na escada).'
+        },
+        w_amuleto: {
+            id: 'w_amuleto',
+            name: 'Amuleto do Elo',
+            origin: 'Pen Drive da Sorte',
+            cost: 1, type: 'wild', isWild: true, target: 'self',
+            comboBonus: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_amulet', sfx: 'card',
+            desc: 'Wild: sempre comba e ainda sobe +1 Combo extra.'
+        },
+        w_pulseira: {
+            id: 'w_pulseira',
+            name: 'Pulseira de Contas',
+            origin: 'Elásticos de Dinheiro',
+            cost: 1, type: 'wild', isWild: true, target: 'single',
+            targeting: 'Random',
+            damage: 4, baseAmount: 2, amountScalesWithCombo: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_bracelet', sfx: 'stapler',
+            desc: 'Wild: sempre comba. Dispara {HITS} contas de {DMG} dano em colunas aleatórias.'
+        },
+        w_broquel: {
+            id: 'w_broquel',
+            name: 'Broquel do Sonhador',
+            origin: 'Tampa da Marmita',
+            cost: 1, type: 'wild', isWild: true, target: 'self',
+            damage: 0, shield: 6, scalesWithCombo: true,
+            heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_buckler', sfx: 'shield',
+            desc: 'Wild: sempre comba. +{SHIELD} Escudo (xCombo).'
+        },
+        // ---------- TOMOS DE MANA (custo N -> +N+1 Cafeína: ganho líquido +1 e ponte da escada) ----------
+        tomo_1: {
+            id: 'tomo_1',
+            name: 'Tomo do Despertar',
+            origin: 'Cafezinho',
+            cost: 0, type: 'sup', target: 'self',
+            damage: 0, shield: 0, heal: 0, manaGain: 1, knockback: false,
+            icon: 'c_tome', sfx: 'coffee',
+            desc: 'Tomo 0→1: +1 Cafeína. Degrau 0 da escada de combo.'
+        },
+        tomo_2: {
+            id: 'tomo_2',
+            name: 'Tomo da Vigília',
+            origin: 'Café Duplo',
+            cost: 1, type: 'sup', target: 'self',
+            damage: 0, shield: 0, heal: 0, manaGain: 2, knockback: false,
+            icon: 'c_tome', sfx: 'coffee',
+            desc: 'Tomo 1→2: +2 Cafeína (líquido +1). Degrau 1 da escada de combo.'
+        },
+        tomo_3: {
+            id: 'tomo_3',
+            name: 'Tomo da Madrugada',
+            origin: 'Garrafa de Café',
+            cost: 2, type: 'sup', target: 'self',
+            damage: 0, shield: 0, heal: 0, manaGain: 3, knockback: false,
+            icon: 'c_tome', sfx: 'coffee',
+            desc: 'Tomo 2→3: +3 Cafeína (líquido +1). Degrau 2 da escada de combo.'
+        },
+        cancao_mana: {
+            id: 'cancao_mana',
+            name: 'Canção da Cafeteira',
+            origin: 'Playlist de Foco',
+            cost: 2, type: 'sup', target: 'self',
+            genCard: 'cafeina_pura', genCount: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_note', sfx: 'coffee',
+            desc: 'Cria 1 Cafeína Pura na mão (0 Wild: +3 Cafeína, Destroy; some no fim do turno).'
+        },
+        // Gerada pela Canção da Cafeteira: nunca entra no baralho.
+        cafeina_pura: {
+            id: 'cafeina_pura',
+            name: 'Cafeína Pura',
+            origin: 'Gole Final',
+            cost: 0, type: 'wild', isWild: true, target: 'self',
+            destroy: true, tempOnly: true,
+            damage: 0, shield: 0, heal: 0, manaGain: 3, knockback: false,
+            icon: 'espresso', sfx: 'coffee',
+            desc: 'Temporária. Wild: +3 Cafeína. Destroy.'
+        },
+        // ---------- PICKUPS DE BAÚ (e_*): 0 Wild [Destroy], sempre à mão até serem usados ----------
+        // autoPlay: o "Jogar Tudo" pode gastar (moedas e cura); os de combate esperam o clique do jogador.
+        e_ampulheta: {
+            id: 'e_ampulheta',
+            name: 'Ampulheta Parada',
+            origin: 'Relógio sem Pilha',
+            cost: 0, type: 'wild', isWild: true, target: 'all',
+            consumable: true, destroy: true, retain: true, freezeFront: 2,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_hourglass', sfx: 'shield',
+            desc: 'Pickup (uso único). Congela TODA a linha de frente: 2 Gelo em cada inimigo.'
+        },
+        e_sino: {
+            id: 'e_sino',
+            name: 'Sino do Meio-Dia',
+            origin: 'Sirene do Almoço',
+            cost: 0, type: 'wild', isWild: true, target: 'all', targeting: 'FrontRow',
+            consumable: true, destroy: true, retain: true,
+            damage: 30, baseAmount: 1,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_bell', sfx: 'whip',
+            desc: 'Pickup (uso único). Badalada: {DMG} de dano em toda a linha de frente.'
+        },
+        e_saco_moedas: {
+            id: 'e_saco_moedas',
+            name: 'Saco de Moedas',
+            origin: 'Troco da Cantina',
+            cost: 0, type: 'wild', isWild: true, target: 'self',
+            consumable: true, destroy: true, retain: true, autoPlay: true, vrGain: 25,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_coins', sfx: 'card',
+            desc: 'Pickup (uso único). +25 VR.'
+        },
+        e_coracao: {
+            id: 'e_coracao',
+            name: 'Coraçãozinho',
+            origin: 'Bombom da Recepção',
+            cost: 0, type: 'wild', isWild: true, target: 'self',
+            consumable: true, destroy: true, retain: true, autoPlay: true,
+            damage: 0, shield: 0, heal: 5, manaGain: 0, knockback: false,
+            icon: 'c_heart', sfx: 'shield',
+            desc: 'Pickup (uso único). +{HEAL} Sanidade.'
+        },
+        // ---------- MECÂNICAS ÚNICAS ----------
+        selo_eclipse: {
+            id: 'selo_eclipse',
+            name: 'Selo do Eclipse',
+            origin: 'Ctrl+Alt+Del',
+            cost: 4, type: 'ctrl', target: 'all', targeting: 'FrontRow',
+            damage: 18, baseAmount: 1, erase: 'front', discardDiscount: 1, destroy: true,
+            evolvesTo: 'prisma_eclipse',
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_eclipse', sfx: 'coffee',
+            desc: 'Destroy (só nesta luta). Custo -1 a cada descarte. APAGA os comuns da frente (sem XP/VR); {DMG} em quem sobrar.'
+        },
+        anel_trovoes: {
+            id: 'anel_trovoes',
+            name: 'Anel de Trovões',
+            origin: 'Reunião Recorrente',
+            cost: 2, type: 'ctrl', target: 'single',
+            targeting: 'Random',
+            damage: 6, baseAmount: 2, amountScalesWithCombo: true, endTurnRepeat: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_loop', sfx: 'whip',
+            desc: '{HITS} raios de {DMG} em colunas aleatórias. LOOP: dispara de novo no fim do turno.'
+        },
+        orvalho_ardente: {
+            id: 'orvalho_ardente',
+            name: 'Orvalho Ardente',
+            origin: 'Álcool em Gel',
+            cost: 1, type: 'atk', target: 'single', targeting: 'Target',
+            damage: 4, baseAmount: 1, burn: 3, burnPersist: 2,
+            evolvesTo: 'lago_brasas',
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_dew', sfx: 'coffee',
+            desc: '{DMG} no alvo + {BURN} Burn na coluna. PERSISTENTE: o Burn dela não cai abaixo de 2 nesta luta.'
+        },
         // ---------- CARTAS EVOLUÍDAS ----------
+        prisma_eclipse: {
+            id: 'prisma_eclipse',
+            name: 'Prisma do Eclipse',
+            origin: 'Formatar e Reinstalar',
+            cost: 3, type: 'ctrl', target: 'all', targeting: 'FrontRow',
+            damage: 30, baseAmount: 1, erase: 'all', eraseRewards: true, discardDiscount: 1, destroy: true, evolved: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_prism', sfx: 'coffee',
+            desc: 'EVOLUÍDA: Destroy (só nesta luta). Custo -1 a cada descarte. APAGA todos os comuns e recolhe XP/VR; {DMG} em quem sobrar.'
+        },
+        lago_brasas: {
+            id: 'lago_brasas',
+            name: 'Lago de Brasas',
+            origin: 'Galão de Álcool',
+            cost: 1, type: 'atk', target: 'single', targeting: 'Target',
+            damage: 8, baseAmount: 1, burn: 5, burnPersist: 4, burnSpread: 1, evolved: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_pool', sfx: 'coffee',
+            desc: 'EVOLUÍDA: {DMG} no alvo + {BURN} Burn na coluna e nas vizinhas. PERSISTENTE: nelas o Burn não cai abaixo de 4.'
+        },
+        // FUSÃO: Lâmina do Devaneio (MÁX) + Sopro de Brasas (MÁX).
+        gladio_aurora: {
+            id: 'gladio_aurora',
+            name: 'Gládio da Aurora',
+            origin: 'Sexta-Feira, 17:59',
+            cost: 2, type: 'atk', target: 'single',
+            targeting: 'Target', pierce: 2, pierceType: 'OncePerEnemy',
+            damage: 12, baseAmount: 2, amountScalesWithCombo: true,
+            critChance: 0.25, critMult: 1.5, critExplosion: true,
+            burn: 6, burnAllColumns: true, ignoreShield: true, evolved: true, fused: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_fusion', sfx: 'stapler',
+            desc: 'FUSÃO SUPREMA: {HITS} cortes de {DMG} no alvo (ignora escudo, perfura a coluna) + {BURN} Burn nas 5 colunas. Crit 25% explode nos vizinhos.'
+        },
         vulcao_expresso: {
             id: 'vulcao_expresso',
             name: 'Erupção Solar',
@@ -555,8 +865,52 @@
             fromCard: 'escudo_burocratico',
             toCard: 'muralha_juridica',
             desc: 'Evolui Égide do Viajante (Nv.MÁX) -> Muralha do Guardião.'
+        },
+        // requiresOwned: a relíquia só é oferecida para quem tem a carta de origem no baralho.
+        {
+            passiveId: 'rel_toner',
+            title: 'Lente Lunar',
+            origin: 'Toner Novo',
+            icon: 'c_prism',
+            fromCard: 'selo_eclipse',
+            toCard: 'prisma_eclipse',
+            requiresOwned: true,
+            desc: 'Evolui Selo do Eclipse (Nv.MÁX) -> Prisma do Eclipse.'
+        },
+        {
+            passiveId: 'rel_isqueiro',
+            title: 'Pederneira',
+            origin: 'Isqueiro Esquecido',
+            icon: 'c_pool',
+            fromCard: 'orvalho_ardente',
+            toCard: 'lago_brasas',
+            requiresOwned: true,
+            desc: 'Evolui Orvalho Ardente (Nv.MÁX) -> Lago de Brasas.'
         }
     ];
+
+    // Fusão dupla: as duas cartas no Nível MÁX viram uma carta suprema (1 cópia de cada é consumida).
+    const FUSIONS = [
+        {
+            id: 'fus_gladio_aurora',
+            cards: ['mordida_ferro', 'pocao_fogo'],
+            toCard: 'gladio_aurora'
+        }
+    ];
+
+    // Cartas temporárias que podem vir nos baús.
+    const PICKUP_CARDS = ['e_ampulheta', 'e_sino', 'e_saco_moedas', 'e_coracao'];
+
+    // ---------- EVENTOS DE MAPA (tiles P / O / W) ----------
+    const CARD_TYPE_LABELS = { atk: 'Ataque', def: 'Defesa', ctrl: 'Controle', sup: 'Suporte', wild: 'Wild' };
+    // Baú de Prata: a fechadura pede 1 carta de cada tipo do par sorteado.
+    const SILVER_CHEST_PAIRS = [['atk', 'def'], ['atk', 'ctrl'], ['atk', 'sup'], ['ctrl', 'sup'], ['def', 'sup'], ['wild', 'atk']];
+    const SPECIAL_TILES = {
+        P: { id: 'bau_prata', name: 'Baú de Prata', sprite: 'chest_silver' },
+        O: { id: 'mesa_oferenda', name: 'Mesa de Oferenda', sprite: 'altar' },
+        W: { id: 'poco_desejos', name: 'Poço dos Desejos', sprite: 'well' }
+    };
+    const WALKABLE_POI = '#.SCM?EPOW';
 
     // Relíquias especiais (não evoluem cartas).
     const SPECIAL_RELICS = {
@@ -734,6 +1088,26 @@
             desc: desc,
             apply: function (state) {
                 state.deck.push(cardId);
+            }
+        };
+    }
+
+    // "Nível MÁX" de uma carta que não vem no baralho inicial: só aparece para quem já a tem.
+    function maxLevelReward(cardId, origin) {
+        const card = CARDS[cardId];
+        return {
+            id: 'up_' + cardId,
+            kind: 'carta',
+            title: card.name + ' (MÁX)',
+            origin: origin,
+            icon: card.icon,
+            once: true,
+            requiresCard: cardId,
+            desc: 'Eleva ' + card.name + ' ao Nível Máximo (pronta p/ Evolução) + 1 cópia.',
+            apply: function (state) {
+                state.cardLevels[cardId] = BALANCE.maxCardLevel;
+                state.deck.push(cardId);
+                state.discardPile.push(cardId);
             }
         };
     }
@@ -932,7 +1306,22 @@
         cardReward('eco_mare', 'Suporte Custo 1: +10% Area (xCombo) até o fim do combate.'),
         cardReward('aljava_improvisada', 'Suporte Custo 1: +1 Amount até o fim do combate (máx. +3).'),
         cardReward('banquete_andarilho', 'Suporte Custo 1 (Destroy): +3 HP Máx permanente, uso único.'),
-        cardReward('pergaminho_aprendiz', 'Suporte Custo 0 (Destroy): +15% Growth permanente, uso único.')
+        cardReward('pergaminho_aprendiz', 'Suporte Custo 0 (Destroy): +15% Growth permanente, uso único.'),
+        // ---- Etapa 4: arsenal completo ----
+        cardReward('explosao_total', 'Carta Custo X: gasta TODA a Cafeína; onda de 7 x X na fila da frente (escala Combo).'),
+        cardReward('w_asas', 'Wild Custo 4: sempre comba; a próxima carta custa 1 a menos.'),
+        cardReward('w_amuleto', 'Wild Custo 1: sempre comba e sobe +1 Combo extra.'),
+        cardReward('w_pulseira', 'Wild Custo 1: sempre comba; 2+ contas de 4 dano em colunas aleatórias.'),
+        cardReward('w_broquel', 'Wild Custo 1: sempre comba; +6 Escudo (xCombo).'),
+        cardReward('tomo_1', 'Tomo Custo 0: +1 Cafeína. Abre a escada de combo de graça.'),
+        cardReward('tomo_2', 'Tomo Custo 1: +2 Cafeína (líquido +1). Ponte 0→1→2.'),
+        cardReward('tomo_3', 'Tomo Custo 2: +3 Cafeína (líquido +1). Ponte 1→2→3.'),
+        cardReward('cancao_mana', 'Suporte Custo 2: cria 1 Cafeína Pura (0 Wild: +3 Cafeína, Destroy).'),
+        cardReward('selo_eclipse', 'Carta Custo 4 (Destroy): APAGA os comuns da frente; barateia 1 a cada descarte.'),
+        cardReward('anel_trovoes', 'Carta Custo 2: 2+ raios de 6 dano e dispara de novo no fim do turno.'),
+        cardReward('orvalho_ardente', 'Carta Custo 1: 4 dano + 3 Burn que nunca cai abaixo de 2 na coluna.'),
+        maxLevelReward('selo_eclipse', 'Polir o Selo'),
+        maxLevelReward('orvalho_ardente', 'Destilar o Orvalho')
     ];
 
     EVOLUTIONS.forEach(ev => {
@@ -943,6 +1332,7 @@
             origin: ev.origin,
             icon: ev.icon,
             once: true,
+            requiresCard: ev.requiresOwned ? ev.fromCard : undefined,
             desc: 'Relíquia de Evolução: ' + ev.desc,
             apply: function (state) {
                 if (!state.relics.includes(ev.passiveId)) {
@@ -1488,7 +1878,7 @@
                         if (start) problems.push(tag + 'mais de um início');
                         start = { x: x, y: y };
                     }
-                    if (!'#.SCM?E'.includes(ch) && !fl.encounters[ch]) {
+                    if (!WALKABLE_POI.includes(ch) && !fl.encounters[ch]) {
                         problems.push(tag + 'símbolo sem encontro definido "' + ch + '" em ' + x + ',' + y);
                     }
                     if (ch !== '#') {
@@ -1573,6 +1963,11 @@
         CARDS: CARDS,
         STARTING_DECK: STARTING_DECK,
         EVOLUTIONS: EVOLUTIONS,
+        FUSIONS: FUSIONS,
+        PICKUP_CARDS: PICKUP_CARDS,
+        CARD_TYPE_LABELS: CARD_TYPE_LABELS,
+        SILVER_CHEST_PAIRS: SILVER_CHEST_PAIRS,
+        SPECIAL_TILES: SPECIAL_TILES,
         SPECIAL_RELICS: SPECIAL_RELICS,
         ENEMIES: ENEMIES,
         BALANCE: BALANCE,
@@ -1599,6 +1994,15 @@
         canSocketGem: canSocketGem,
         applyGems: applyGems,
         cardHasGem: cardHasGem,
+        GEM_RARITY_WEIGHT: GEM_RARITY_WEIGHT,
+        GEM_RARITY_LABEL: GEM_RARITY_LABEL,
+        pickGemByRarity: pickGemByRarity,
+        isOneShotCard: isOneShotCard,
+        isBreakableCard: isBreakableCard,
+        rollCrack: rollCrack,
+        getDischargeMult: getDischargeMult,
+        getDemiDamage: getDemiDamage,
+        getXCostMod: getXCostMod,
         isWalkableTile: isWalkableTile,
         validateFloors: validateFloors,
         getComboMult: getComboMult,

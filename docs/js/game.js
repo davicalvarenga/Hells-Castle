@@ -294,6 +294,7 @@
             hand: [],
             handReturnCounts: [],
             handCostMods: [],
+            handTemp: [],          // cópia/carta gerada: some ao ser jogada ou no fim do turno
             comboPile: [],
             comboChain: [],
             combatBuff: { Might: 0, Area: 0, Amount: 0 },
@@ -301,7 +302,19 @@
             extraBreath: false,
             // shortcut: gemas por cardId (cópias compartilham); migrar para instâncias de carta se cópias precisarem divergir
             cardGems: {},
-            arcana: null,
+            arcana: null,          // 1ª arcana da run (as extras do Poço/Baú de Prata ficam em arcanas)
+            arcanas: [],
+            extraGemSlots: {},     // +slots por cardId (Mesa de Oferenda)
+            crackedCards: {},      // cardId -> true (Rachada até ser reparada na fogueira)
+            cardUses: {},          // usos de cada carta no combate atual
+            yinYang: {},           // cardId -> próximo efeito da gema Yin Yang
+            fusedCards: {},
+            silverReq: {},         // tile -> par de tipos pedido pelo Baú de Prata
+            nextCostDiscount: 0,   // Asas do Devaneio: desconto da próxima carta jogada
+            discardDiscount: {},   // cardId -> desconto acumulado por descarte (Selo do Eclipse)
+            endTurnEchoes: [],     // cartas LOOP que disparam de novo no fim do turno
+            turnLastFx: null,      // efeito da última carta jogada no turno (gema Eco)
+            columnBurnFloor: [0, 0, 0, 0, 0],
             comboReverse: false,   // a última carta jogada tinha Combo Reverso
             comboCarry: false,     // a 1ª carta do turno continua a cadeia (Elo da Corrente / Fluxo e Combo)
             fluxoPity: false,
@@ -457,7 +470,8 @@
     }
 
     // inHand: a própria carta ainda está na mão (prévia), então o Líder dela mesma não conta.
-    function getCardPreviewValues(card, comboMult, inHand) {
+    // xValue: Cafeína gasta numa carta de Custo X (na prévia, toda a Cafeína atual).
+    function getCardPreviewValues(card, comboMult, inHand, xValue) {
         const mult = Math.max(1, comboMult || 1);
         const leaders = (state && state.mode === 'combat')
             ? state.hand.filter(id => D.cardHasGem(cardOf(id), 'leader')).length : 0;
@@ -471,11 +485,13 @@
             hits = hits * mult + statAmt;
         }
 
+        const x = card.xCost ? Math.max(0, typeof xValue === 'number' ? xValue : ((state && state.mana) || 0)) : 0;
         let dmg = card.damage || 0;
         if (dmg > 0) {
             if (card.damageScalesWithCombo) dmg *= mult;
             if (card.damageScalesWithAmount) dmg *= (1 + statAmt);
-            dmg = Math.max(1, Math.round(dmg * mightMult));
+            if (card.xCost) dmg *= x;
+            dmg = dmg > 0 ? Math.max(1, Math.round(dmg * mightMult)) : 0;
         }
 
         let shield = card.shield || 0;
@@ -490,6 +506,7 @@
 
         return {
             hits: hits,
+            x: x,
             damage: dmg,
             shield: shield,
             heal: heal,
@@ -504,6 +521,7 @@
         const pv = preview || getCardPreviewValues(card, 1);
         return (card.desc || '')
             .replace(/\{HITS\}/g, String(pv.hits))
+            .replace(/\{X\}/g, String(pv.x || 0))
             .replace(/\{DMG\}/g, String(pv.damage))
             .replace(/\{SHIELD\}/g, String(pv.shield))
             .replace(/\{HEAL\}/g, String(pv.heal))
@@ -538,20 +556,66 @@
         state.evolvedCards[ev.toCard] = true;
         const evolved = D.CARDS[ev.toCard];
         // As gemas acompanham a carta; o que deixou de fazer sentido na evoluída é descartado.
+        const extraSlots = state.extraGemSlots[ev.fromCard] || 0;
         const carried = [];
-        (state.cardGems[ev.fromCard] || []).forEach(g => { if (D.canSocketGem(evolved, carried, g)) carried.push(g); });
+        (state.cardGems[ev.fromCard] || []).forEach(g => { if (D.canSocketGem(evolved, carried, g, extraSlots)) carried.push(g); });
         delete state.cardGems[ev.fromCard];
+        delete state.extraGemSlots[ev.fromCard];
+        delete state.crackedCards[ev.fromCard];
         if (carried.length > 0) state.cardGems[ev.toCard] = carried;
+        if (extraSlots > 0) state.extraGemSlots[ev.toCard] = extraSlots;
         triggerGoldBanner('EVOLUÇÃO! ' + evolved.name.toUpperCase());
         setLog('Carta evoluída: ' + evolved.name + '!');
         return evolved;
+    }
+
+    // Fusão dupla: as duas cartas no baralho e no Nível MÁX, uma única vez por run.
+    function isFusionReady(fus) {
+        return !state.fusedCards[fus.toCard] &&
+            fus.cards.every(id => state.deck.includes(id) && getCardLevel(id) >= B.maxCardLevel);
+    }
+
+    // Consome 1 cópia de cada carta e entrega a carta suprema; as gemas compatíveis das duas a acompanham.
+    function applyFusion(fus) {
+        const fused = D.CARDS[fus.toCard];
+        const carried = [];
+        fus.cards.forEach(id => {
+            (state.cardGems[id] || []).forEach(g => { if (D.canSocketGem(fused, carried, g)) carried.push(g); });
+            removeCardFromDeck(id);
+        });
+        state.deck.push(fus.toCard);
+        state.fusedCards[fus.toCard] = true;
+        if (carried.length > 0) state.cardGems[fus.toCard] = carried;
+        triggerGoldBanner('FUSÃO! ' + fused.name.toUpperCase());
+        setLog('Fusão concluída: ' + fused.name + '!');
+        return fused;
+    }
+
+    // Tira 1 cópia do baralho da run; sem cópias restantes, o que era da carta (gemas, slots, rachadura) vai junto.
+    function removeCardFromDeck(cardId) {
+        const idx = state.deck.indexOf(cardId);
+        if (idx < 0) return false;
+        state.deck.splice(idx, 1);
+        if (!state.deck.includes(cardId)) {
+            delete state.cardGems[cardId];
+            delete state.extraGemSlots[cardId];
+            delete state.crackedCards[cardId];
+        }
+        return true;
     }
 
     // Verifica se alguma carta atingiu condição de evolução (Nv.MÁX + Relíquia).
     // allowImmediate=true evolui na hora (usado ao abrir Baú); caso contrário avisa que aparecerá no próximo Baú/Level Up.
     function checkAndTriggerEvolutions(allowImmediate) {
         const ready = D.EVOLUTIONS.filter(isEvolutionReady);
-        if (ready.length === 0) return [];
+        if (ready.length === 0) {
+            // A fusão nunca é automática: fica como opção "FUSÃO PRONTA" do próximo Level Up.
+            const fusions = D.FUSIONS.filter(isFusionReady);
+            if (fusions.length > 0 && !allowImmediate) {
+                setLog('Fusão pronta (' + fusions.map(f => D.CARDS[f.toCard].name).join(', ') + ')! Disponível no próximo Level Up.');
+            }
+            return [];
+        }
         if (!allowImmediate) {
             const names = ready.map(ev => D.CARDS[ev.toCard].name).join(', ');
             setLog('Evolução pronta (' + names + ')! Disponível no próximo Baú ou Level Up.');
@@ -689,6 +753,10 @@
         if (!canOpenModalNow()) return;
 
         activeModal = modalQueue.shift();
+        // Arcana extra enfileirada depois que a run já tem todas: vira uma gema rara (nunca um modal vazio).
+        if (activeModal.type === 'arcana' && availableArcanas().length === 0) {
+            activeModal = { type: 'gem', gemId: randomGemId(['rara', 'epica', 'lendaria']) };
+        }
         modalActionLocked = false;
         state.mode = 'modal';
         R.setHoveredCard(null);
@@ -699,6 +767,7 @@
             event: openEventModal,
             narrative: openNarrativeModal,
             gem: openGemModal,
+            pick: openPickModal,
             arcana: openArcanaModal,
             epilogue: openEpilogue
         };
@@ -748,9 +817,26 @@
             if (state.banishedIds && state.banishedIds.includes(rw.id)) return false;
             if (rw.once && (state.takenRewards.includes(rw.id) || state.relics.includes(rw.id))) return false;
             if (rw.id && rw.id.indexOf('up_') === 0 && getCardLevel(rw.id.slice(3)) >= B.maxCardLevel) return false;
+            if (rw.requiresCard && !state.deck.includes(rw.requiresCard)) return false;
             if (rw.rare && Math.random() > 0.35) return false;
             return true;
         });
+    }
+
+    function buildFusionChoice(fus) {
+        const toCard = D.CARDS[fus.toCard];
+        return {
+            id: fus.id,
+            kind: 'fusao',
+            title: toCard.name,
+            origin: 'Fusão de ' + fus.cards.map(id => D.CARDS[id].name).join(' + '),
+            icon: toCard.icon,
+            noBanish: true,
+            desc: formatCardDesc(toCard, getCardPreviewValues(toCard, 1)),
+            apply: function () {
+                applyFusion(fus);
+            }
+        };
     }
 
     function buildEvolutionChoice(ev) {
@@ -773,7 +859,8 @@
     function buildLevelUpChoices() {
         const fourthChance = 0.025 * getLuckMultiplier();
         const slotCount = Math.random() < fourthChance ? 4 : 3;
-        const choices = D.EVOLUTIONS.filter(isEvolutionReady).map(buildEvolutionChoice);
+        const choices = D.EVOLUTIONS.filter(isEvolutionReady).map(buildEvolutionChoice)
+            .concat(D.FUSIONS.filter(isFusionReady).map(buildFusionChoice));
         const pool = shuffle(getEligibleLevelUpPool());
         for (let i = 0; i < pool.length && choices.length < slotCount; i++) {
             const candidate = pool[i];
@@ -800,13 +887,14 @@
         const picked = choices.slice(0, slotCount);
         // Recompensa rara: a última opção (nunca uma evolução) vira uma gema.
         const last = picked.length - 1;
-        if (last > 0 && picked[last].kind !== 'evolucao' && Math.random() < B.gemRewardChance * getLuckMultiplier()) {
+        if (last > 0 && picked[last].kind !== 'evolucao' && picked[last].kind !== 'fusao' &&
+            Math.random() < B.gemRewardChance * getLuckMultiplier()) {
             const gem = D.GEMS[randomGemId()];
             picked[last] = {
                 id: 'gem_' + gem.id,
                 kind: 'gema',
                 title: gem.name,
-                origin: 'Gema para encaixar',
+                origin: 'Gema ' + D.GEM_RARITY_LABEL[gem.rarity] + ' para encaixar',
                 icon: 'vr_boost',
                 noBanish: true,
                 desc: gem.desc,
@@ -819,23 +907,28 @@
     // ---------- GEMAS ----------
     function socketGem(cardId, gemId) {
         const card = D.CARDS[cardId];
-        if (!state.deck.includes(cardId) || !D.canSocketGem(card, state.cardGems[cardId], gemId)) return false;
+        if (!state.deck.includes(cardId) || !D.canSocketGem(card, state.cardGems[cardId], gemId, state.extraGemSlots[cardId])) return false;
         if (D.GEMS[gemId].instant) {
             applyEvolution(D.EVOLUTIONS.find(ev => ev.fromCard === cardId));
             return true;
         }
         state.cardGems[cardId] = (state.cardGems[cardId] || []).concat(gemId);
+        if (gemId === 'uncrackable') delete state.crackedCards[cardId];
         return true;
     }
 
     function gemTargets(gemId) {
-        return state.deck.filter((id, i) => state.deck.indexOf(id) === i && D.canSocketGem(D.CARDS[id], state.cardGems[id], gemId));
+        return state.deck.filter((id, i) => state.deck.indexOf(id) === i &&
+            D.canSocketGem(D.CARDS[id], state.cardGems[id], gemId, state.extraGemSlots[id]));
     }
 
-    // Sorteia entre as gemas que cabem em alguma carta do baralho atual.
-    function randomGemId() {
+    // Sorteia (com peso por raridade) entre as gemas que cabem em alguma carta do baralho atual.
+    // rarities: filtro opcional (Poço dos Desejos = rara+, Baú de Prata = épica/lendária).
+    function randomGemId(rarities) {
         const usable = Object.keys(D.GEMS).filter(gemId => gemTargets(gemId).length > 0);
-        return usable.length > 0 ? usable[Math.floor(Math.random() * usable.length)] : 'swift';
+        const wanted = rarities ? usable.filter(gemId => rarities.includes(D.GEMS[gemId].rarity)) : usable;
+        // Sem gema da raridade pedida que caiba no baralho, vale qualquer uma que caiba.
+        return D.pickGemByRarity(wanted.length > 0 ? wanted : usable, Math.random()) || 'swift';
     }
 
     function grantGem(gemId) {
@@ -846,7 +939,7 @@
         const base = D.CARDS[cardId];
         const gems = state.cardGems[cardId] || [];
         let html = '';
-        for (let i = 0; i < D.getCardGemSlots(base); i++) {
+        for (let i = 0; i < D.getCardGemSlots(base, state.extraGemSlots[cardId]); i++) {
             const gem = D.GEMS[gems[i]];
             html += gem
                 ? '<span class="gem-slot filled" style="--gem:' + gem.color + '" title="' + gem.name + ': ' + gem.desc + '">' + gem.glyph + '</span>'
@@ -858,7 +951,9 @@
     function openGemModal(item) {
         const gem = D.GEMS[item.gemId];
         A.play('chest');
-        els.gemTitle.innerHTML = '<span class="gem-slot filled big" style="--gem:' + gem.color + '">' + gem.glyph + '</span> ' + gem.name;
+        els.gemModal.dataset.kind = 'gem';
+        els.gemTitle.innerHTML = '<span class="gem-slot filled big" style="--gem:' + gem.color + '">' + gem.glyph + '</span> ' + gem.name +
+            ' <span class="gem-rarity rarity-' + gem.rarity + '">' + D.GEM_RARITY_LABEL[gem.rarity] + '</span>';
         els.gemTargets.innerHTML = '';
         const targets = gemTargets(gem.id);
         els.gemDesc.textContent = gem.desc + (targets.length > 0
@@ -887,21 +982,77 @@
         els.gemModal.classList.remove('hidden');
     }
 
+    // ---------- SELETOR DE CARTA (sacrifícios e +1 slot): mesmo modal das gemas ----------
+    // item: { kind, title, desc, cards: [cardId], cardNote(cardId), declineLabel, onPick(cardId), onDecline() }
+    function openPickModal(item) {
+        A.play('chest');
+        els.gemModal.dataset.kind = item.kind || 'pick';
+        els.gemTitle.textContent = item.title;
+        els.gemDesc.textContent = item.desc;
+        els.gemTargets.innerHTML = '';
+        item.cards.forEach(cardId => {
+            const card = cardOf(cardId);
+            const copies = state.deck.filter(id => id === cardId).length;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'shop-item-card gem-target-card';
+            btn.dataset.card = cardId;
+            btn.innerHTML =
+                '<img src="' + S.getIconUrl(card.icon) + '" alt="" />' +
+                '<div class="shop-item-title">' + card.name + (copies > 1 ? ' x' + copies : '') + '</div>' +
+                '<div class="shop-item-desc">' + formatCardDesc(card, getCardPreviewValues(card, 1)) + '</div>' +
+                (item.cardNote ? '<span class="shop-item-price">' + item.cardNote(cardId) + '</span>' : '') +
+                gemSlotsHtml(cardId);
+            btn.addEventListener('click', guardModalAction(() => {
+                A.play('card');
+                item.onPick(cardId);
+                renderHud();
+                closeActiveModal();
+            }));
+            els.gemTargets.appendChild(btn);
+        });
+        els.btnGemDiscard.textContent = item.declineLabel || 'CANCELAR';
+        els.gemModal.classList.remove('hidden');
+    }
+
+    // Cartas do baralho (sem repetir) que passam no filtro; pickups nunca entram em oferendas.
+    function deckCardsWhere(filter) {
+        return state.deck.filter((id, i) => state.deck.indexOf(id) === i && !D.CARDS[id].consumable && filter(id));
+    }
+
     // ---------- ARCANAS ----------
-    function setArcana(id) {
+    function hasArcana(id) {
+        return !!state && state.arcanas.includes(id);
+    }
+
+    function availableArcanas() {
+        return Object.keys(D.ARCANAS).filter(id => !state.arcanas.includes(id));
+    }
+
+    // Arcana extra (Poço dos Desejos / Baú de Prata): soma às que a run já tem.
+    function addArcana(id) {
         const arcana = D.ARCANAS[id];
-        if (!arcana) return false;
-        state.passives = state.passives.filter(p => !p.arcana);
-        state.arcana = id;
+        if (!arcana || state.arcanas.includes(id)) return false;
+        state.arcanas.push(id);
+        if (!state.arcana) state.arcana = id;
         state.passives.push({ label: 'Arcana: ' + arcana.name + ' — ' + arcana.desc, icon: arcana.icon, arcana: true });
         renderHud();
         return true;
     }
 
+    // Troca TODAS as arcanas por uma só (escolha inicial e gancho de teste).
+    function setArcana(id) {
+        if (!D.ARCANAS[id]) return false;
+        state.passives = state.passives.filter(p => !p.arcana);
+        state.arcanas = [];
+        state.arcana = null;
+        return addArcana(id);
+    }
+
     function openArcanaModal() {
         A.play('levelup');
         els.arcanaChoices.innerHTML = '';
-        shuffle(Object.keys(D.ARCANAS)).slice(0, 3).forEach(id => {
+        shuffle(availableArcanas()).slice(0, 3).forEach(id => {
             const arcana = D.ARCANAS[id];
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -913,7 +1064,7 @@
                 '<div class="reward-title">' + arcana.name + '</div>' +
                 '<div class="reward-desc">' + arcana.desc + '</div>';
             btn.addEventListener('click', guardModalAction(() => {
-                setArcana(id);
+                addArcana(id);
                 A.play('card');
                 setLog('Estado de Espírito: ' + arcana.name + '.');
                 closeActiveModal();
@@ -961,13 +1112,15 @@
         choices.forEach((rw, idx) => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'reward-card' + (rw.kind === 'evolucao' ? ' evo-choice' : '');
+            btn.className = 'reward-card' + (rw.kind === 'evolucao' || rw.kind === 'fusao' ? ' evo-choice' : '');
             const kindLabel = rw.kind === 'carta'
                 ? 'Nova Carta'
                 : rw.kind === 'reliquia'
                     ? 'Relíquia de Evolução'
                     : rw.kind === 'evolucao'
                         ? 'EVOLUÇÃO PRONTA'
+                        : rw.kind === 'fusao'
+                        ? 'FUSÃO PRONTA'
                         : rw.kind === 'gema'
                             ? 'Gema Rara'
                             : 'Passiva';
@@ -984,7 +1137,7 @@
                 if (state.banishMode) {
                     if (rw.noBanish) {
                         state.banishMode = false;
-                        setLog('Evoluções não podem ser banidas!');
+                        setLog('Evoluções, fusões e gemas não podem ser banidas!');
                         renderLevelUpModal();
                         return;
                     }
@@ -1168,7 +1321,25 @@
             }
         });
 
-        const relic = D.EVOLUTIONS.find(ev => !state.relics.includes(ev.passiveId));
+        const cracked = Object.keys(state.crackedCards).filter(id => state.deck.includes(id));
+        addRestItem({
+            title: 'Reparar Rachaduras',
+            desc: cracked.length > 0
+                ? 'Conserta ' + cracked.map(id => D.CARDS[id].name).join(', ') + '.'
+                : 'Carta comum usada mais de ' + B.crackAfterUses + 'x no mesmo combate racha e pode estilhaçar.',
+            icon: 'staple_box',
+            disabled: cracked.length === 0 || state.vr < rest.repairPrice,
+            priceText: cracked.length === 0 ? 'NADA RACHADO' : rest.repairPrice + ' VR',
+            onPick: () => {
+                state.vr -= rest.repairPrice;
+                state.crackedCards = {};
+                A.play('shield');
+                setLog('Cartas reparadas: nenhuma rachadura no baralho.');
+            }
+        });
+
+        const relic = D.EVOLUTIONS.find(ev => !state.relics.includes(ev.passiveId) &&
+            (!ev.requiresOwned || state.deck.includes(ev.fromCard)));
         if (relic) {
             addRestItem({
                 title: relic.title,
@@ -1215,6 +1386,7 @@
     function openEventModal(item) {
         A.play('encounter');
         const ev = item.event;
+        els.eventModal.dataset.kind = ev.id || '';
         els.eventTitle.textContent = ev.title;
         els.eventDesc.textContent = ev.desc;
         els.eventChoices.innerHTML = '';
@@ -1232,6 +1404,7 @@
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'event-choice-btn';
+            btn.disabled = !!ch.disabled;
             btn.innerHTML = '<span>' + ch.label + '</span><span class="event-choice-hint">' + ch.hint + '</span>';
             btn.addEventListener('click', guardModalAction(() => {
                 A.play('card');
@@ -1259,6 +1432,176 @@
         });
 
         els.eventModal.classList.remove('hidden');
+    }
+
+    // ---------- EVENTOS DE MAPA: BAÚ DE PRATA (P), MESA DE OFERENDA (O) E POÇO DOS DESEJOS (W) ----------
+    // Os sacrifícios usam o seletor de carta em etapas; nada é consumido antes da última escolha.
+    function queueNext(item) {
+        modalQueue.unshift(item);
+    }
+
+    // Arcana extra se ainda houver alguma fora da run; senão, uma gema da raridade pedida.
+    function grantArcanaOrGem(gemChance, rarities) {
+        if (availableArcanas().length > 0 && Math.random() >= gemChance) queueNext({ type: 'arcana' });
+        else queueNext({ type: 'gem', gemId: randomGemId(rarities) });
+    }
+
+    function silverChestEvent(key) {
+        if (!state.silverReq[key]) {
+            state.silverReq[key] = D.SILVER_CHEST_PAIRS[Math.floor(Math.random() * D.SILVER_CHEST_PAIRS.length)];
+        }
+        const req = state.silverReq[key];
+        const label = type => D.CARD_TYPE_LABELS[type];
+        const ofType = type => deckCardsWhere(id => D.CARDS[id].type === type);
+        const canPay = ofType(req[0]).length > 0 && ofType(req[1]).length > 0 && state.deck.length - 2 >= B.minDeckSize;
+        const pickStep = (type, onPick) => ({
+            type: 'pick',
+            kind: 'sacrifice',
+            title: 'BAÚ DE PRATA',
+            desc: 'Escolha a carta de ' + label(type) + ' que fica na fechadura (ela sai do baralho):',
+            cards: ofType(type),
+            cardNote: () => 'OFERECER',
+            declineLabel: 'DESISTIR',
+            onPick: onPick,
+            onDecline: () => setLog('Você recolhe as cartas. O Baú de Prata segue trancado.')
+        });
+        return {
+            id: 'bau_prata',
+            title: 'Baú de Prata',
+            desc: 'Uma fechadura dupla, fria ao toque. Ela pede uma oferenda: 1 carta de ' + label(req[0]) + ' e 1 carta de ' + label(req[1]) + '.',
+            choices: [
+                {
+                    label: 'Oferecer as 2 cartas',
+                    hint: canPay
+                        ? 'Sacrifica 1 ' + label(req[0]) + ' + 1 ' + label(req[1]) + ': Gema Épica/Lendária ou Arcana extra'
+                        : 'Faltam cartas desses tipos (ou o baralho ficaria com menos de ' + B.minDeckSize + ')',
+                    disabled: !canPay,
+                    effect: function () {
+                        queueNext(pickStep(req[0], first => {
+                            queueNext(pickStep(req[1], second => {
+                                removeCardFromDeck(first);
+                                removeCardFromDeck(second);
+                                state.clearedTiles.add(key);
+                                R.syncState(state);
+                                triggerGoldBanner('BAÚ DE PRATA ABERTO!');
+                                setLog(D.CARDS[first].name + ' e ' + D.CARDS[second].name + ' ficam na fechadura. O baú se abre!');
+                                grantArcanaOrGem(B.silverGemChance, ['epica', 'lendaria']);
+                            }));
+                        }));
+                        return null;
+                    }
+                },
+                {
+                    label: 'Deixar para depois',
+                    hint: 'O baú continua aqui',
+                    effect: function () { return 'O Baú de Prata segue trancado, esperando a oferenda.'; }
+                }
+            ]
+        };
+    }
+
+    function offeringEvent(key) {
+        const sacrificable = () => deckCardsWhere(() => true);
+        // Depois do sacrifício, quem pode ganhar +1 slot: outra carta (ou outra cópia) abaixo do teto de slots.
+        const slotTargets = sacrificed => deckCardsWhere(id => {
+            const base = D.getCardGemSlots(D.CARDS[id], state.extraGemSlots[id]);
+            const stillThere = id !== sacrificed || state.deck.filter(c => c === id).length > 1;
+            return stillThere && base > 0 && base < B.maxGemSlots;
+        });
+        const canSacrifice = state.deck.length - 1 >= B.minDeckSize && sacrificable().length > 0;
+        const sacrificeStep = (desc, onPick) => ({
+            type: 'pick',
+            kind: 'sacrifice',
+            title: 'MESA DE OFERENDA',
+            desc: desc,
+            cards: sacrificable(),
+            cardNote: () => 'SACRIFICAR',
+            declineLabel: 'DESISTIR',
+            onPick: onPick,
+            onDecline: () => setLog('Você recolhe a carta. A mesa continua à espera.')
+        });
+        return {
+            id: 'mesa_oferenda',
+            title: 'Mesa de Oferenda',
+            desc: 'Uma mesa de pedra com um encaixe vazio em forma de losango. O que é deixado aqui abre espaço em outro lugar.',
+            choices: [
+                {
+                    label: 'Sacrificar 1 carta por +1 Slot de Gema',
+                    hint: canSacrifice ? 'Outra carta do baralho ganha 1 slot (máx. ' + B.maxGemSlots + ')' : 'Baralho no tamanho mínimo',
+                    disabled: !canSacrifice,
+                    effect: function () {
+                        queueNext(sacrificeStep('Escolha a carta que fica na mesa (ela sai do baralho):', sacrificed => {
+                            const targets = slotTargets(sacrificed);
+                            if (targets.length === 0) {
+                                setLog('Nenhuma outra carta pode receber um slot. Você recolhe a oferenda.');
+                                return;
+                            }
+                            queueNext({
+                                type: 'pick',
+                                kind: 'slot',
+                                title: 'MESA DE OFERENDA',
+                                desc: D.CARDS[sacrificed].name + ' fica na mesa. Escolha a carta que ganha +1 Slot de Gema:',
+                                cards: targets,
+                                cardNote: () => '+1 SLOT',
+                                declineLabel: 'DESISTIR',
+                                onPick: target => {
+                                    removeCardFromDeck(sacrificed);
+                                    state.extraGemSlots[target] = (state.extraGemSlots[target] || 0) + 1;
+                                    state.clearedTiles.add(key);
+                                    R.syncState(state);
+                                    A.play('levelup');
+                                    setLog(D.CARDS[target].name + ' ganhou +1 Slot de Gema!');
+                                },
+                                onDecline: () => setLog('Você recolhe a carta. A mesa continua à espera.')
+                            });
+                        }));
+                        return null;
+                    }
+                },
+                {
+                    label: 'Sacrificar 1 carta por +' + B.offeringVr + ' VR',
+                    hint: canSacrifice ? 'Troca uma carta do baralho por VR' : 'Baralho no tamanho mínimo',
+                    disabled: !canSacrifice,
+                    effect: function () {
+                        queueNext(sacrificeStep('Escolha a carta trocada por ' + B.offeringVr + ' VR (ela sai do baralho):', sacrificed => {
+                            removeCardFromDeck(sacrificed);
+                            state.vr += B.offeringVr;
+                            state.clearedTiles.add(key);
+                            R.syncState(state);
+                            const pt = viewportPoint(0.5, 0.5);
+                            spawnVrParticles(pt.x, pt.y, B.offeringVr);
+                            setLog(D.CARDS[sacrificed].name + ' ficou na mesa. +' + B.offeringVr + ' VR.');
+                        }));
+                        return null;
+                    }
+                },
+                {
+                    label: 'Seguir em frente',
+                    hint: 'A mesa continua aqui',
+                    effect: function () { return 'Você deixa a mesa como está.'; }
+                }
+            ]
+        };
+    }
+
+    // Poço dos Desejos: uso único e gratuito — Gema rara (ou melhor) ou uma Arcana extra.
+    function useWishingWell(key) {
+        state.clearedTiles.add(key);
+        A.play('chest');
+        triggerGoldBanner('POÇO DOS DESEJOS');
+        setLog('Uma moeda cai no escuro. O Poço dos Desejos devolve um presente.');
+        grantArcanaOrGem(B.wellGemChance, ['rara', 'epica', 'lendaria']);
+        processModalQueue();
+    }
+
+    // Pickup de baú: carta temporária 0 Wild [Destroy] que fica à mão em todo combate até ser usada.
+    function grantPickup(cardId) {
+        const id = D.CARDS[cardId] && D.CARDS[cardId].consumable
+            ? cardId : D.PICKUP_CARDS[Math.floor(Math.random() * D.PICKUP_CARDS.length)];
+        state.deck.push(id);
+        const pt = viewportPoint(0.5, 0.4);
+        spawnFloatingText(pt.x, pt.y, 'PICKUP: ' + D.CARDS[id].name + '!', 'combo');
+        return id;
     }
 
     // ---------- MODAL: CARD NARRATIVO ----------
@@ -1431,7 +1774,7 @@
         const layout = currentFloor().layout;
         if (!D.isWalkableTile(layout, x, y)) return false;
         const ch = layout[y][x];
-        if (ch === 'M' || ch === 'E') return false;
+        if (ch === 'M' || ch === 'E' || ch === 'P' || ch === 'O' || ch === 'W') return false;
         if ((ch === 'C' || ch === '?') && !state.clearedTiles.has(x + ',' + y)) return false;
         const other = encounterAt(x, y);
         return !other || other === self;
@@ -1537,6 +1880,10 @@
         setLog(loot.title + ': ' + loot.text);
         // A gema do baú espera na fila: abre ao fim do passo (ou depois do combate, se houver aggro).
         modalQueue.push({ type: 'gem', gemId: randomGemId() });
+        if (Math.random() < B.chestPickupChance) {
+            const pickup = grantPickup();
+            setLog(loot.title + ': ' + loot.text + ' Pickup: ' + D.CARDS[pickup].name + '!');
+        }
         const evolved = checkAndTriggerEvolutions(true);
         const p = viewportPoint(0.5, 0.48);
         spawnFloatingText(p.x, p.y - 12, '+' + loot.hp + ' Sanidade', 'heal');
@@ -1566,6 +1913,11 @@
                 state.specialEventSeen = fl.floor;
             }
             enqueueModal({ type: 'event', event: ev });
+            return;
+        }
+        if ((tile === 'P' || tile === 'O' || tile === 'W') && !state.clearedTiles.has(key)) {
+            if (tile === 'W') useWishingWell(key);
+            else enqueueModal({ type: 'event', event: tile === 'P' ? silverChestEvent(key) : offeringEvent(key) });
             return;
         }
         if (tile === 'E') {
@@ -1775,6 +2127,12 @@
         state.manaBombTicks = 0;
         state.bossOverkillActive = false;
         state.columnBurn = [0, 0, 0, 0, 0];
+        state.columnBurnFloor = [0, 0, 0, 0, 0];
+        state.cardUses = {};
+        state.discardDiscount = {};
+        state.nextCostDiscount = 0;
+        state.endTurnEchoes = [];
+        state.turnLastFx = null;
         state.pendingDrop = null;
 
         if (state.extraBreath) {
@@ -1798,7 +2156,8 @@
         state.targetUid = (fronts[0] || state.enemies[0]).uid;
 
         // Compra Rápida (Swift): vai para o topo da compra e sai na mão inicial.
-        const shuffled = shuffle(state.deck);
+        // Pickups de baú não ocupam a compra: ficam à mão desde o Turno 1, além das cartas compradas.
+        const shuffled = shuffle(state.deck.filter(id => !D.CARDS[id].consumable));
         const isSwift = id => D.cardHasGem(cardOf(id), 'swift');
         state.drawPile = shuffled.filter(id => !isSwift(id)).concat(shuffled.filter(isSwift));
         state.discardPile = [];
@@ -1806,7 +2165,12 @@
         state.hand = [];
         state.handReturnCounts = [];
         state.handCostMods = [];
+        state.handTemp = [];
         drawCards(state.dealCount || B.dealCount);
+        state.deck.filter(id => D.CARDS[id].consumable).forEach(id => {
+            if (state.hand.length < B.maxHandSize) pushToHand(id, 0);
+            else state.drawPile.unshift(id);
+        });
 
         A.play('encounter');
         R.triggerShake(0.05, 0.22);
@@ -1838,15 +2202,55 @@
         renderAll();
     }
 
-    // hand, handReturnCounts e handCostMods são arrays paralelos: só mexa neles por aqui.
-    function pushToHand(cardId, returnCount) {
+    // hand, handReturnCounts, handCostMods e handTemp são arrays paralelos: só mexa neles por aqui.
+    function pushToHand(cardId, returnCount, temp) {
+        // handTemp pode estar mais curto se a mão foi montada por fora (testes): alinha antes de inserir.
+        while (state.handTemp.length < state.hand.length) state.handTemp.push(false);
         state.hand.push(cardId);
         state.handReturnCounts.push(returnCount || 0);
         state.handCostMods.push(0);
+        state.handTemp.push(!!temp);
     }
 
-    function getHandCost(handIndex) {
-        return D.getEffectiveCost(cardOf(state.hand[handIndex]), state.handCostMods[handIndex]);
+    function removeFromHand(handIndex) {
+        const temp = isTempInHand(handIndex);
+        const cardId = state.hand.splice(handIndex, 1)[0];
+        const returnCount = state.handReturnCounts.splice(handIndex, 1)[0] || 0;
+        state.handCostMods.splice(handIndex, 1);
+        state.handTemp.splice(handIndex, 1);
+        return { cardId: cardId, returnCount: returnCount, temp: temp };
+    }
+
+    // Cópia (gema) ou carta gerada: some ao ser jogada ou no fim do turno, nunca vai ao descarte.
+    function isTempInHand(handIndex) {
+        return !!state.handTemp[handIndex] || !!D.CARDS[state.hand[handIndex]].tempOnly;
+    }
+
+    // Carta que sai da mão sem ser jogada (fim do turno ou gema Troca). Quem tem discardDiscount barateia.
+    function noteDiscard(cardId) {
+        const discount = D.CARDS[cardId].discardDiscount || 0;
+        if (discount > 0) state.discardDiscount[cardId] = (state.discardDiscount[cardId] || 0) + discount;
+    }
+
+    function discardFromHand(handIndex) {
+        const removed = removeFromHand(handIndex);
+        if (removed.temp) return;
+        state.discardPile.push(removed.cardId);
+        noteDiscard(removed.cardId);
+    }
+
+    // Modificador de custo da carta na mão: Confusão, descontos (Asas do Devaneio / descarte) e Custo X.
+    // useNextDiscount=false ignora o desconto das Asas (simulação das cartas seguintes do Jogar Tudo).
+    function getHandCostMod(handIndex, mana, useNextDiscount) {
+        const cardId = state.hand[handIndex];
+        const card = cardOf(cardId);
+        if (card.xCost) return D.getXCostMod(card, typeof mana === 'number' ? mana : state.mana);
+        return (state.handCostMods[handIndex] || 0) - (state.discardDiscount[cardId] || 0) -
+            (useNextDiscount === false ? 0 : (state.nextCostDiscount || 0));
+    }
+
+    function getHandCost(handIndex, mana, useNextDiscount) {
+        return D.getEffectiveCost(cardOf(state.hand[handIndex]), getHandCostMod(handIndex, mana, useNextDiscount));
     }
 
     // Compra -> Mão; com a compra vazia, o Descarte é reembaralhado (a ComboPile do turno fica de fora).
@@ -2040,7 +2444,7 @@
             } else if (o.isSplash) {
                 spawnFloatingText(pos.x, pos.y - 6, 'Área -' + remaining, 'shield');
             } else if (o.isBurn) {
-                spawnFloatingText(pos.x, pos.y - 12, 'Burn -' + remaining, 'player-hit');
+                spawnFloatingText(pos.x, pos.y - 12, (o.label || 'Burn') + ' -' + remaining, 'player-hit');
             } else {
                 R.spawnDamageNumber(pos.x, pos.y - 10, remaining, { crit: false });
             }
@@ -2185,74 +2589,163 @@
             return;
         }
         if (singleTarget) {
-            state.columnBurn[singleTarget.col] += burnAmt;
-            const cp = R.getColumnScreenPos(singleTarget.col);
-            spawnFloatingText(cp.x, cp.y - 26, '+' + burnAmt + ' BURN', 'player-hit');
+            // burnSpread: também as colunas vizinhas. burnPersist: piso do Burn da coluna até o fim da luta.
+            const spread = card.burnSpread || 0;
+            for (let c = Math.max(0, singleTarget.col - spread); c <= Math.min(4, singleTarget.col + spread); c++) {
+                state.columnBurn[c] += burnAmt;
+                if (card.burnPersist > 0) state.columnBurnFloor[c] = Math.max(state.columnBurnFloor[c] || 0, card.burnPersist);
+                const cp = R.getColumnScreenPos(c);
+                spawnFloatingText(cp.x, cp.y - 26, '+' + burnAmt + ' BURN' + (card.burnPersist > 0 ? ' (persistente)' : ''), 'player-hit');
+            }
         }
     }
 
-    function playCard(handIndex) {
-        if (state.mode !== 'combat' || state.busy) return false;
-        const cardId = state.hand[handIndex];
-        const card = cardOf(cardId);
-        if (!card) return false;
-        const costMod = state.handCostMods[handIndex] || 0;
-        const effCost = D.getEffectiveCost(card, costMod);
-        if (state.mana < effCost) return false;
-
-        A.unlock();
-        R.setHoveredCard(null);
-        state.mana -= effCost;
-        state.hand.splice(handIndex, 1);
-        const returnCount = state.handReturnCounts.splice(handIndex, 1)[0] || 0;
-        state.handCostMods.splice(handIndex, 1);
-
-        // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild. Quebrar a sequência
-        // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a escada recomeça no custo 0.
-        const chained = card.type !== 'curse' &&
-            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
-        state.comboCarry = false;
-        state.comboReverse = D.cardHasGem(card, 'reverse');
-        state.comboCount = chained ? state.comboCount + 1 : 0;
-        state.comboChain = chained ? state.comboChain.concat(cardId) : [cardId];
-        state.lastComboCost = D.getComboCostAfter(card, costMod);
-        const usedMult = D.getComboMult(state.comboCount);
-        state.combo = usedMult;
-        const isWild = D.isWildCard(card);
-
-        // Destino da carta jogada: Destroy / Return / ComboPile (vai ao Descarte no fim do turno)
-        let returnedToHand = false;
-        if (card.destroy) {
-            state.destroyedPile.push(cardId);
-            if (card.permMaxHp > 0 || card.permGrowth > 0 || card.permRevival > 0) {
-                // Bônus permanente é de uso único: a carta sai do baralho da run, não só da luta.
-                const deckIdx = state.deck.indexOf(cardId);
-                if (deckIdx >= 0) state.deck.splice(deckIdx, 1);
-                if (card.permMaxHp > 0) {
-                    state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
-                    state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
-                }
-                state.stats.Growth += card.permGrowth || 0;
-                state.revival = Math.min(B.revivalMax, state.revival + (card.permRevival || 0));
-                const p = viewportPoint(0.5, 0.56);
-                spawnFloatingText(p.x, p.y, card.permRevival > 0 ? '+1 carga de Revival' : card.permMaxHp > 0
-                    ? '+' + card.permMaxHp + ' HP Máx permanente'
-                    : '+' + card.permGrowth + '% Growth permanente', 'combo');
-            }
-        } else if (card.returnTimes && returnCount < card.returnTimes && state.hand.length < B.maxHandSize) {
-            pushToHand(cardId, returnCount + 1);
-            returnedToHand = true;
-        } else {
-            state.comboPile.push(cardId);
+    // Rachadura: conta o uso da carta neste combate. Retorna true se ela estilhaçou (sai do baralho da run).
+    function registerCardUse(cardId, card) {
+        state.cardUses[cardId] = (state.cardUses[cardId] || 0) + 1;
+        if (!D.isBreakableCard(card)) return false;
+        const wasCracked = !!state.crackedCards[cardId];
+        const roll = D.rollCrack(state.cardUses[cardId], wasCracked, Math.random(), D.cardHasGem(card, 'preserve'));
+        const p = viewportPoint(0.5, 0.52);
+        if (roll.cracked && !wasCracked) {
+            state.crackedCards[cardId] = true;
+            A.play('immune');
+            spawnFloatingText(p.x, p.y, card.name + ' RACHOU!', 'player-hit');
         }
+        // O baralho nunca cai abaixo do mínimo por estilhaço.
+        if (!roll.shattered || state.deck.length <= B.minDeckSize || !state.deck.includes(cardId)) return false;
+        A.play('death');
+        R.triggerShake(0.06, 0.22);
+        spawnFloatingText(p.x, p.y, card.name + ' ESTILHAÇOU!', 'player-hit');
+        return true;
+    }
 
-        const pv = getCardPreviewValues(card, usedMult);
+    // Tira 1 cópia real da carta das pilhas do combate (quando a cópia jogada era temporária).
+    function removeCopyFromPiles(cardId) {
+        for (const pile of [state.comboPile, state.discardPile, state.drawPile]) {
+            const idx = pile.indexOf(cardId);
+            if (idx >= 0) {
+                pile.splice(idx, 1);
+                return;
+            }
+        }
+        const handIdx = state.hand.findIndex((id, i) => id === cardId && !isTempInHand(i));
+        if (handIdx >= 0) removeFromHand(handIdx);
+    }
+
+    // Gema Ímã: outra cópia da mesma carta vem da compra (ou do descarte) para a mão.
+    function pullCopyToHand(cardId) {
+        if (state.hand.length >= B.maxHandSize) return false;
+        const pile = state.drawPile.includes(cardId) ? state.drawPile : state.discardPile;
+        const idx = pile.lastIndexOf(cardId);
+        if (idx < 0) return false;
+        pile.splice(idx, 1);
+        pushToHand(cardId, 0);
+        return true;
+    }
+
+    // Gema Troca: descarta lixo (a Bomba primeiro) ou a carta mais cara que não dá para pagar. -1 = nada a descartar.
+    function pickSwitchDiscard() {
+        const indices = state.hand.map((_, i) => i);
+        const junk = indices.filter(i => cardOf(state.hand[i]).type === 'curse')
+            .sort((a, b) => (cardOf(state.hand[b]).endTurnBomb ? 1 : 0) - (cardOf(state.hand[a]).endTurnBomb ? 1 : 0));
+        if (junk.length > 0) return junk[0];
+        const unaffordable = indices.filter(i => !cardOf(state.hand[i]).xCost && getHandCost(i) > state.mana)
+            .sort((a, b) => getHandCost(b) - getHandCost(a));
+        return unaffordable.length > 0 ? unaffordable[0] : -1;
+    }
+
+    // Efeitos "ao jogar" das gemas de mão (Cópia, Ímã, Yin Yang, Troca).
+    function applyOnPlayGems(cardId, card, canCopy) {
+        const notes = [];
+        if (canCopy && D.cardHasGem(card, 'copia') && state.hand.length < B.maxHandSize) {
+            pushToHand(cardId, 0, true);
+            notes.push('CÓPIA');
+        }
+        if (D.cardHasGem(card, 'ima') && pullCopyToHand(cardId)) notes.push('ÍMÃ');
+        if (D.cardHasGem(card, 'yinyang')) {
+            const drawTurn = !!state.yinYang[cardId];
+            state.yinYang[cardId] = !drawTurn;
+            if (drawTurn) {
+                drawCards(1);
+                notes.push('YANG: comprou 1');
+            } else {
+                state.mana += 1;
+                notes.push('YIN: +1 Cafeína');
+            }
+        }
+        if (D.cardHasGem(card, 'switch')) {
+            const idx = pickSwitchDiscard();
+            if (idx >= 0) discardFromHand(idx);
+            drawCards(1);
+            notes.push(idx >= 0 ? 'TROCA: descartou 1, comprou 1' : 'TROCA: comprou 1');
+        }
+        if (notes.length > 0) {
+            const p = viewportPoint(0.5, 0.5);
+            spawnFloatingText(p.x, p.y, notes.join(' • '), 'combo');
+        }
+    }
+
+    // Apaga inimigos comuns (nem chefe nem Elite). Sem eraseRewards eles somem sem XP nem VR.
+    function eraseEnemies(card) {
+        const victims = state.enemies.filter(e => e.hp > 0 && !e.isBoss && !e.elite && (card.erase === 'all' || e.row === 0));
+        victims.forEach(enemy => {
+            const pos = getEnemyTargetPos(enemy);
+            if (card.eraseRewards) {
+                applyDamageToEnemy(enemy, enemy.hp, null, 1, { isBurn: true, label: 'Apagado' });
+                return;
+            }
+            enemy.hp = 0;
+            enemy.shield = 0;
+            enemy.killedOnce = true;
+            enemy.hasIntent = false;
+            state.kills += 1;
+            R.triggerEnemyHitAnim(enemy.uid, true);
+            R.spawnBurst(pos.x, pos.y, ['#b288e0', '#ec6bff', '#241b2e'], 14, { speed: 160, life: 0.5, size: 6 });
+            spawnFloatingText(pos.x, pos.y - 12, 'APAGADO!', 'buff');
+        });
+        if (victims.length > 0) {
+            A.play('death');
+            R.triggerScreenFlash('#b288e0', 0.3, 0.3);
+            normalizeColumns();
+            refreshFrontIntents(false);
+            R.syncState(state);
+        }
+        return victims.length;
+    }
+
+    // Gema Bombardeio: explosão extra numa coluna aleatória; a Luck aumenta a chance de pegar as vizinhas.
+    function fireBombardment(damage, usedMult) {
+        const fronts = getFrontEnemies(true);
+        if (fronts.length === 0) return false;
+        const target = fronts[Math.floor(Math.random() * fronts.length)];
+        const blast = Math.max(1, Math.round(damage * B.gemBombRatio));
+        const pos = getEnemyTargetPos(target);
+        R.fireProjectile({ kind: 'fire', toUid: target.uid, duration: 110 });
+        A.play('hit');
+        spawnFloatingText(pos.x, pos.y - 40, 'BOMBARDEIO!', 'combo');
+        let overkill = applyDamageToEnemy(target, blast, null, usedMult, { noSplash: true }).overkill;
+        [target.col - 1, target.col + 1].forEach(col => {
+            const adj = getFrontEnemyAtCol(col, true);
+            if (adj && adj.uid !== target.uid && Math.random() < B.gemBombSpread * getLuckMultiplier()) {
+                if (applyDamageToEnemy(adj, blast, null, usedMult, { isSplash: true }).overkill) overkill = true;
+            }
+        });
+        return overkill;
+    }
+
+    // Resolve os EFEITOS de uma carta (sem custo, combo nem destino): é o que as gemas Eco e Pós-Vida e o
+    // LOOP do Anel de Trovões repetem. fx = { mult, x, dmgMult, gems }; done({ hits, overkill }) pode ser síncrono.
+    function runCardEffect(card, fx, done) {
+        const usedMult = fx.mult || 1;
+        const pv = getCardPreviewValues(card, usedMult, false, fx.x || 0);
+        if (fx.dmgMult > 1 && pv.damage > 0) pv.damage = Math.round(pv.damage * fx.dmgMult);
 
         if (pv.shield > 0) {
             state.shield += pv.shield;
             const p = viewportPoint(0.5, 0.72);
             spawnFloatingText(p.x, p.y, '+' + pv.shield + ' Escudo', 'shield');
-            if (state.arcana === 'golpe_escudo') {
+            if (hasArcana('golpe_escudo')) {
                 getFrontEnemies(true).forEach(front => applyDamageToEnemy(front, state.shield, null, usedMult, { noSplash: true }));
             }
         }
@@ -2286,41 +2779,66 @@
             drawCards(pv.draw);
             buffs.push('Comprou ' + (state.hand.length - before));
         }
+        if (card.comboBonus > 0) {
+            state.comboCount += card.comboBonus;
+            state.combo = D.getComboMult(state.comboCount);
+            buffs.push('+' + card.comboBonus + ' Combo');
+        }
+        if (card.costDiscount > 0) {
+            state.nextCostDiscount = card.costDiscount;
+            buffs.push('Próxima carta: custo -' + card.costDiscount);
+        }
+        if (card.genCard) {
+            let made = 0;
+            for (let i = 0; i < (card.genCount || 1) && state.hand.length < B.maxHandSize; i++) {
+                pushToHand(card.genCard, 0, true);
+                made++;
+            }
+            buffs.push(made > 0 ? '+' + made + ' ' + D.CARDS[card.genCard].name : 'Mão cheia!');
+        }
+        if (card.vrGain > 0) {
+            state.vr += card.vrGain;
+            const p = viewportPoint(0.5, 0.5);
+            spawnVrParticles(p.x, p.y, card.vrGain);
+            buffs.push('+' + card.vrGain + ' VR');
+        }
         if (buffs.length > 0) {
             const p = viewportPoint(0.5, 0.58);
             spawnFloatingText(p.x, p.y, buffs.join(' • '), 'combo');
         }
+        if (card.freezeFront > 0) getFrontEnemies(false).forEach(front => applyFrost(front, card.freezeFront));
+        if (card.erase) eraseEnemies(card);
 
-        let hitNum = 0;
-        let anyOverkill = false;
-        const finish = () => {
-            if (anyOverkill) triggerOverkillBanner();
-            let msg = card.name;
-            if (hitNum > 1) msg += ': ' + hitNum + ' golpes!';
-            if (usedMult > 1) msg += ' [COMBO ' + usedMult + 'x]';
-            else if (isWild) msg += ' [WILD]';
-            if (returnedToHand) msg += ' [RETURN]';
-            if (card.destroy) msg += ' [DESTROY]';
-            if (anyOverkill) msg += ' — OVERKILL!';
-            setLog(msg);
-            getTargetEnemy();
-            R.syncState(state);
-            renderAll(true);
-            checkCombatEnd();
-        };
-
-        if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
         if (!(pv.damage > 0 || card.knockback || card.burn > 0)) {
             A.play(card.sfx);
-            finish();
-            return true;
+            done({ hits: 0, overkill: false });
+            return;
         }
 
+        // Ataque de Armadura soma o Escudo ao 1º acerto; Dizimar tira % da vida atual do 1º alvo.
+        const spike = fx.gems && D.cardHasGem(card, 'spike') ? state.shield : 0;
+        const demi = fx.gems && D.cardHasGem(card, 'demi');
         // Cada acerto escolhe o alvo pelo padrão de mira com o tabuleiro atual (inimigos morrem no meio).
         const totalHits = Math.max(1, pv.hits);
         const isWave = card.targeting === 'FrontRow';
         const aim = { lastCol: null, bag: [] };
         let burnApplied = false;
+        let hitNum = 0;
+        let anyOverkill = false;
+        const end = () => {
+            if (fx.gems && pv.damage > 0 && D.cardHasGem(card, 'bombardeio') && state.enemies.some(e => e.hp > 0 || e.overkill)) {
+                later(150, () => {
+                    if (state.mode !== 'combat') {
+                        state.busy = false;
+                        return;
+                    }
+                    if (fireBombardment(pv.damage, usedMult)) anyOverkill = true;
+                    done({ hits: hitNum, overkill: anyOverkill });
+                });
+                return;
+            }
+            done({ hits: hitNum, overkill: anyOverkill });
+        };
         const runHit = () => {
             if (state.mode !== 'combat') {
                 state.busy = false;
@@ -2342,39 +2860,188 @@
                         targets.forEach(target => R.fireProjectile({ kind: kind, toUid: target.uid, duration: 110 }));
                     }
                 }
+                let hitPv = pv;
+                if (hitNum === 0) {
+                    if (demi && targets[0].hp > 0) {
+                        const cut = D.getDemiDamage(targets[0].hp, targets[0].isBoss);
+                        const pos = getEnemyTargetPos(targets[0]);
+                        spawnFloatingText(pos.x, pos.y - 44, 'DIZIMAR -' + cut, 'combo');
+                        if (applyDamageToEnemy(targets[0], cut, null, usedMult, { noSplash: true }).overkill) anyOverkill = true;
+                    }
+                    if (spike > 0 && pv.damage > 0) {
+                        hitPv = Object.assign({}, pv, { damage: pv.damage + spike });
+                        const p = viewportPoint(0.5, 0.66);
+                        spawnFloatingText(p.x, p.y, 'ARMADURA +' + spike + ' de dano', 'shield');
+                    }
+                }
                 targets.forEach(target => {
-                    if (resolveHit(card, pv, usedMult, target, aim, { noSplash: isWave })) anyOverkill = true;
+                    if (resolveHit(card, hitPv, usedMult, target, aim, { noSplash: isWave })) anyOverkill = true;
                 });
                 // Onda: cada frente recebe de uma vez o splash das outras colunas atingidas.
-                if (isWave && targets.length > 1) applyAreaSplash(-1, pv.damage, card, usedMult, targets.length - 1);
+                if (isWave && targets.length > 1) applyAreaSplash(-1, hitPv.damage, card, usedMult, targets.length - 1);
                 hitNum++;
             }
             if (targets.length === 0 || hitNum >= totalHits) {
-                state.busy = false;
-                finish();
+                end();
                 return;
             }
             R.syncState(state);
             renderAll();
             later(155, runHit);
         };
-        state.busy = true;
         runHit();
+    }
+
+    function playCard(handIndex) {
+        if (state.mode !== 'combat' || state.busy) return false;
+        const cardId = state.hand[handIndex];
+        const card = cardOf(cardId);
+        if (!card) return false;
+        const costMod = getHandCostMod(handIndex);
+        const effCost = D.getEffectiveCost(card, costMod);
+        // Custo X precisa de pelo menos 1 de Cafeína (X = 0 não faria nada).
+        if (state.mana < effCost || (card.xCost && effCost < 1)) return false;
+
+        A.unlock();
+        R.setHoveredCard(null);
+        const xValue = card.xCost ? effCost : 0;
+        const isTemp = isTempInHand(handIndex);
+        state.mana -= effCost;
+        state.nextCostDiscount = 0; // o desconto das Asas do Devaneio vale só para esta carta
+        const returnCount = removeFromHand(handIndex).returnCount;
+
+        // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild. Quebrar a sequência
+        // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a escada recomeça no custo 0.
+        const chained = card.type !== 'curse' &&
+            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
+        state.comboCarry = false;
+        state.comboReverse = D.cardHasGem(card, 'reverse');
+        state.comboCount = chained ? state.comboCount + 1 : 0;
+        state.comboChain = chained ? state.comboChain.concat(cardId) : [cardId];
+        state.lastComboCost = D.getComboCostAfter(card, costMod);
+        const usedMult = D.getComboMult(state.comboCount);
+        state.combo = usedMult;
+        const isWild = D.isWildCard(card);
+
+        // Quebra-Combo: o efeito sai no multiplicador atual + bônus pelo Combo consumido; a cadeia volta a 1x.
+        let dmgMult = 1;
+        if (D.cardHasGem(card, 'discharge') && state.comboCount > 0) {
+            dmgMult = D.getDischargeMult(state.comboCount);
+            const p = viewportPoint(0.5, 0.46);
+            spawnFloatingText(p.x, p.y, 'QUEBRA-COMBO! Dano x' + dmgMult, 'combo big-hit');
+            state.comboCount = 0;
+            state.combo = 1;
+            state.comboChain = [cardId];
+        }
+
+        const shattered = registerCardUse(cardId, card);
+
+        // Destino da carta jogada: Estilhaço / Temporária / Destroy / Return / ComboPile (vai ao Descarte no fim do turno)
+        let returnedToHand = false;
+        const destroyed = card.destroy && !D.cardHasGem(card, 'preserve');
+        if (shattered) {
+            removeCardFromDeck(cardId);
+            if (isTemp) removeCopyFromPiles(cardId);
+            state.destroyedPile.push(cardId);
+        } else if (isTemp) {
+            state.destroyedPile.push(cardId);
+        } else if (destroyed) {
+            state.destroyedPile.push(cardId);
+            if (D.isOneShotCard(card)) {
+                // Uso único (bônus permanente ou pickup): a carta sai do baralho da run, não só da luta.
+                removeCardFromDeck(cardId);
+            }
+            if (card.permMaxHp > 0 || card.permGrowth > 0 || card.permRevival > 0) {
+                if (card.permMaxHp > 0) {
+                    state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
+                    state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
+                }
+                state.stats.Growth += card.permGrowth || 0;
+                state.revival = Math.min(B.revivalMax, state.revival + (card.permRevival || 0));
+                const p = viewportPoint(0.5, 0.56);
+                spawnFloatingText(p.x, p.y, card.permRevival > 0 ? '+1 carga de Revival' : card.permMaxHp > 0
+                    ? '+' + card.permMaxHp + ' HP Máx permanente'
+                    : '+' + card.permGrowth + '% Growth permanente', 'combo');
+            }
+        } else if (card.returnTimes && returnCount < card.returnTimes && state.hand.length < B.maxHandSize) {
+            pushToHand(cardId, returnCount + 1);
+            returnedToHand = true;
+        } else {
+            state.comboPile.push(cardId);
+        }
+
+        // Cópia: só na 1ª jogada da carta no turno (não na volta do Return nem na própria cópia).
+        applyOnPlayGems(cardId, card, !isTemp && !shattered && returnCount === 0);
+        if (card.endTurnRepeat) state.endTurnEchoes.push({ card: card, mult: usedMult });
+
+        const prevFx = state.turnLastFx;
+        if (card.type !== 'curse') state.turnLastFx = { card: card, mult: usedMult, x: xValue };
+
+        let hitNum = 0;
+        let anyOverkill = false;
+        const finish = () => {
+            if (anyOverkill) triggerOverkillBanner();
+            let msg = card.name;
+            if (hitNum > 1) msg += ': ' + hitNum + ' golpes!';
+            if (usedMult > 1) msg += ' [COMBO ' + usedMult + 'x]';
+            else if (isWild) msg += ' [WILD]';
+            if (xValue > 0) msg += ' [X = ' + xValue + ']';
+            if (returnedToHand) msg += ' [RETURN]';
+            if (shattered) msg += ' [ESTILHAÇOU]';
+            else if (destroyed || isTemp) msg += ' [DESTROY]';
+            if (anyOverkill) msg += ' — OVERKILL!';
+            setLog(msg);
+            getTargetEnemy();
+            R.syncState(state);
+            renderAll(true);
+            checkCombatEnd();
+        };
+        const conclude = () => {
+            state.busy = false;
+            finish();
+        };
+
+        if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
+        state.busy = true;
+        runCardEffect(card, { mult: usedMult, x: xValue, dmgMult: dmgMult, gems: true }, res => {
+            hitNum = res.hits;
+            anyOverkill = res.overkill;
+            // Eco: repete o efeito da carta anterior do turno (como ela saiu), sem custo nem combo.
+            if (D.cardHasGem(card, 'eco') && prevFx && state.enemies.some(e => e.hp > 0 || e.overkill)) {
+                const p = viewportPoint(0.5, 0.44);
+                spawnFloatingText(p.x, p.y, 'ECO: ' + prevFx.card.name, 'combo');
+                runCardEffect(prevFx.card, { mult: prevFx.mult, x: prevFx.x, dmgMult: 1, gems: false }, echo => {
+                    if (echo.overkill) anyOverkill = true;
+                    conclude();
+                });
+                return;
+            }
+            conclude();
+        });
         return true;
     }
 
+    // "Útil" = o Jogar Tudo jogaria agora. Decisões do jogador ficam de fora: pickups de combate (use quando
+    // quiser) e o Selo do Eclipse enquanto houver inimigo comum para apagar (apagar custa o XP/VR deles).
     // handIndex é opcional: sem ele vale o custo base da carta (sem o modificador da Confusão).
     function isUsefulCard(id, handIndex) {
         const c = cardOf(id);
         if (!c) return false;
-        const cost = typeof handIndex === 'number' ? getHandCost(handIndex) : D.getEffectiveCost(c);
-        if (cost > state.mana) return false;
+        if (c.consumable && !c.autoPlay) return false;
+        if (c.erase && !c.eraseRewards && state.enemies.some(e => e.hp > 0 && !e.isBoss && !e.elite &&
+            (c.erase === 'all' || e.row === 0))) return false;
+        const cost = typeof handIndex === 'number' ? getHandCost(handIndex) : D.getEffectiveCost(c, D.getXCostMod(c, state.mana));
+        if (cost > state.mana || (c.xCost && state.mana < 1)) return false;
         // Lixo quebra a cadeia: o Jogar Tudo só gasta Cafeína para desarmar a Bomba de Mana.
         if (c.type === 'curse') return !!c.endTurnBomb && state.enemies.some(e => e.hp > 0);
         const hasTarget = state.enemies.some(e => e.hp > 0 || e.overkill);
-        if (c.damage > 0 || c.knockback || c.burn > 0) return hasTarget;
+        if (c.damage > 0 || c.knockback || c.burn > 0 || c.erase || c.freezeFront > 0) return hasTarget;
         if (c.buffAmount > 0) return state.combatBuff.Amount < B.combatAmountCap;
-        return c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.buffMight > 0 || c.buffArea > 0 ||
+        // Pickup de cura só vale com Sanidade faltando; desconto e +Combo só com outra carta para aproveitar.
+        if (c.consumable && c.heal > 0) return state.hp <= state.maxHp - c.heal;
+        if (c.costDiscount > 0 || c.comboBonus > 0) return state.hand.length > 1;
+        if (c.genCard) return state.hand.length <= B.maxHandSize;
+        return c.vrGain > 0 || c.shield > 0 || c.heal > 0 || c.manaGain > 0 || c.buffMight > 0 || c.buffArea > 0 ||
             c.draw > 0 || c.permMaxHp > 0 || c.permGrowth > 0 || (c.permRevival > 0 && state.revival < B.revivalMax);
     }
 
@@ -2387,26 +3054,33 @@
         let simLastCost = currentLastCost !== undefined ? currentLastCost : state.lastComboCost;
         let simMana = availableMana !== undefined ? availableMana : state.mana;
         let simReverse = state.comboReverse;
+        // Custo X e Quebra-Combo fecham a jogada: gastam tudo (Cafeína / Combo), então ficam por último.
+        const isFinisher = idx => !!cardAt(idx).xCost || D.cardHasGem(cardAt(idx), 'discharge');
 
         while (remaining.length > 0) {
-            const feasible = remaining.filter(idx => getHandCost(idx) <= simMana);
+            // O desconto das Asas do Devaneio só vale para a próxima carta a sair da mão.
+            const costOf = idx => getHandCost(idx, simMana, ordered.length === 0);
+            const feasible = remaining.filter(idx => costOf(idx) <= simMana && !(cardAt(idx).xCost && simMana < 1));
             if (feasible.length === 0) break;
+            const early = feasible.filter(idx => !isFinisher(idx));
+            const pool = early.length > 0 ? early : feasible;
 
             const targetCost = (simLastCost === null || simLastCost === undefined) ? 0 : simLastCost + 1;
-            const fits = cost => feasible.find(idx =>
-                !D.isWildCard(cardAt(idx)) && cardAt(idx).type !== 'curse' && getHandCost(idx) === cost);
+            const fits = cost => pool.find(idx =>
+                !D.isWildCard(cardAt(idx)) && cardAt(idx).type !== 'curse' && costOf(idx) === cost);
             let chosenIdx = fits(targetCost);
             // Combo Reverso na carta anterior: descer 1 também mantém a cadeia.
             if (chosenIdx === undefined && simReverse && targetCost >= 2) chosenIdx = fits(targetCost - 2);
-            if (chosenIdx === undefined) chosenIdx = feasible.find(idx => D.isWildCard(cardAt(idx)));
+            if (chosenIdx === undefined) chosenIdx = pool.find(idx => D.isWildCard(cardAt(idx)));
             if (chosenIdx === undefined) {
-                chosenIdx = feasible.slice().sort((a, b) => getHandCost(a) - getHandCost(b))[0];
+                chosenIdx = pool.slice().sort((a, b) => costOf(a) - costOf(b))[0];
             }
 
+            const chosenCost = costOf(chosenIdx);
             ordered.push(chosenIdx);
             remaining.splice(remaining.indexOf(chosenIdx), 1);
-            simMana = Math.max(0, simMana - getHandCost(chosenIdx) + (cardAt(chosenIdx).manaGain || 0));
-            simLastCost = D.getComboCostAfter(cardAt(chosenIdx), state.handCostMods[chosenIdx]);
+            simMana = Math.max(0, simMana - chosenCost + (cardAt(chosenIdx).manaGain || 0));
+            simLastCost = D.isWildCard(cardAt(chosenIdx)) ? -1 : chosenCost;
             simReverse = D.cardHasGem(cardAt(chosenIdx), 'reverse');
         }
         return ordered;
@@ -2415,7 +3089,14 @@
     function playAllCards() {
         if (state.mode !== 'combat' || state.busy || state.autoPlaying) return;
         if (!state.hand.some(isUsefulCard)) {
-            setLog('Sem Cafeína para cartas úteis. Toque em Fim do Turno!');
+            // Pickups de combate e o Selo do Eclipse ficam fora do Jogar Tudo: são decisão do jogador.
+            const manual = state.hand.some((id, idx) => {
+                const c = cardOf(id);
+                return (c.consumable || c.erase) && getHandCost(idx) <= state.mana;
+            });
+            setLog(manual
+                ? 'O Jogar Tudo não gasta pickups nem apaga inimigos: jogue essas cartas à mão ou toque em Fim do Turno.'
+                : 'Sem Cafeína para cartas úteis. Toque em Fim do Turno!');
             return;
         }
         state.autoPlaying = true;
@@ -2452,27 +3133,31 @@
 
     function startPlayerTurn() {
         // Mente Afiada: a Cafeína que sobrou (até o teto) soma à do novo turno.
-        const keptMana = state.arcana === 'mente_afiada' ? Math.min(B.arcanaManaCarry, state.mana) : 0;
+        const keptMana = hasArcana('mente_afiada') ? Math.min(B.arcanaManaCarry, state.mana) : 0;
         state.mana = Math.max(1, state.maxMana - (state.manaDrain || 0)) + keptMana;
         const drained = state.manaDrain || 0;
         state.manaDrain = 0;
         // Elo da Corrente: o combo atravessa o turno (com teto) e a 1ª carta continua a cadeia.
-        const keepCombo = state.arcana === 'elo_corrente' && state.comboCount > 0;
+        const keepCombo = hasArcana('elo_corrente') && state.comboCount > 0;
         state.comboCount = keepCombo ? Math.min(B.arcanaComboCarryCap, state.comboCount) : 0;
         state.comboCarry = keepCombo;
         state.comboReverse = false;
         state.lastComboCost = null;
         state.combo = D.getComboMult(state.comboCount);
         // O Escudo acumulado expira no início do turno do jogador (Escudo Soberbo o mantém, com teto).
-        state.shield = state.arcana === 'escudo_soberbo' ? Math.min(B.arcanaShieldCarryCap, state.shield) : 0;
+        state.shield = hasArcana('escudo_soberbo') ? Math.min(B.arcanaShieldCarryCap, state.shield) : 0;
+        state.nextCostDiscount = 0;
+        state.turnLastFx = null;
 
-        // Cartas com Retain permanecem na mão; demais vão para o descarte.
-        const retainedIds = state.hand.filter(cid => cardOf(cid).retain);
-        state.hand.forEach(cid => {
-            if (!cardOf(cid).retain) state.discardPile.push(cid);
+        // Cartas com Retain permanecem na mão; as temporárias somem (mesmo com Retain); as demais vão para o descarte.
+        const retainedIds = state.hand.filter((cid, idx) => cardOf(cid).retain && !isTempInHand(idx));
+        state.hand.forEach((cid, idx) => {
+            if (cardOf(cid).retain || isTempInHand(idx)) return;
+            state.discardPile.push(cid);
+            noteDiscard(cid);
         });
         // Fluxo e Combo: descartar cartas dá 50% de começar o turno já encadeado; falha garante a próxima.
-        if (state.arcana === 'fluxo_combo' && state.hand.length > retainedIds.length) {
+        if (hasArcana('fluxo_combo') && state.hand.length > retainedIds.length) {
             state.comboCarry = state.fluxoPity || Math.random() < 0.5;
             state.fluxoPity = !state.comboCarry;
             if (state.comboCarry) {
@@ -2483,6 +3168,7 @@
         state.hand = [];
         state.handReturnCounts = [];
         state.handCostMods = [];
+        state.handTemp = [];
         retainedIds.forEach(cid => pushToHand(cid, 0));
 
         drawCards(state.dealCount || B.dealCount);
@@ -2619,6 +3305,53 @@
         state.comboPile = [];
         state.comboChain = [];
 
+        runEndTurnEffects(resolveEndTurn);
+    }
+
+    // Antes de os inimigos agirem: cartas LOOP disparam de novo e as cartas com Pós-Vida que vão ser
+    // descartadas soltam os próprios efeitos (em 1x) e já seguem para o descarte.
+    function runEndTurnEffects(done) {
+        const queue = state.endTurnEchoes.map(echo => ({ label: 'LOOP', card: echo.card, mult: echo.mult }));
+        state.endTurnEchoes = [];
+        for (let idx = state.hand.length - 1; idx >= 0; idx--) {
+            const card = cardOf(state.hand[idx]);
+            if (card.retain || isTempInHand(idx) || card.type === 'curse' || !D.cardHasGem(card, 'afterlife')) continue;
+            queue.push({ label: 'PÓS-VIDA', card: card, mult: 1 });
+            discardFromHand(idx);
+        }
+        let fired = 0;
+        const next = () => {
+            if (state.mode !== 'combat') {
+                state.busy = false;
+                return;
+            }
+            const item = queue.shift();
+            if (!item || !state.enemies.some(e => e.hp > 0)) {
+                later(fired > 0 ? 220 : 0, done);
+                return;
+            }
+            fired++;
+            const p = viewportPoint(0.5, 0.44);
+            spawnFloatingText(p.x, p.y, item.label + ': ' + item.card.name, 'combo');
+            runCardEffect(item.card, { mult: item.mult, x: 0, dmgMult: 1, gems: false }, res => {
+                if (res.overkill) triggerOverkillBanner();
+                R.syncState(state);
+                renderAll();
+                later(280, next);
+            });
+        };
+        next();
+    }
+
+    function resolveEndTurn() {
+        // LOOP/Pós-Vida podem ter encerrado a luta (ou deixado o Chefe em OVERKILL): não há mais turno inimigo.
+        state.bossOverkillActive = false;
+        state.enemies.forEach(e => { e.overkill = false; });
+        if (state.enemies.every(e => e.hp <= 0)) {
+            finishEncounter();
+            return;
+        }
+
         // Bomba de Mana que ficou na mão explode (o Escudo absorve) e cresce para a próxima vez.
         state.hand.filter(id => D.CARDS[id].endTurnBomb).forEach(() => {
             const bombDmg = getManaBombDamage();
@@ -2651,7 +3384,7 @@
                     anyBurnOverkill = true;
                 }
             }
-            state.columnBurn[col] = Math.max(0, stacks - 1);
+            state.columnBurn[col] = Math.max(state.columnBurnFloor[col] || 0, stacks - 1);
         }
         if (burnTicked) {
             A.play('hit');
@@ -2839,7 +3572,7 @@
                 // O combate pode ter interrompido o evento do tile onde o jogador está
                 // (inclusive a saída, quando o chefe é enfrentado de cima dela).
                 const tile = fl.layout[state.player.y][state.player.x];
-                if (tile === 'M' || tile === '?' || tile === 'E') handleTileEvent(state.player.x, state.player.y, tile);
+                if ('M?EPOW'.includes(tile)) handleTileEvent(state.player.x, state.player.y, tile);
             }
             processModalQueue();
         });
@@ -2933,6 +3666,16 @@
     function buildCardKeywordsHtml(card, idx) {
         const pills = [];
         const aimLabels = { LeftRight: 'ESQ→DIR', RightLeft: 'DIR→ESQ', FrontRow: 'FRENTE', Random: 'ALEAT.' };
+        // Avisos primeiro (só cabem 3 selos): rachadura, desgaste e carta temporária.
+        const uses = state.cardUses[card.id] || 0;
+        if (state.crackedCards[card.id]) pills.push('<span class="card-kw-pill kw-crack">RACHADA</span>');
+        else if (D.isBreakableCard(card) && uses >= B.crackAfterUses - 1) {
+            pills.push('<span class="card-kw-pill kw-crack">USO ' + uses + '/' + B.crackAfterUses + '</span>');
+        }
+        if (typeof idx === 'number' && isTempInHand(idx)) pills.push('<span class="card-kw-pill kw-temp">TEMP</span>');
+        if (card.consumable) pills.push('<span class="card-kw-pill kw-temp">PICKUP</span>');
+        if (card.xCost) pills.push('<span class="card-kw-pill kw-wild">CUSTO X</span>');
+        if (card.endTurnRepeat) pills.push('<span class="card-kw-pill kw-return">LOOP</span>');
         if (card.isWild || card.type === 'wild') pills.push('<span class="card-kw-pill kw-wild">WILD</span>');
         if (aimLabels[card.targeting]) pills.push('<span class="card-kw-pill kw-aim">' + aimLabels[card.targeting] + '</span>');
         if (card.pierce > 0 || card.bouncy > 0) pills.push('<span class="card-kw-pill kw-aim">PIERCE</span>');
@@ -2966,7 +3709,7 @@
         els.comboChainCards.innerHTML = state.comboChain.slice(-5).map(id =>
             '<span class="chain-card' + (D.isWildCard(cardOf(id)) ? ' wild' : '') + '">' +
             '<img src="' + S.getIconUrl(cardOf(id).icon) + '" alt="" /><b>' +
-            (D.isWildCard(cardOf(id)) ? 'W' : cardOf(id).cost) + '</b></span>').join('') +
+            (D.isWildCard(cardOf(id)) ? 'W' : cardOf(id).xCost ? 'X' : cardOf(id).cost) + '</b></span>').join('') +
             '<span class="chain-next" title="Próximo custo que mantém o combo">' +
             (state.comboCarry ? '▸*' : hasChain ? '▸' + (state.lastComboCost + 1) : '▸?') + '</span>';
         els.pileCounts.textContent = 'COMPRA ' + state.drawPile.length + ' · DESC ' +
@@ -2990,8 +3733,10 @@
         els.handGrid.setAttribute('data-count', String(state.hand.length));
         state.hand.forEach((cardId, idx) => {
             const card = cardOf(cardId);
-            const costMod = state.handCostMods[idx] || 0;
+            const costMod = getHandCostMod(idx);
             const effCost = getHandCost(idx);
+            // Confusão e descontos pintam o custo; o Custo X mostra "X" (o valor atual vai na descrição).
+            const costShift = card.xCost ? 0 : effCost - (card.cost || 0);
             const isWild = D.isWildCard(card);
             const willCombo = card.type !== 'curse' &&
                 (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
@@ -3010,10 +3755,13 @@
             btn.className = 'card-btn ' + card.type +
                 (isWild ? ' wild' : '') +
                 (card.evolved ? ' evolved' : '') +
+                (state.crackedCards[cardId] ? ' cracked' : '') +
+                (isTempInHand(idx) ? ' temp' : '') +
                 (willCombo ? ' combo-ready' : '');
-            btn.disabled = locked || state.mana < effCost;
+            btn.disabled = locked || state.mana < effCost || (card.xCost && effCost < 1);
             btn.innerHTML =
-                '<span class="card-cost' + (costMod > 0 ? ' cost-up' : costMod < 0 ? ' cost-down' : '') + '">' + effCost + '</span>' +
+                '<span class="card-cost' + (costShift > 0 ? ' cost-up' : costShift < 0 ? ' cost-down' : '') + '">' +
+                (card.xCost ? 'X' : effCost) + '</span>' +
                 (powerTag ? '<span class="card-power-tag">' + powerTag + '</span>' : '') +
                 '<div class="card-banner"><span class="card-name">' + card.name +
                 (lvl >= B.maxCardLevel && card.evolvesTo && !card.evolved ? ' ★MÁX' : '') +
@@ -3148,6 +3896,11 @@
     }
 
     els.btnGemDiscard.addEventListener('click', guardModalAction(() => {
+        if (activeModal.type === 'pick') {
+            A.play('card');
+            closeActiveModal(item => { if (item.onDecline) item.onDecline(); });
+            return;
+        }
         if (activeModal.type !== 'gem') {
             modalActionLocked = false;
             return;
@@ -3291,7 +4044,18 @@
         restart: openTitleModal,
         grantGem: grantGem,
         socketGem: socketGem,
-        setArcana: setArcana
+        setArcana: setArcana,
+        addArcana: addArcana,
+        grantPickup: grantPickup,
+        randomGemId: randomGemId,
+        gainXp: gainXp,
+        openRest: () => enqueueModal({ type: 'rest' }),
+        // Abre o evento de um tile especial ('P', 'O' ou 'W') sem precisar andar até ele.
+        openSpecial: (tile, key) => {
+            const k = key || 'debug_' + tile;
+            if (tile === 'W') useWishingWell(k);
+            else enqueueModal({ type: 'event', event: tile === 'P' ? silverChestEvent(k) : offeringEvent(k) });
+        }
     };
 
     openTitleModal();

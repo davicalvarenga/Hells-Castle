@@ -499,6 +499,12 @@
                     addWorldSprite(x, y, 'event_q', 1.2);
                 } else if (ch === 'E') {
                     addWorldSprite(x, y, 'exit', 2.2);
+                } else if (ch === 'P') {
+                    addWorldSprite(x, y, 'chest_silver', 1.0);
+                } else if (ch === 'W') {
+                    addWorldSprite(x, y, 'well', 1.5);
+                } else if (ch === 'O') {
+                    addWorldSprite(x, y, 'altar', 1.45);
                 }
             }
         }
@@ -1314,7 +1320,8 @@
     const PROJECTILE_BY_ICON = {
         c_dagger: 'blade', c_sword: 'blade', c_blades: 'blade', c_shadow: 'blade',
         c_wild: 'orb', c_flask: 'flask', c_bolt: 'bolt', c_crows: 'crow',
-        c_comet: 'fire', c_sun: 'fire'
+        c_comet: 'fire', c_sun: 'fire',
+        c_bracelet: 'orb', c_loop: 'bolt', c_dew: 'flask', c_pool: 'flask', c_fusion: 'blade'
     };
 
     function getProjectileKindForCard(card) {
@@ -1767,6 +1774,12 @@
                 } else if (ch === 'E') {
                     mctx.fillStyle = '#2b8a3e';
                     mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
+                } else if ((ch === 'P' || ch === 'W' || ch === 'O') && !cleared) {
+                    // Tiles especiais: Baú de Prata (prata), Poço dos Desejos (azul), Mesa de Oferenda (magenta)
+                    mctx.fillStyle = ch === 'P' ? '#c9d3e6' : ch === 'W' ? '#2f8fd6' : '#d64fc2';
+                    mctx.fillRect(px + q, py + q, cell - q * 2, cell - q * 2);
+                    mctx.fillStyle = '#ffffff';
+                    mctx.fillRect(px + q * 2, py + q * 2, cell - q * 4, cell - q * 4);
                 }
             }
         }

@@ -95,6 +95,11 @@ function checkCounts(fl, base) {
     assert.equal(count(L, 'B'), 1, tag + 'B');
     assert.equal(count(L, 'M'), base.restName ? 1 : 0, tag + 'M');
     assert.equal(count(L, 'E'), base.layout.some(r => r.includes('E')) ? 1 : 0, tag + 'E');
+    // Tiles especiais: no máximo 1 de cada, até 2 por andar, e nenhum na fase final.
+    const specials = ['P', 'O', 'W'].map(ch => count(L, ch));
+    specials.forEach(n => assert.ok(n <= 1, tag + 'tile especial repetido'));
+    assert.ok(specials.reduce((a, b) => a + b, 0) <= (isFinalFloor(base) ? 0 : 2), tag + 'tiles especiais demais');
+    assert.equal(fl.poi.specials.length, specials.reduce((a, b) => a + b, 0), tag + 'poi.specials');
     if (isFinalFloor(base)) {
         assert.equal(commons, 0, tag + 'fase final sem comuns');
         assert.equal(count(L, 'L'), 0, tag + 'fase final sem Elite');
@@ -175,6 +180,31 @@ test('5 biomas x 300 seeds: andares válidos, POIs nas contagens pedidas e tempo
     const total = D.FLOORS.length * SEEDS_PER_BIOME;
     t.diagnostic('fallback: ' + fallbacks + '/' + total + ' | média ' + (totalMs / total).toFixed(2) + ' ms | pior ' + slowest.toFixed(2) + ' ms');
     assert.ok(totalMs / total < 50, 'geração média abaixo de 50 ms');
+});
+
+test('tiles especiais: Poço, Mesa de Oferenda e Baú de Prata (raro) aparecem e nunca fecham a passagem', () => {
+    const seen = { P: 0, O: 0, W: 0 };
+    let floors = 0;
+    let withSpecial = 0;
+    D.FLOORS.filter(base => !isFinalFloor(base)).forEach(base => {
+        for (let seed = 0; seed < 200; seed++) {
+            const fl = generate(base, seed);
+            floors++;
+            if (fl.poi.specials.length > 0) withSpecial++;
+            fl.poi.specials.forEach(sp => {
+                seen[sp.ch]++;
+                assert.equal(fl.layout[sp.y][sp.x], sp.ch);
+                // Sem pisar em nenhum POI opcional, o resto do andar continua alcançável.
+                const reach = bfs(fl.layout, fl.poi.start, ch => ch !== '#' && !'?CPOW'.includes(ch));
+                fl.layout.forEach((row, y) => [...row].forEach((ch, x) => {
+                    if (ch !== '#' && !'?CPOW'.includes(ch)) assert.ok(reach.has(x + ',' + y), base.biome + ' seed ' + seed + ': ' + ch + ' preso');
+                }));
+            });
+        }
+    });
+    assert.ok(withSpecial / floors > 0.95, 'andares com tile especial: ' + withSpecial + '/' + floors);
+    assert.ok(seen.W > 0 && seen.O > 0 && seen.P > 0, JSON.stringify(seen));
+    assert.ok(seen.P < seen.W && seen.P < seen.O, 'Baú de Prata deve ser o mais raro: ' + JSON.stringify(seen));
 });
 
 test('layout de reserva é válido em todos os biomas', () => {

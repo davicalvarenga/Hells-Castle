@@ -164,3 +164,158 @@ test('pool por bioma: todo inimigo tem fase e sprite existente', () => {
     }
     Object.keys(D.ENEMIES).forEach(kind => assert.ok(D.ENEMIES[kind].floor, kind + ' sem fase'));
 });
+
+// ---------- Etapa 4: arsenal completo, gemas avançadas, rachadura e eventos de mapa ----------
+const NEW_GEMS = ['eco', 'copia', 'ima', 'bombardeio', 'demi', 'discharge', 'switch', 'spike', 'yinyang', 'afterlife', 'uncrackable', 'preserve'];
+
+test('gemas avançadas: as 12 existem, com raridade, glifo e exclusões válidas', () => {
+    NEW_GEMS.forEach(id => {
+        const g = D.GEMS[id];
+        assert.ok(g && g.name && g.desc && g.glyph && g.color, id);
+        assert.ok(g.tags.length > 0, id + ' sem tag');
+    });
+    assert.equal(Object.keys(D.GEMS).length, 25);
+    Object.values(D.GEMS).forEach(g => {
+        assert.ok(D.GEM_RARITY_WEIGHT[g.rarity] > 0, g.id + ' sem raridade');
+        assert.ok(D.GEM_RARITY_LABEL[g.rarity], g.id);
+        g.incompatibleWith.forEach(other => assert.ok(D.GEMS[other], g.id + ' -> ' + other));
+    });
+    ['epica', 'lendaria'].forEach(r => assert.ok(Object.values(D.GEMS).some(g => g.rarity === r), 'falta gema ' + r));
+});
+
+test('gemas avançadas: compatibilidade e encaixes que não fariam nada', () => {
+    const blade = D.CARDS.mordida_ferro;   // comum, causa dano
+    const war = D.CARDS.grito_guerra;      // suporte sem dano
+    const egide = D.CARDS.escudo_burocratico; // Retain nativo
+    assert.ok(!D.canSocketGem(blade, ['eco'], 'copia'), 'Eco x Cópia');
+    assert.ok(!D.canSocketGem(blade, ['ret'], 'copia'), 'Retornar x Cópia');
+    assert.ok(!D.canSocketGem(blade, ['copia'], 'ima'), 'Cópia x Ímã');
+    assert.ok(!D.canSocketGem(blade, ['double'], 'discharge'), 'Dano Duplo x Quebra-Combo');
+    assert.ok(!D.canSocketGem(blade, ['spike'], 'demi'), 'Ataque de Armadura x Dizimar');
+    assert.ok(!D.canSocketGem(blade, ['switch'], 'yinyang'), 'Troca x Yin Yang');
+    assert.ok(!D.canSocketGem(blade, ['retain'], 'afterlife'), 'Reter x Pós-Vida');
+    assert.ok(!D.canSocketGem(blade, ['uncrackable'], 'preserve'), 'Inquebrável x À Prova de Fogo');
+    ['bombardeio', 'demi', 'discharge', 'spike'].forEach(g => {
+        assert.ok(D.canSocketGem(blade, [], g), g + ' cabe em carta de dano');
+        assert.ok(!D.canSocketGem(war, [], g), g + ' exige dano');
+    });
+    ['eco', 'switch', 'yinyang'].forEach(g => assert.ok(D.canSocketGem(war, [], g), g + ' cabe em suporte'));
+    assert.ok(!D.canSocketGem(egide, [], 'afterlife'), 'carta com Retain nunca é descartada');
+    assert.ok(!D.canSocketGem(D.CARDS.banquete_andarilho, [], 'copia'), 'Destroy de uso único não copia');
+    assert.ok(!D.canSocketGem(D.CARDS.banquete_andarilho, [], 'preserve'), 'bônus permanente não vira infinito');
+    assert.ok(D.canSocketGem(D.CARDS.selo_eclipse, [], 'preserve'), 'Destroy da luta pode ser preservado');
+    assert.ok(D.canSocketGem(blade, [], 'uncrackable') && D.canSocketGem(blade, [], 'preserve'));
+    assert.ok(!D.canSocketGem(D.CARDS.mandibula_ferro, [], 'uncrackable'), 'evoluída não racha');
+    assert.ok(!D.canSocketGem(D.CARDS.moeda_destino, [], 'uncrackable'), 'Wild não racha');
+    assert.ok(!D.canSocketGem(D.CARDS.explosao_total, [], 'mana_plus'), 'Custo X ignora Mana +1');
+    assert.ok(!D.canSocketGem(D.CARDS.explosao_total, [], 'afterlife'), 'Custo X não tem Pós-Vida');
+});
+
+test('slots: +1 da Mesa de Oferenda com teto e nenhum em pickup/carta gerada', () => {
+    assert.equal(D.getCardGemSlots(D.CARDS.golpe_furtivo, 1), 2);
+    assert.equal(D.getCardGemSlots(D.CARDS.julgamento_final, 1), 4);
+    assert.equal(D.getCardGemSlots(D.CARDS.julgamento_final, 5), D.BALANCE.maxGemSlots);
+    assert.equal(D.getCardGemSlots(D.CARDS.explosao_total), 2);
+    assert.equal(D.getCardGemSlots(D.CARDS.e_sino, 1), 0);
+    assert.equal(D.getCardGemSlots(D.CARDS.cafeina_pura), 0);
+    const dagger = D.CARDS.golpe_furtivo;
+    assert.ok(!D.canSocketGem(dagger, ['swift'], 'leader'), '1 slot cheio');
+    assert.ok(D.canSocketGem(dagger, ['swift'], 'leader', 1), 'slot extra libera a 2ª gema');
+});
+
+test('sorteio de gema: ponderado pela raridade e estável nas bordas', () => {
+    const ids = ['swift', 'mana_minus', 'double', 'afterlife']; // pesos 4, 3, 2, 1
+    assert.equal(D.pickGemByRarity(ids, 0), 'swift');
+    assert.equal(D.pickGemByRarity(ids, 0.39), 'swift');
+    assert.equal(D.pickGemByRarity(ids, 0.41), 'mana_minus');
+    assert.equal(D.pickGemByRarity(ids, 0.75), 'double');
+    assert.equal(D.pickGemByRarity(ids, 0.95), 'afterlife');
+    assert.equal(D.pickGemByRarity(ids, 1), 'afterlife');
+    assert.equal(D.pickGemByRarity([], 0.5), null);
+});
+
+test('rachadura: só carta comum; racha após o limite e estilhaça em 25%', () => {
+    const blade = D.CARDS.mordida_ferro;
+    const limit = D.BALANCE.crackAfterUses;
+    assert.ok(D.isBreakableCard(blade));
+    [D.CARDS.moeda_destino, D.CARDS.mandibula_ferro, D.CARDS.gladio_aurora, D.CARDS.banquete_andarilho,
+        D.CARDS.folha_presa, D.CARDS.e_sino, D.CARDS.cafeina_pura].forEach(c => assert.ok(!D.isBreakableCard(c), c.id));
+    assert.ok(!D.isBreakableCard(D.applyGems(blade, ['uncrackable'])), 'Inquebrável');
+    assert.ok(D.isBreakableCard(D.applyGems(blade, ['preserve'])), 'À Prova de Fogo ainda racha');
+    assert.deepEqual({ ...D.rollCrack(limit, false, 0) }, { cracked: false, shattered: false });
+    assert.deepEqual({ ...D.rollCrack(limit + 1, false, 0) }, { cracked: true, shattered: false }, 'o uso que racha não estilhaça');
+    assert.deepEqual({ ...D.rollCrack(limit + 1, true, 0.24) }, { cracked: true, shattered: true });
+    assert.deepEqual({ ...D.rollCrack(limit + 1, true, 0.25) }, { cracked: true, shattered: false });
+    assert.deepEqual({ ...D.rollCrack(limit + 1, true, 0, true) }, { cracked: true, shattered: false }, 'À Prova de Fogo');
+    assert.deepEqual({ ...D.rollCrack(2, true, 0) }, { cracked: true, shattered: false }, 'Rachada dentro do limite é segura');
+});
+
+test('Quebra-Combo, Dizimar e Custo X: fórmulas', () => {
+    assert.equal(D.getDischargeMult(0), 1);
+    assert.equal(D.getDischargeMult(3), 2.5);
+    assert.equal(D.getDemiDamage(100, false), 10);
+    assert.equal(D.getDemiDamage(100, true), 5);
+    assert.equal(D.getDemiDamage(3, false), 1);
+    assert.equal(D.getDemiDamage(0, false), 0);
+    const x = D.CARDS.explosao_total;
+    assert.equal(D.getEffectiveCost(x, D.getXCostMod(x, 5)), 5, 'custo efetivo = toda a Cafeína');
+    assert.ok(D.canCardCombo(x, 1, D.getXCostMod(x, 2)), 'X = 2 comba depois de custo 1');
+    assert.ok(!D.canCardCombo(x, 1, D.getXCostMod(x, 3)), 'X = 3 pula degrau');
+    assert.equal(D.getXCostMod(D.CARDS.mordida_ferro, 5), 0);
+});
+
+test('cartas novas: Custo X, Wilds, Tomos, pickups e mecânicas únicas coerentes', () => {
+    ['w_asas', 'w_amuleto', 'w_pulseira', 'w_broquel'].forEach(id => assert.ok(D.isWildCard(D.CARDS[id]), id));
+    assert.equal(D.CARDS.w_asas.cost, 4);
+    assert.equal(D.CARDS.w_asas.costDiscount, 1);
+    [['tomo_1', 0], ['tomo_2', 1], ['tomo_3', 2]].forEach(([id, cost]) => {
+        assert.equal(D.CARDS[id].cost, cost, id);
+        assert.equal(D.CARDS[id].manaGain, cost + 1, id + ': ganho líquido +1');
+    });
+    const pure = D.CARDS[D.CARDS.cancao_mana.genCard];
+    assert.ok(pure.tempOnly && pure.destroy && D.isWildCard(pure) && pure.cost === 0 && pure.manaGain === 3);
+    assert.equal(D.PICKUP_CARDS.length, 4);
+    D.PICKUP_CARDS.forEach(id => {
+        const c = D.CARDS[id];
+        assert.ok(c.consumable && c.destroy && c.retain && D.isWildCard(c) && c.cost === 0, id);
+        assert.ok(D.isOneShotCard(c), id);
+    });
+    assert.equal(D.CARDS.e_saco_moedas.vrGain, 25);
+    assert.equal(D.CARDS.e_coracao.heal, 5);
+    assert.ok(D.CARDS.selo_eclipse.erase && D.CARDS.selo_eclipse.discardDiscount > 0);
+    assert.ok(D.CARDS.anel_trovoes.endTurnRepeat);
+    assert.ok(D.CARDS.orvalho_ardente.burnPersist > 0 && D.CARDS.lago_brasas.burnPersist > D.CARDS.orvalho_ardente.burnPersist);
+    Object.values(D.CARDS).forEach(c => {
+        assert.ok(c.name && c.origin && c.icon && c.desc && c.sfx, c.id);
+        if (c.evolvesTo) assert.ok(D.CARDS[c.evolvesTo] && D.CARDS[c.evolvesTo].evolved, c.id + ' -> ' + c.evolvesTo);
+        if (c.genCard) assert.ok(D.CARDS[c.genCard], c.id);
+    });
+});
+
+test('evoluções e fusão: cartas existem e toda evolução tem como chegar ao Nível MÁX', () => {
+    D.EVOLUTIONS.forEach(ev => {
+        assert.equal(D.CARDS[ev.fromCard].evolvesTo, ev.toCard, ev.passiveId);
+        assert.ok(D.LEVEL_UP_REWARDS.some(r => r.id === 'up_' + ev.fromCard), 'sem up_' + ev.fromCard);
+        const relic = D.LEVEL_UP_REWARDS.find(r => r.id === ev.passiveId);
+        assert.equal(relic.requiresCard, ev.requiresOwned ? ev.fromCard : undefined, ev.passiveId);
+    });
+    assert.equal(D.FUSIONS.length, 1);
+    D.FUSIONS.forEach(f => {
+        assert.equal(f.cards.length, 2);
+        f.cards.forEach(id => assert.ok(D.LEVEL_UP_REWARDS.some(r => r.id === 'up_' + id), 'fusão precisa de up_' + id));
+        assert.ok(D.CARDS[f.toCard].fused && D.CARDS[f.toCard].evolved);
+    });
+    D.LEVEL_UP_REWARDS.filter(r => r.requiresCard).forEach(r => assert.ok(D.CARDS[r.requiresCard], r.id));
+});
+
+test('eventos de mapa: tiles especiais e pares do Baú de Prata', () => {
+    assert.deepEqual(Object.keys(D.SPECIAL_TILES).sort(), ['O', 'P', 'W']);
+    D.SILVER_CHEST_PAIRS.forEach(pair => {
+        assert.equal(pair.length, 2);
+        assert.notEqual(pair[0], pair[1]);
+        pair.forEach(type => {
+            assert.ok(D.CARD_TYPE_LABELS[type], type);
+            assert.ok(D.STARTING_DECK.some(id => D.CARDS[id].type === type), 'baralho inicial sem ' + type);
+        });
+    });
+});

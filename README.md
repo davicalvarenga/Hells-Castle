@@ -35,6 +35,41 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 - **Celular:** layout dedicado em retrato (`100dvh`, sem scroll), com cartas e botões dimensionados para toque.
 - **Modo Planilha:** tecla `P` ou o botão no canto superior direito.
 
+## Arsenal, Gemas e Eventos de Mapa
+
+- **Custo X:** *Explosão Total* gasta toda a Cafeína e multiplica o dano por X (X também é o degrau dela na escada de combo).
+- **Wild puras:** *Asas do Devaneio* (custo 4; a próxima carta custa 1 a menos), *Amuleto do Elo* (+1 Combo extra), *Pulseira de Contas* (projéteis) e *Broquel do Sonhador* (Escudo x Combo).
+- **Tomos de Mana:** *Despertar* (0→1), *Vigília* (1→2) e *Madrugada* (2→3) devolvem `custo + 1` de Cafeína; a *Canção da Cafeteira* cria uma *Cafeína Pura* temporária (0 Wild, +3 Cafeína, Destroy).
+- **Pickups de baú:** 50% de chance de 1 carta `0 Wild [Destroy]` de uso único, sempre à mão até ser usada: *Ampulheta Parada* (congela a linha de frente), *Sino do Meio-Dia* (30 de dano na frente), *Saco de Moedas* (+25 VR) e *Coraçãozinho* (+5 Sanidade). O **Jogar Tudo** só gasta sozinho as moedas e a cura.
+- **Mecânicas únicas:** *Selo do Eclipse → Prisma do Eclipse* (barateia a cada descarte e apaga inimigos comuns), *Anel de Trovões* (dispara de novo no fim do turno), *Orvalho Ardente → Lago de Brasas* (Burn persistente na coluna) e a fusão *Lâmina do Devaneio (MÁX) + Sopro de Brasas (MÁX) → Gládio da Aurora*.
+- **Gemas avançadas (25 no total, com raridade e exclusões):** Eco, Cópia, Ímã, Bombardeio, Dizimar, Quebra-Combo, Troca, Ataque de Armadura, Yin Yang, Pós-Vida, Inquebrável e À Prova de Fogo.
+- **Rachadura:** carta comum usada mais de 5 vezes no mesmo combate fica **Rachada**; usada além do limite de novo, tem 25% de chance de estilhaçar e sair do baralho. *Inquebrável*, *À Prova de Fogo* ou **Reparar Rachaduras** na fogueira (20 VR) resolvem.
+- **Eventos de mapa:** **Baú de Prata** (pede 2 cartas de tipos específicos; dá Gema Épica/Lendária ou Arcana extra), **Mesa de Oferenda** (sacrifique 1 carta por +1 Slot de Gema em outra, ou por 20 VR) e **Poço dos Desejos** (Gema rara ou Arcana extra, uso único).
+
+## Testes
+
+```bash
+node --test
+```
+
+```bash
+npm i --no-save playwright-core
+```
+
+```bash
+node tools/hc-e2e.mjs
+```
+
+```bash
+node tools/hc-proc.mjs
+```
+
+```bash
+node tools/hc-bot.mjs --runs 8 --policy good
+```
+
+`node --test` cobre as regras puras e o gerador de mapas; os scripts em `tools/` usam o Chrome instalado (via `playwright-core`) para os testes de ponta a ponta em desktop e mobile e para o bot que joga runs completas.
+
 ## Créditos
 
 - Fonte pixelada [Jersey 15](https://github.com/scfried/soft-type-jersey) (SIL Open Font License 1.1 em `docs/fonts/Jersey15-OFL.txt`).

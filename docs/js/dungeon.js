@@ -8,6 +8,11 @@
     const DEFAULT_MAX_ENEMIES = 10; // igual a MAX_ENEMIES_IN_COMBAT
     const MAX_ATTEMPTS = 80;        // tentativas com seed derivada antes do layout de reserva
     const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    // Tiles especiais: P = Baú de Prata (raro), O = Mesa de Oferenda, W = Poço dos Desejos.
+    const SPECIAL_CHARS = 'POW';
+    const POI_CHARS = '#.SCM?E' + SPECIAL_CHARS;
+    // POIs que pedem uma decisão do jogador nunca podem ser a única passagem.
+    const isOptionalPoi = ch => ch === '?' || ch === 'C' || SPECIAL_CHARS.includes(ch);
 
     // ---------- RNG ----------
     // mulberry32: rápido, 32 bits de estado e reprodutível em qualquer navegador.
@@ -261,13 +266,16 @@
                 const edge = x === 0 || y === 0 || x === n - 1 || y === n - 1;
                 if (edge && ch !== '#') problems.push('borda aberta em ' + x + ',' + y);
                 if (ch !== '#' && ch !== '.') (tiles[ch] = tiles[ch] || []).push({ x: x, y: y });
-                if (!'#.SCM?E'.includes(ch) && !encounters[ch]) problems.push('símbolo sem encontro "' + ch + '" em ' + x + ',' + y);
+                if (!POI_CHARS.includes(ch) && !encounters[ch]) problems.push('símbolo sem encontro "' + ch + '" em ' + x + ',' + y);
             }
         }
         if (problems.length) return problems;
         if (!tiles.S || tiles.S.length !== 1) return problems.concat('precisa de exatamente um S');
         if (!encounters.B) problems.push('sem encontro de chefe B');
         if (tiles.E && tiles.E.length > 1) problems.push('mais de uma saída');
+        SPECIAL_CHARS.split('').forEach(ch => {
+            if (tiles[ch] && tiles[ch].length > 1) problems.push('mais de um tile especial "' + ch + '"');
+        });
         Object.keys(encounters).forEach(ch => {
             const count = (tiles[ch] || []).length;
             if (count !== 1) problems.push('encontro "' + ch + '" aparece ' + count + ' vezes no mapa');
@@ -277,15 +285,15 @@
 
         const start = tiles.S[0];
         const dist = bfs(L, start, ch => ch !== '#');
-        const freePath = bfs(L, start, ch => ch !== '#' && ch !== '?' && ch !== 'C');
+        const freePath = bfs(L, start, ch => ch !== '#' && !isOptionalPoi(ch));
         for (let y = 0; y < n; y++) {
             for (let x = 0; x < n; x++) {
                 const ch = L[y][x];
                 if (ch === '#') continue;
                 // (a) tudo alcançável a partir de S (inclui todos os POIs)
                 if (dist[y * n + x] < 0) problems.push('"' + ch + '" inalcançável em ' + x + ',' + y);
-                // (e) ? e C nunca são a única passagem
-                else if (ch !== '?' && ch !== 'C' && freePath[y * n + x] < 0) problems.push('"' + ch + '" em ' + x + ',' + y + ' só é alcançável pisando em ?/C');
+                // (e) ?, C e os tiles especiais nunca são a única passagem
+                else if (!isOptionalPoi(ch) && freePath[y * n + x] < 0) problems.push('"' + ch + '" em ' + x + ',' + y + ' só é alcançável pisando em ?/C/especial');
             }
         }
 
@@ -588,7 +596,7 @@
         }
 
         // ? e C nunca podem ser a única passagem: testa cada candidato com BFS.
-        const passableWithout = ch => ch !== '#' && ch !== '?' && ch !== 'C';
+        const passableWithout = ch => ch !== '#' && !isOptionalPoi(ch);
         const keepsPassage = () => {
             const reach = bfs(grid, start, passableWithout);
             return allTiles.every(p => !passableWithout(grid[p.y][p.x]) || reach[key(p)] >= 0);
@@ -610,6 +618,14 @@
         const events = ctx.isFinal ? randInt(rng, 0, 1) : randInt(rng, 1, 2);
         const chests = ctx.isFinal ? 1 : randInt(rng, 1, 2);
         if (!placeBlocking('?', events) || !placeBlocking('C', chests)) return null;
+
+        // Tiles especiais: 1 ou 2 por andar (nunca na fase final), sem repetir o tipo. O Baú de Prata
+        // pesa menos no sorteio. Se não houver vaga, o andar segue sem ele (não invalida a tentativa).
+        if (!ctx.isFinal) {
+            const wanted = rng() < 0.4 ? 2 : 1;
+            unique(shuffle(rng, ['W', 'W', 'W', 'O', 'O', 'O', 'P', 'P'])).slice(0, wanted)
+                .forEach(ch => placeBlocking(ch, 1));
+        }
 
         return { arena: arena, eliteChest: eliteChest };
     }
@@ -730,7 +746,7 @@
     function collectPoi(layout, extra) {
         const poi = {
             start: null, boss: null, elite: null, rest: null, exit: null,
-            chests: [], events: [], encounters: [],
+            chests: [], events: [], specials: [], encounters: [],
             eliteChest: extra.eliteChest, rooms: extra.rooms, loops: extra.loops
         };
         layout.forEach((row, y) => {
@@ -742,6 +758,7 @@
                 else if (ch === 'E') poi.exit = p;
                 else if (ch === 'C') poi.chests.push(p);
                 else if (ch === '?') poi.events.push(p);
+                else if (SPECIAL_CHARS.includes(ch)) poi.specials.push({ ch: ch, x: x, y: y });
                 if (isEncounterChar(ch)) {
                     poi.encounters.push({ ch: ch, x: x, y: y });
                     if (ch === 'B') poi.boss = p;
@@ -803,6 +820,7 @@
         rollEncounter: rollEncounter,
         ENCOUNTER_TEMPLATES: ENCOUNTER_TEMPLATES,
         BIOME_STYLES: BIOME_STYLES,
-        FALLBACK_LAYOUT: FALLBACK_LAYOUT
+        FALLBACK_LAYOUT: FALLBACK_LAYOUT,
+        SPECIAL_CHARS: SPECIAL_CHARS
     };
 })();

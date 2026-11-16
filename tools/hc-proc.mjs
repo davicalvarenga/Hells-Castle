@@ -61,6 +61,54 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const d = await fingerprint(page);
     check(vp + ' ?seed= reproduz mapa e hordas', c.seed === 4242 && c.map === d.map && c.hordes === d.hordes, { seed: c.seed });
 
+    // Etapa 4: tile especial (P = Baú de Prata, O = Mesa de Oferenda, W = Poço) pisado de verdade no mapa gerado.
+    const special = await page.evaluate(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        const fl = h.getFloor();
+        const sp = fl.poi.specials[0];
+        if (!sp) return null;
+        s.encounters.forEach(e => { e.alive = false; }); // sem aggro no caminho; o Elite continua na lista
+        const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        for (let d = 0; d < 4; d++) {
+            const x = sp.x - DIRS[d][0];
+            const y = sp.y - DIRS[d][1];
+            if (fl.layout[y][x] !== '.') continue;
+            s.player.x = x;
+            s.player.y = y;
+            // A câmera gira em passos relativos: vira o jogador até encarar o tile (no mínimo ida e volta, para sincronizar).
+            const turns = (d - s.player.dir + 4) % 4;
+            if (turns === 0) { h.turnPlayer(1); h.turnPlayer(-1); }
+            for (let i = 0; i < turns; i++) h.turnPlayer(1);
+            return { ch: sp.ch, key: sp.x + ',' + sp.y, count: fl.poi.specials.length };
+        }
+        return { ch: sp.ch, blocked: true };
+    });
+    check(vp + ' andar gerado tem tile especial acessível', !!special && !special.blocked, special);
+    if (special && !special.blocked) {
+        await page.waitForTimeout(1300);
+        await page.screenshot({ path: 'proc-' + vp + '-special.png' });
+        await page.evaluate(() => window.__hcDebug.moveRelative(1, 0));
+        await page.waitForTimeout(600);
+        const opened = await page.evaluate(() => {
+            const m = window.__hcDebug.activeModal;
+            return { type: m && m.type, kind: m && m.event && m.event.id };
+        });
+        const expected = { P: 'bau_prata', O: 'mesa_oferenda' }[special.ch];
+        check(vp + ' pisar no tile ' + special.ch + ' abre o evento certo', expected
+            ? opened.type === 'event' && opened.kind === expected
+            : opened.type === 'gem' || opened.type === 'arcana', opened);
+        await page.evaluate(() => {
+            const pick = sel => { const list = document.querySelectorAll(sel); return list[list.length - 1]; };
+            const b = pick('#event-modal:not(.hidden) .event-choice-btn') || pick('#arcana-modal:not(.hidden) .arcana-choice') ||
+                document.querySelector('#gem-modal:not(.hidden) #btn-gem-discard');
+            if (b) b.click();
+        });
+        await page.waitForTimeout(500);
+        check(vp + ' tile ' + special.ch + ': Poço some ao usar; baú/mesa recusados continuam no mapa', await page.evaluate(([k, ch]) =>
+            window.__hcDebug.state.clearedTiles.has(k) === (ch === 'W') && window.__hcDebug.state.mode === 'explore', [special.key, special.ch]));
+    }
+
     // Combate Elite
     await page.evaluate(() => {
         const h = window.__hcDebug;
