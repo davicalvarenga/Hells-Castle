@@ -171,7 +171,9 @@ test('pool por bioma: todo inimigo tem fase e sprite existente', () => {
         assert.ok(D.ENEMIES[pool.boss].isBoss, 'chefe da fase ' + floor);
         pool.common.forEach(kind => {
             const e = D.ENEMIES[kind];
-            assert.equal(e.floor, floor, kind);
+            // Etapa 9: o Abismo usa "Ecos" de outras Fases (a Fase de origem no Bestiário não muda).
+            if (pool.echoes) assert.ok(e.floor >= 2 && e.floor <= 4, kind + ' eco de fase anterior');
+            else assert.equal(e.floor, floor, kind);
             assert.ok(!e.isBoss, kind);
             if (e.sprite) assert.ok(D.ENEMIES[e.sprite], kind + ' reaproveita sprite ' + e.sprite);
         });

@@ -14,15 +14,25 @@ Para abrir localmente, basta servir a pasta `/docs` (por exemplo com `python -m 
 
 ## Campanha: "Entre Uma Reunião e Outra"
 
-Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Cada fase é um bioma 3D próprio, aberto por um card narrativo com o gatilho real do escritório:
+Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Cada Bioma 3D é aberto por um card narrativo com o gatilho real do escritório e dividido em **3 Partes** (15 setores no total), com o Relógio de Ponto avançando de 08:17 até 18:00:
 
-| Fase | Relógio | Bioma | Chefe |
-| --- | --- | --- | --- |
-| 1 | 08:17 | Praia do Crepúsculo | Devorador das Marés (coloca "Folha Presa" na mão) |
-| 2 | 11:30 | Cidade Gótica Amaldiçoada | Mensageiro do Sino Veloz (ataca 2x por turno) |
-| 3 | 14:45 | Pico Nevado | Estrategista do Véu Branco (Escudo de Cristal todo turno) |
-| 4 | 17:15 | Dungeon do Arquivo | Guardiã das Catacumbas (invoca; entrega a "Foto no Parque") |
-| 5 | 17:55 | O Abismo Estrelado | O Senhor das Horas (drena Cafeína se não for bloqueado) |
+| Bioma | Parte 1/3 (Entrada) | Parte 2/3 (Coração) | Parte 3/3 (Domínio do Chefe) | Chefe |
+| --- | --- | --- | --- | --- |
+| Praia do Crepúsculo | 08:17 Arrebentação | 09:05 Maré Crescente | 09:50 Covil das Marés | Devorador das Marés (coloca "Folha Presa" na mão) |
+| Cidade Gótica Amaldiçoada | 10:40 Ruelas Encharcadas | 11:30 Praça do Sino | 12:15 Torre do Mensageiro | Mensageiro do Sino Veloz (ataca 2x por turno) |
+| Pico Nevado | 13:20 Trilha Gelada | 14:05 Desfiladeiro Branco | 14:45 Cume do Véu | Estrategista do Véu Branco (Escudo de Cristal todo turno) |
+| Dungeon do Arquivo | 15:30 Arquivo Morto | 16:10 Catacumbas do RH | 16:50 Cripta da Guardiã | Guardiã das Catacumbas (invoca; entrega a "Foto no Parque") |
+| O Abismo Estrelado | 17:15 Beira do Vazio | 17:35 Mar de Estrelas | 17:55 Trono das Horas | O Senhor das Horas (drena Cafeína se não for bloqueado) |
+
+- **Parte 1/3 (Entrada):** mapa procedural com 3 encontros comuns, 1 Baú, 1 Evento `?` e o Portal `E` na sala mais distante do início.
+- **Parte 2/3 (Coração):** 3 encontros mais fortes, 1 Elite (com baú de recompensa), 1 Ponto de Pausa `M`, 1 evento especial (Poço, Baú de Prata ou Oferenda) e o Portal `E`.
+- **Parte 3/3 (Domínio do Chefe):** mapa menor (9x9) com 1 ou 2 guardas, o Ponto de Pausa final e a arena do Chefe `B`. Só derrotá-lo dá a Carta Assinatura e libera a saída para o próximo Bioma.
+- Entre as Partes a transição é rápida: um aviso de 1 linha no topo (sem card), +15 de Sanidade de respiro, a neblina fica mais densa e a luz mais baixa a cada Parte. A HUD mostra `PRAIA · PARTE 2/3` e o nome do setor.
+- No Abismo, as Partes 1 e 2 trazem **Ecos** reforçados de inimigos dos devaneios anteriores; a Parte 3 é só o Senhor das Horas.
+
+## Continuar Expediente (run salva)
+
+A run em andamento é salva automaticamente no navegador (`localStorage`, chave `hc_active_run_v1`) ao terminar um combate, ao fechar a fogueira ou qualquer modal e ao trocar de Parte ou Bioma. Na Recepção aparece **CONTINUAR EXPEDIENTE**, com Bioma, Parte, Nível e Sanidade salvos. **NOVO EXPEDIENTE** pede um segundo toque antes de sobrescrever a run salva. A run salva é apagada ao vencer às 18:00, ao sofrer Burnout ou ao usar **DESISTIR** (no Manual `?`, com confirmação). O Tutorial e a Hora Extra Infinita não gravam run.
 
 ## Mecânicas
 

@@ -271,7 +271,12 @@
         }
         if (problems.length) return problems;
         if (!tiles.S || tiles.S.length !== 1) return problems.concat('precisa de exatamente um S');
-        if (!encounters.B) problems.push('sem encontro de chefe B');
+        // Etapa 9: Partes 1/3 e 2/3 terminam num portal E (sem chefe); a Parte 3/3 (ou o andar único) tem o chefe B.
+        const part = floor.part || 0;
+        const needsBoss = !part || part === 3;
+        if (needsBoss && !encounters.B) problems.push('sem encontro de chefe B');
+        if (!needsBoss && encounters.B) problems.push('chefe fora da Parte 3');
+        if (!needsBoss && !(tiles.E && tiles.E.length === 1)) problems.push('Parte ' + part + ' sem portal E');
         if (tiles.E && tiles.E.length > 1) problems.push('mais de uma saída');
         SPECIAL_CHARS.split('').forEach(ch => {
             if (tiles[ch] && tiles[ch].length > 1) problems.push('mais de um tile especial "' + ch + '"');
@@ -311,12 +316,16 @@
             if (inSight(L, start, e)) problems.push('S na linha de visão do encontro "' + e.ch + '"');
         });
 
-        const boss = tiles.B[0];
-        const bossDist = dist[boss.y * n + boss.x];
+        // Objetivo do mapa: o chefe (B) ou, nas Partes 1/2, o portal (E). Nenhum encontro fica além dele.
+        const boss = tiles.B ? tiles.B[0] : null;
+        const goal = boss || tiles.E[0];
+        const goalDist = dist[goal.y * n + goal.x];
         encounterTiles.forEach(e => {
-            if (e.ch !== 'B' && dist[e.y * n + e.x] >= bossDist) problems.push('encontro "' + e.ch + '" tão longe de S quanto o chefe');
+            if (e.ch !== 'B' && dist[e.y * n + e.x] >= goalDist) {
+                problems.push('encontro "' + e.ch + '" tão longe de S quanto ' + (boss ? 'o chefe' : 'o portal'));
+            }
         });
-        if (tiles.E && Math.abs(tiles.E[0].x - boss.x) + Math.abs(tiles.E[0].y - boss.y) > 3) problems.push('saída longe do chefe');
+        if (boss && tiles.E && Math.abs(tiles.E[0].x - boss.x) + Math.abs(tiles.E[0].y - boss.y) > 3) problems.push('saída longe do chefe');
         return problems;
     }
 
@@ -480,7 +489,16 @@
             .sort((a, b) => distOf(b) - distOf(a));
         let boss = null;
         let exit = null;
-        for (const p of bossCandidates) {
+        // Partes 1/2: o portal E fica no tile livre mais distante de S (fora da sala inicial); não há chefe.
+        // 'boss' passa a ser só o objetivo do mapa (referência de distância e do beco da Elite).
+        if (!ctx.hasBoss) {
+            const far = shuffle(rng, allTiles.filter(p => grid[p.y][p.x] === '.' && roomAt(p) >= 0 && roomAt(p) !== startRoom.id))
+                .sort((a, b) => distOf(b) - distOf(a))[0];
+            if (!far) return null;
+            put(far, 'E');
+            boss = far;
+        }
+        for (const p of (ctx.hasBoss ? bossCandidates : [])) {
             if (ctx.hasExit) {
                 const spots = DIRS.map(d => ({ x: p.x + 2 * d[0], y: p.y + 2 * d[1] }))
                     .filter(q => q.x > 0 && q.y > 0 && q.x < n - 1 && q.y < n - 1 && grid[q.y][q.x] === '.' && roomAt(q) === roomAt(p))
@@ -492,8 +510,10 @@
             break;
         }
         if (!boss) return null;
-        placeEncounter(boss, 'B');
-        if (exit) put(exit, 'E');
+        if (ctx.hasBoss) {
+            placeEncounter(boss, 'B');
+            if (exit) put(exit, 'E');
+        }
         let bossDist = distOf(boss);
         const refreshDist = () => {
             dist = bfs(grid, start, ch => ch !== '#');
@@ -502,7 +522,7 @@
 
         let elite = null;
         let eliteChest = null;
-        if (!ctx.isFinal) {
+        if (ctx.hasElite) {
             // Baú do beco: tiles que só se alcançam atravessando a sala da Elite (e o chefe não fica atrás dela).
             const chestBehind = p => {
                 const room = roomAt(p);
@@ -574,9 +594,11 @@
             if (!elite) return null;
             placeEncounter(elite, 'L');
             put(eliteChest, 'C');
+        }
 
-            // Comuns: 4 ou 5, espalhados pelas salas menos usadas; numerados por distância de S.
-            const target = randInt(rng, 4, 5);
+        // Comuns (ou guardas da Parte 3): espalhados pelas salas menos usadas; numerados por distância de S.
+        if (ctx.commons[1] > 0) {
+            const target = randInt(rng, ctx.commons[0], ctx.commons[1]);
             const commons = [];
             for (let i = 0; i < target; i++) {
                 const options = allTiles.filter(p => canHost(p) && distOf(p) < bossDist);
@@ -585,7 +607,7 @@
                 placeEncounter(p, 'X');
                 commons.push(p);
             }
-            if (commons.length < 4) return null;
+            if (commons.length < ctx.commons[0]) return null;
             commons.sort((a, b) => distOf(a) - distOf(b)).forEach((p, i) => { grid[p.y][p.x] = String(i + 1); });
         }
 
@@ -615,13 +637,16 @@
             }
             return true;
         };
-        const events = ctx.isFinal ? randInt(rng, 0, 1) : randInt(rng, 1, 2);
-        const chests = ctx.isFinal ? 1 : randInt(rng, 1, 2);
+        const events = randInt(rng, ctx.events[0], ctx.events[1]);
+        const chests = randInt(rng, ctx.chests[0], ctx.chests[1]);
         if (!placeBlocking('?', events) || !placeBlocking('C', chests)) return null;
 
-        // Tiles especiais: 1 ou 2 por andar (nunca na fase final), sem repetir o tipo. O Baú de Prata
-        // pesa menos no sorteio. Se não houver vaga, o andar segue sem ele (não invalida a tentativa).
-        if (!ctx.isFinal) {
+        // Tiles especiais, sem repetir o tipo; o Baú de Prata pesa menos no sorteio.
+        // Andar único: 1 ou 2 opcionais (nunca na fase final). Parte 2/3: exatamente 1, obrigatório.
+        if (ctx.part === 2) {
+            const ch = pick(rng, ['W', 'W', 'W', 'O', 'O', 'O', 'P', 'P']);
+            if (!placeBlocking(ch, 1)) return null;
+        } else if (!ctx.part && !ctx.isFinal) {
             const wanted = rng() < 0.4 ? 2 : 1;
             unique(shuffle(rng, ['W', 'W', 'W', 'O', 'O', 'O', 'P', 'P'])).slice(0, wanted)
                 .forEach(ch => placeBlocking(ch, 1));
@@ -679,7 +704,21 @@
     ];
     const FALLBACK_ELITE_CHEST = { x: 1, y: 9 };
 
+    // Reserva das Partes: mesmo mapa 11x11, só com o conteúdo de cada Parte.
+    const FALLBACK_PART_KEEP = {
+        1: { '1': '1', '2': '2', '3': '3', E: 'E', '?': '?', C: 'C' },
+        2: { '1': '1', '2': '2', '3': '3', L: 'L', c: 'C', M: 'M', E: 'E', '?': 'W' },
+        3: { '1': '1', '2': '2', B: 'B', M: 'M', E: 'E' }
+    };
+
     function buildFallbackLayout(ctx) {
+        if (ctx.part) {
+            const keep = FALLBACK_PART_KEEP[ctx.part];
+            return FALLBACK_LAYOUT.map(row => row.replace(/[^#.S]/g, ch => {
+                if (ch === 'E' && ctx.part === 3 && !ctx.hasExit) return '.';
+                return keep[ch] || '.';
+            }));
+        }
         return FALLBACK_LAYOUT.map(row => row.replace(/[1-5LcME]/g, ch => {
             if (ctx.isFinal && (isEncounterChar(ch) || ch === 'c')) return '.'; // B nem entra no regex
             if (ch === 'c') return 'C';
@@ -703,19 +742,36 @@
         const pool = unique(opts.enemyPool || baseKinds);
         const stats = opts.enemyStats || mapEnemies(e => ({ hp: e.hp, atk: e.atk }));
         const sorted = strengthOrder(pool, stats);
-        return {
+        const part = [1, 2, 3].includes(opts.part) ? opts.part : 0;
+        const isFinal = pool.length === 0 || Object.keys(baseEncounters).every(ch => ch === 'B');
+        const baseExit = (baseFloor.layout || []).some(row => row.includes('E'));
+        // Conteúdo de cada Parte (Etapa 9); part 0 = andar único das etapas anteriores.
+        const PARTS = {
+            1: { commons: [3, 3], events: [1, 1], chests: [1, 1], hasElite: false, hasBoss: false, hasRest: false, hasExit: true },
+            2: { commons: [3, 3], events: [0, 0], chests: [0, 0], hasElite: true, hasBoss: false, hasRest: true, hasExit: true },
+            3: { commons: [1, 2], events: [0, 0], chests: [0, 0], hasElite: false, hasBoss: true, hasRest: true, hasExit: baseExit }
+        };
+        const layoutCfg = PARTS[part] || {
+            commons: isFinal ? [0, 0] : [4, 5],
+            events: isFinal ? [0, 1] : [1, 2],
+            chests: isFinal ? [1, 1] : [1, 2],
+            hasElite: !isFinal, hasBoss: true, hasRest: !!baseFloor.restName, hasExit: baseExit
+        };
+        return Object.assign({
+            part: part,
             pool: pool,
             stats: stats,
             names: opts.enemyNames || mapEnemies(e => e.name),
             maxEnemies: (gameData && gameData.MAX_ENEMIES_IN_COMBAT) || DEFAULT_MAX_ENEMIES,
-            isFinal: pool.length === 0 || Object.keys(baseEncounters).every(ch => ch === 'B'),
-            hasExit: (baseFloor.layout || []).some(row => row.includes('E')),
-            hasRest: !!baseFloor.restName,
+            isFinal: isFinal,
             eliteKind: opts.eliteKind || sorted[sorted.length - 1],
             bossKind: opts.bossKind || null,
             baseBoss: baseEncounters.B || null
-        };
+        }, layoutCfg);
     }
+
+    // Força dos comuns por Parte: a Entrada começa leve, o Coração aperta e os guardas do Chefe são os mais fortes.
+    const PART_TIERS = { 1: [1, 1, 2], 2: [2, 2, 3], 3: [2, 3] };
 
     function buildEncounters(rng, layout, ctx) {
         const encounters = {};
@@ -724,13 +780,16 @@
         const common = { rng: rng, enemyPool: ctx.pool, enemyStats: ctx.stats, enemyNames: ctx.names, maxEnemies: ctx.maxEnemies };
         // Os chars já vêm ordenados por distância de S: os mais perto são tier 1.
         commons.forEach((ch, i) => {
-            const tier = Math.min(3, 1 + Math.floor(i * 3 / commons.length));
+            const tiers = PART_TIERS[ctx.part];
+            const tier = tiers ? tiers[Math.min(i, tiers.length - 1)] : Math.min(3, 1 + Math.floor(i * 3 / commons.length));
             encounters[ch] = rollEncounter(null, Object.assign({ tier: tier }, common));
         });
         if (chars.includes('L')) {
             encounters.L = rollEncounter(null, Object.assign({ tier: 3, elite: true, eliteKind: ctx.eliteKind }, common));
         }
-        if (ctx.baseBoss) {
+        if (!chars.includes('B')) {
+            // Partes 1/2: sem chefe neste mapa.
+        } else if (ctx.baseBoss) {
             encounters.B = JSON.parse(JSON.stringify(ctx.baseBoss));
         } else {
             const kind = ctx.bossKind || ctx.eliteKind;
@@ -781,6 +840,7 @@
         const ctx = buildContext(baseFloor, opts);
         const style = BIOME_STYLES[baseFloor.biome] || DEFAULT_STYLE;
         const finish = (layout, encounters, extra) => Object.assign({}, baseFloor, {
+            part: ctx.part || undefined,
             layout: layout,
             encounters: encounters,
             seed: seed,
@@ -796,7 +856,7 @@
             const placed = placeContent(rng, map, ctx);
             if (!placed) continue;
             const encounters = buildEncounters(createRng(mixSeed(seed, 0x5EED + attempt)), map.grid.map(r => r.join('')), ctx);
-            const asFloor = () => ({ layout: map.grid.map(r => r.join('')), encounters: encounters });
+            const asFloor = () => ({ layout: map.grid.map(r => r.join('')), encounters: encounters, part: ctx.part });
             if (validateGeneratedFloor(asFloor(), ctx.maxEnemies).length) continue;
             addPillars(rng, map, placed.arena, style, () => validateGeneratedFloor(asFloor(), ctx.maxEnemies).length === 0);
             const rooms = map.rooms.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
@@ -806,7 +866,7 @@
         // shortcut: a reserva é fixa em 11x11; com outro opts.size ela ignora o tamanho pedido.
         const layout = buildFallbackLayout(ctx);
         return finish(layout, buildEncounters(createRng(mixSeed(seed, 0xFA11)), layout, ctx), {
-            eliteChest: ctx.isFinal ? null : FALLBACK_ELITE_CHEST, rooms: null, loops: 1,
+            eliteChest: ctx.hasElite ? FALLBACK_ELITE_CHEST : null, rooms: null, loops: 1,
             usedFallback: true, attempts: maxAttempts
         });
     }

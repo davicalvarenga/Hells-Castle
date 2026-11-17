@@ -145,7 +145,7 @@
             </div>
 
             <!-- LV à esquerda e Caveira + Moeda VR à direita (limpo como Vampire Crawlers) -->
-            <div class="vp-top-lv"><span id="stat-hero">SIR VALTER</span> &middot; LV <b id="stat-lv">1</b> &middot; <span id="stat-floor">ANDAR 1/3</span></div>
+            <div class="vp-top-lv"><span id="stat-hero">SIR VALTER</span> &middot; LV <b id="stat-lv">1</b> &middot; <span id="stat-floor">PRAIA · PARTE 1/3</span><span id="stat-sector" class="vp-sector">ARREBENTAÇÃO</span></div>
 
             <div id="vp-stats" class="vp-top-stats">
                 <svg class="px-stat-ico" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true">
@@ -318,7 +318,12 @@
                 <span id="pressure-desc" class="pressure-desc"></span>
             </div>
             <button id="btn-infinite-toggle" class="infinite-toggle hidden" type="button">HORA EXTRA INFINITA: DESLIGADA</button>
-            <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E COMEÇAR O DIA</button>
+            <div class="start-row">
+                <div id="continue-row" class="continue-row hidden">
+                    <button id="btn-continue-run" class="start-daydream-btn continue-btn" type="button">CONTINUAR EXPEDIENTE<small id="continue-info" class="continue-info"></small></button>
+                </div>
+                <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E COMEÇAR O DIA</button>
+            </div>
         </div>
     </div>
 
@@ -368,6 +373,7 @@
         <div class="modal-box codex-box">
             <div class="codex-head">
                 <h2 id="codex-title">MANUAL DO EXPEDIENTE</h2>
+                <button id="btn-abandon-run" class="bevel-btn codex-close abandon-btn hidden" type="button" title="Encerra a run como Burnout e apaga o save em andamento">DESISTIR</button>
                 <button id="btn-codex-close" class="bevel-btn codex-close" type="button" aria-label="Fechar manual">FECHAR</button>
             </div>
             <div id="codex-tabs" class="codex-tabs" role="tablist"></div>
@@ -404,6 +410,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Toast de chegada a uma nova Parte do Bioma (1 linha, não bloqueia nem pausa) -->
+    <div id="sector-toast" class="sector-toast hidden" aria-live="polite"></div>
 
     <!-- Toast de meta concluída (topo, não bloqueia cliques) -->
     <div id="goal-toast" class="goal-toast hidden" aria-live="polite"></div>

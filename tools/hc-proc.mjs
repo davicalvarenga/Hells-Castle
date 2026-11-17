@@ -12,6 +12,11 @@ const srv = await serve(REPO + '/docs');
 const dataCtx = vm.createContext({ window: {}, console });
 vm.runInContext(fs.readFileSync(REPO + '/docs/js/data.js', 'utf8'), dataCtx);
 const UI_SEEN = JSON.stringify({ introSeen: true, discoveredCardTutorials: Object.keys(dataCtx.window.GameData.CARDS) });
+// Com run salva em andamento, "Novo Expediente" pede um 2º toque de confirmação (Etapa 9).
+const startDay = async pg => {
+    await pg.click('#btn-start-daydream');
+    if (await pg.evaluate(() => document.getElementById('btn-start-daydream').classList.contains('confirming'))) await pg.click('#btn-start-daydream');
+};
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: CHROME_ARGS });
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -30,7 +35,7 @@ const fingerprint = page => page.evaluate(() => {
 });
 const start = async (page, query) => {
     await page.goto(srv.url + (query || ''));
-    await page.click('#btn-start-daydream');
+    await startDay(page);
     await page.waitForTimeout(300);
     await page.click('#btn-narrative-continue');
     await page.waitForTimeout(400);
@@ -52,7 +57,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     // Segunda run na mesma página (botão reiniciar) e terceira em página nova
     await page.evaluate(() => window.__hcDebug.restart());
     await page.waitForTimeout(300);
-    await page.click('#btn-start-daydream');
+    await startDay(page);
     await page.waitForTimeout(300);
     await page.click('#btn-narrative-continue');
     await page.waitForTimeout(400);
@@ -68,6 +73,62 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await start(page, '?seed=4242');
     const d = await fingerprint(page);
     check(vp + ' ?seed= reproduz mapa e hordas', c.seed === 4242 && c.map === d.map && c.hordes === d.hordes, { seed: c.seed });
+
+    // Etapa 9: 5 Biomas x 3 Partes, várias seeds. Cada mapa: válido, BFS de S alcança tudo e o conteúdo da Parte confere.
+    const parts = await page.evaluate(() => {
+        const h = window.__hcDebug;
+        const G = window.GameDungeon;
+        const out = { maps: 0, problems: [], fallback: 0 };
+        const count = (L, ch) => L.join('').split(ch).length - 1;
+        const bfsAll = L => {
+            const n = L.length;
+            let start = null;
+            L.forEach((row, y) => { const x = row.indexOf('S'); if (x >= 0) start = { x, y }; });
+            const seen = new Set([start.x + ',' + start.y]);
+            const q = [start];
+            while (q.length) {
+                const c = q.shift();
+                [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+                    const x = c.x + dx, y = c.y + dy, k = x + ',' + y;
+                    if (x < 0 || y < 0 || x >= n || y >= n || L[y][x] === '#' || seen.has(k)) return;
+                    seen.add(k);
+                    q.push({ x, y });
+                });
+            }
+            let open = 0;
+            L.forEach(row => { open += row.length - count([row], '#'); });
+            return seen.size === open;
+        };
+        for (let seed = 1; seed <= 12; seed++) {
+            for (let f = 1; f <= 5; f++) {
+                for (let p = 1; p <= 3; p++) {
+                    const fl = h.genPart(seed * 104729 + 7, f, p);
+                    const L = fl.layout;
+                    out.maps++;
+                    if (fl.usedFallback) out.fallback++;
+                    const tag = 'seed ' + seed + ' F' + f + '.' + p + ': ';
+                    G.validateGeneratedFloor(fl).forEach(e => out.problems.push(tag + e));
+                    if (!bfsAll(L)) out.problems.push(tag + 'BFS não alcança todo o mapa');
+                    const commons = '12345'.split('').filter(ch => count(L, ch)).length;
+                    const want = p === 1 ? { B: 0, L: 0, M: 0, E: 1, size: 11 } : p === 2 ? { B: 0, L: 1, M: 1, E: 1, size: 11 }
+                        : { B: 1, L: 0, M: 1, E: f < 5 ? 1 : 0, size: 9 };
+                    ['B', 'L', 'M', 'E'].forEach(ch => { if (count(L, ch) !== want[ch]) out.problems.push(tag + ch + '=' + count(L, ch)); });
+                    if (!fl.usedFallback && L.length !== want.size) out.problems.push(tag + 'tamanho ' + L.length);
+                    if (p < 3 && commons !== 3) out.problems.push(tag + commons + ' comuns');
+                    if (p === 3 && (commons < 1 || commons > 2)) out.problems.push(tag + commons + ' guardas');
+                    if (p === 1 && (count(L, 'C') !== 1 || count(L, '?') !== 1)) out.problems.push(tag + 'Parte 1 sem 1 baú e 1 evento');
+                    if (p === 2 && count(L, 'W') + count(L, 'P') + count(L, 'O') !== 1) out.problems.push(tag + 'Parte 2 sem 1 especial');
+                }
+            }
+        }
+        return out;
+    });
+    check(vp + ' 15 partes x 12 seeds: mapas válidos, BFS completo e conteúdo de cada Parte', parts.maps === 180 && parts.problems.length === 0,
+        { maps: parts.maps, fallback: parts.fallback, problems: parts.problems.slice(0, 5) });
+
+    // O tile especial e o Elite ficam na Parte 2/3 (Coração do Bioma).
+    await page.evaluate(() => window.__hcDebug.loadFloor(1, 2));
+    await page.waitForTimeout(700);
 
     // Etapa 4: tile especial (P = Baú de Prata, O = Mesa de Oferenda, W = Poço) pisado de verdade no mapa gerado.
     const special = await page.evaluate(() => {

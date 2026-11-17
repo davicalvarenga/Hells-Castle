@@ -21,6 +21,11 @@ fs.symlinkSync(path.resolve(REPO, 'docs'), path.join(subRoot, 'jogo'), 'dir');
 fs.writeFileSync(path.join(subRoot, 'host.html'), '<!doctype html><meta charset="utf-8"><title>host</title><link rel="icon" href="data:,">' +
     '<body style="margin:0"><iframe src="jogo/index.html" style="border:0;width:100vw;height:100vh"></iframe></body>');
 const subSrv = await serve(subRoot);
+// Com run salva em andamento, "Novo Expediente" pede um 2º toque de confirmação (Etapa 9).
+const startDay = async pg => {
+    await pg.click('#btn-start-daydream');
+    if (await pg.evaluate(() => document.getElementById('btn-start-daydream').classList.contains('confirming'))) await pg.click('#btn-start-daydream');
+};
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: CHROME_ARGS });
 let failed = 0;
 const check = (vp, name, ok, detail) => {
@@ -97,7 +102,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     };
 
     // --- Fila única: narrativa -> arcana, nunca dois modais ---
-    await page.click('#btn-start-daydream');
+    await startDay(page);
     await wait(300);
     check(vp, 'fila: só a narrativa aberta', await only('narrative-modal'), await openModals());
     await page.click('#btn-narrative-continue');
@@ -920,7 +925,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         return !!b && !b.disabled;
     }, name);
     const beginRun = async () => {
-        await mp.click('#btn-start-daydream');
+        await startDay(mp);
         await mp.waitForTimeout(300);
         await mp.click('#btn-narrative-continue');
         await mp.waitForTimeout(400);
@@ -1107,7 +1112,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && box.scrollHeight <= box.clientHeight + 1 && start.bottom <= innerHeight;
     });
     const pRun = async () => {
-        await pp.click('#btn-start-daydream');
+        await startDay(pp);
         await pp.waitForTimeout(300);
         await pp.click('#btn-narrative-continue');
         await pp.waitForTimeout(400);
@@ -1132,7 +1137,9 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         const h = window.__hcDebug;
         h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
         const crab = h.state.enemies.find(e => e.kind === 'crab');
-        return { hp: crab.maxHp, base: window.GameData.ENEMIES.crab.hp, junk: h.state.deck.includes('folha_presa'), pressure: h.state.pressure };
+        // Etapa 9: a base já vem com a escala da Parte 1/3 (Entrada); a Pressão soma +15% por cima.
+        const D = window.GameData;
+        return { hp: crab.maxHp, base: Math.round(D.ENEMIES.crab.hp * D.BALANCE.partScale[h.state.part].hp), junk: h.state.deck.includes('folha_presa'), pressure: h.state.pressure };
     });
     check(vp, 'Pressão 1: inimigos +15% de HP, sem carta-lixo', press1.pressure === 1 && press1.hp === Math.round(press1.base * 1.15) && !press1.junk, press1);
     const credits0 = (await pStored()).credits;
@@ -1179,7 +1186,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         const card = Array.from(document.querySelectorAll('#rest-items-grid .shop-item-card')).find(b => b.querySelector('.shop-item-title').textContent === 'Descansar');
         return { price: card.querySelector('.shop-item-price').textContent, desc: card.querySelector('.shop-item-desc').textContent };
     });
-    check(vp, 'Pressão 4+: fogueira 25% mais cara e cura 25% menor', restP.price === Math.ceil(25 * 1.25) + ' VR' && /\+15 de Sanidade/.test(restP.desc), restP);
+    check(vp, 'Pressão 4+: fogueira 25% mais cara e cura 25% menor', restP.price === Math.ceil(30 * 1.25) + ' VR' && /\+15 de Sanidade/.test(restP.desc), restP);
     await pp.click('#btn-rest-close');
     await pp.waitForTimeout(300);
 
@@ -1547,7 +1554,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'Manual: Esc fecha', await oq(() => !window.__hcDebug.codexOpen && document.getElementById('codex-modal').classList.contains('hidden')));
 
     // --- Dicas de 1ª vez: aparecem 1x, não bloqueiam e ficam salvas ---
-    await op.click('#btn-start-daydream');
+    await startDay(op);
     await ow(300);
     await op.click('#btn-narrative-continue');
     await ow(400);
@@ -1615,7 +1622,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
             fits: d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && box.scrollHeight <= box.clientHeight + 1 && r.bottom <= innerHeight
         };
     }, id);
-    await ap.click('#btn-start-daydream');
+    await startDay(ap);
     await ap.waitForTimeout(300);
     check(vp, 'arte: a Fase 1 (já apresentada pela cutscene) não repete ilustração', (await artInfo('narrative-art')).visible === false);
     await ap.click('#btn-narrative-continue');
@@ -1650,7 +1657,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await ap.screenshot({ path: 'e2e-' + vp + '-arte-18h.png' });
     await ap.click('#btn-play-again');
     await ap.waitForTimeout(400);
-    await ap.click('#btn-start-daydream');
+    await startDay(ap);
     await ap.waitForTimeout(300);
     await ap.click('#btn-narrative-continue');
     await ap.waitForTimeout(400);
@@ -1756,7 +1763,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'Coleção: Esc fecha', await gq(() => document.getElementById('collection-modal').classList.contains('hidden')));
 
     // --- Run: descobertas entram na Coleção; metas pagam crédito com toast discreto no topo ---
-    await gp.click('#btn-start-daydream');
+    await startDay(gp);
     await gp.waitForTimeout(300);
     await gp.click('#btn-narrative-continue');
     await gp.waitForTimeout(400);
@@ -1965,7 +1972,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth &&
             (!box || (box.getBoundingClientRect().bottom <= innerHeight + 1 && box.getBoundingClientRect().top >= -1));
     });
-    await np.click('#btn-start-daydream');
+    await startDay(np);
     await np.waitForTimeout(300);
     await np.click('#btn-narrative-continue');
     await np.waitForTimeout(400);
@@ -2237,6 +2244,231 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await np.waitForTimeout(150);
     check(vp, 'Etapa8: 0 erros no console e 0 overflow', nerr.length === 0 && await nFits(), nerr.slice(0, 4));
     await np.close();
+    // ================= ETAPA 9: 3 PARTES POR BIOMA, PORTAIS E, AUTO-SAVE E CONTINUAR EXPEDIENTE =================
+    const sp = await browser.newPage({ viewport: size });
+    const serr = [];
+    sp.on('console', m => { if (m.type() === 'error') serr.push(m.text()); });
+    sp.on('pageerror', e => serr.push('PAGEERROR ' + e.message));
+    await sp.addInitScript(ui => { if (!localStorage.getItem('hc_ui_v1')) localStorage.setItem('hc_ui_v1', ui); }, UI_SEEN);
+    await sp.goto(srv.url);
+    await sp.waitForTimeout(400);
+    const sq = (fn, arg) => sp.evaluate(fn, arg);
+    const sOpen = () => sq(() => Array.from(document.querySelectorAll('.modal-overlay')).filter(m => !m.classList.contains('hidden')).map(m => m.id));
+    const sFits = () => sq(() => {
+        const d = document.documentElement;
+        const box = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden) .modal-box')).pop();
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && (!box || box.getBoundingClientRect().bottom <= innerHeight + 1);
+    });
+    const hud9 = () => sq(() => {
+        const h = window.__hcDebug;
+        const L = h.getFloor().layout;
+        return {
+            floor: document.getElementById('stat-floor').textContent, sector: document.getElementById('stat-sector').textContent,
+            clock: document.getElementById('clock-time').textContent, part: h.state.part, biome: h.state.floor, size: L.length,
+            B: L.join('').includes('B'), E: L.join('').includes('E'), atm: h.getAtmosphere(), mode: h.state.mode,
+            toast: document.getElementById('sector-toast').classList.contains('hidden') ? '' : document.getElementById('sector-toast').textContent,
+            saved: (JSON.parse(localStorage.getItem('hc_active_run_v1') || 'null') || {}).summary || null
+        };
+    });
+    // Anda até um tile de verdade: desliga o aggro, para ao lado dele, encara e dá 1 passo.
+    const stepOnto = ch => sq(c => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        const L = h.getFloor().layout;
+        let t = null;
+        L.forEach((row, y) => { const x = row.indexOf(c); if (x >= 0) t = { x, y }; });
+        if (!t) return false;
+        s.encounters.forEach(e => { e.alive = false; });
+        const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        for (let d = 0; d < 4; d++) {
+            const x = t.x - DIRS[d][0];
+            const y = t.y - DIRS[d][1];
+            if (!L[y] || L[y][x] !== '.') continue;
+            s.player.x = x;
+            s.player.y = y;
+            const turns = (d - s.player.dir + 4) % 4;
+            if (turns === 0) { h.turnPlayer(1); h.turnPlayer(-1); }
+            for (let i = 0; i < turns; i++) h.turnPlayer(1);
+            return true;
+        }
+        return false;
+    }, ch);
+    const walk = async () => {
+        await sp.waitForTimeout(400);
+        await sq(() => window.__hcDebug.moveRelative(1, 0));
+        await sp.waitForTimeout(700);
+    };
+
+    check(vp, 'Etapa9: Recepção sem run salva mostra só o início normal', await sq(() =>
+        document.getElementById('continue-row').classList.contains('hidden') && /BATER PONTO/.test(document.getElementById('btn-start-daydream').textContent)));
+    await startDay(sp);
+    await sp.waitForTimeout(300);
+    await sp.click('#btn-narrative-continue');
+    await sp.waitForTimeout(400);
+    await sp.locator('#arcana-modal .arcana-choice').first().click();
+    await sp.waitForTimeout(600);
+    const q1 = await hud9();
+    check(vp, 'Parte 1/3: HUD "PRAIA · PARTE 1/3 — ARREBENTAÇÃO", 08:17, portal E e sem chefe', q1.floor === 'PRAIA · PARTE 1/3' &&
+        q1.sector === 'ARREBENTAÇÃO' && q1.clock === '08:17' && q1.E && !q1.B && q1.size === 11, q1);
+    check(vp, 'Auto-save: run gravada ao fechar os modais iniciais', !!q1.saved && q1.saved.floor === 1 && q1.saved.part === 1, q1.saved);
+    const deckP1 = await sq(() => window.__hcDebug.state.deck.join(','));
+    check(vp, 'Portal: chega ao E da Parte 1', await stepOnto('E'));
+    await walk();
+    const q2 = await hud9();
+    const p2open = await sOpen();
+    check(vp, 'Portal 1->2: transição rápida (toast de 1 linha, sem card narrativo nem modal)', q2.part === 2 && q2.floor === 'PRAIA · PARTE 2/3' &&
+        q2.sector === 'MARÉ CRESCENTE' && q2.clock === '09:05' && /MARÉ CRESCENTE/.test(q2.toast) && p2open.length === 0 && q2.mode === 'explore', { q2, p2open });
+    check(vp, 'Parte 2/3: Elite, Ponto de Pausa e evento especial no mapa', await sq(() => {
+        const L = window.__hcDebug.getFloor().layout.join('');
+        return L.includes('L') && L.includes('M') && /[WPO]/.test(L) && !L.includes('B');
+    }));
+    check(vp, 'Auto-save: troca de Parte grava Parte 2', q2.saved && q2.saved.part === 2, q2.saved);
+    await sp.screenshot({ path: 'e2e-' + vp + '-parte2.png' });
+    check(vp, 'Portal: chega ao E da Parte 2', await stepOnto('E'));
+    await walk();
+    const q3 = await hud9();
+    check(vp, 'Portal 2->3: Domínio do Chefe (mapa 9x9, chefe B, 09:50) e baralho intacto', q3.part === 3 && q3.floor === 'PRAIA · PARTE 3/3' &&
+        q3.sector === 'COVIL DAS MARÉS' && q3.clock === '09:50' && q3.B && q3.size === 9 &&
+        await sq(() => window.__hcDebug.state.deck.join(',')) === deckP1, q3);
+    check(vp, 'Atmosfera: neblina mais densa e luz mais baixa a cada Parte', q1.atm.part === 1 && q2.atm.part === 2 && q3.atm.part === 3 &&
+        q1.atm.fog[2] > q2.atm.fog[2] && q2.atm.fog[2] > q3.atm.fog[2] && q1.atm.ambient > q3.atm.ambient, [q1.atm, q2.atm, q3.atm]);
+    check(vp, 'HUD da Parte cabe na tela (0 overflow)', await sFits() && await sq(() =>
+        document.querySelector('.vp-top-lv').getBoundingClientRect().right <= document.querySelector('.vp-top-stats').getBoundingClientRect().left + 1));
+    await sp.screenshot({ path: 'e2e-' + vp + '-parte3.png' });
+
+    // --- Auto-save + recarregar a página + CONTINUAR EXPEDIENTE ---
+    const before9 = await sq(() => {
+        const s = window.__hcDebug.state;
+        s.hp = Math.max(1, s.hp - 7);
+        s.vr += 33;
+        window.__hcDebug.saveActiveRun('teste');
+        return { deck: s.deck.join(','), hp: s.hp, vr: s.vr, lv: s.level, x: s.player.x, y: s.player.y, seed: s.runSeed,
+            enc: s.encounters.map(e => e.id + ':' + e.alive).join(','), cleared: Array.from(s.clearedTiles).sort().join(';') };
+    });
+    await sp.reload();
+    await sp.waitForTimeout(700);
+    const title9 = await sq(() => ({ cont: !document.getElementById('continue-row').classList.contains('hidden'),
+        info: document.getElementById('continue-info').textContent, start: document.getElementById('btn-start-daydream').textContent }));
+    check(vp, 'Recepção: CONTINUAR EXPEDIENTE com Bioma, Parte, Nível e Sanidade + NOVO EXPEDIENTE', title9.cont &&
+        title9.info.includes('PRAIA 3/3') && title9.info.includes('Covil das Marés') && title9.info.includes('LV ' + before9.lv) &&
+        title9.info.includes(before9.hp + '/') && title9.start === 'NOVO EXPEDIENTE', title9);
+    check(vp, 'Recepção com run salva cabe na tela', await sFits());
+    await sp.screenshot({ path: 'e2e-' + vp + '-continuar.png' });
+    await sp.click('#btn-continue-run');
+    await sp.waitForTimeout(800);
+    const after9 = await sq(() => {
+        const s = window.__hcDebug.state;
+        return { deck: s.deck.join(','), hp: s.hp, vr: s.vr, lv: s.level, x: s.player.x, y: s.player.y, seed: s.runSeed,
+            enc: s.encounters.map(e => e.id + ':' + e.alive).join(','), cleared: Array.from(s.clearedTiles).sort().join(';'),
+            part: s.part, mode: s.mode, title: !document.getElementById('title-modal').classList.contains('hidden'),
+            hud: document.getElementById('stat-floor').textContent };
+    });
+    check(vp, 'Continuar: restaura a run exata (baralho, Sanidade, VR, posição, encontros, Parte 3/3)', after9.deck === before9.deck &&
+        after9.hp === before9.hp && after9.vr === before9.vr && after9.x === before9.x && after9.y === before9.y && after9.seed === before9.seed &&
+        after9.enc === before9.enc && after9.cleared === before9.cleared && after9.part === 3 && after9.mode === 'explore' && !after9.title &&
+        after9.hud === 'PRAIA · PARTE 3/3', { before9, after9 });
+
+    // --- Chefe da Parte 3 -> card narrativo só ao entrar no novo Bioma (Parte 1/3) ---
+    await sq(() => {
+        const h = window.__hcDebug;
+        const bossEnc = h.state.encounters.find(e => e.isBoss);
+        h.startEncounter(bossEnc.id, bossEnc.enc);
+        h.state.enemies.forEach(e => { e.hp = 0; });
+        h.state.bossDefeated = true;
+        h.finishEncounter();
+    });
+    await sp.waitForTimeout(1600);
+    for (let i = 0; i < 6 && (await sOpen()).length > 0; i++) {
+        await sq(() => { const b = ['#btn-discovery-ok', '#btn-gem-discard'].map(q => document.querySelector(q)).find(x => x && x.offsetParent); if (b) b.click(); });
+        await sp.waitForTimeout(400);
+    }
+    check(vp, 'Chefe: saída E da Parte 3 leva ao próximo Bioma', await stepOnto('E'));
+    await walk();
+    const cards9 = [];
+    for (let i = 0; i < 6 && (await sOpen()).includes('narrative-modal'); i++) {
+        cards9.push(await sq(() => document.getElementById('narrative-tag').textContent));
+        await sp.click('#btn-narrative-continue');
+        await sp.waitForTimeout(500);
+    }
+    const bio2 = await hud9();
+    check(vp, 'Novo Bioma: card ilustrado + Cidade Parte 1/3 (10:40) e save do Bioma novo', cards9.length >= 2 && bio2.biome === 2 && bio2.part === 1 &&
+        bio2.floor === 'CIDADE · PARTE 1/3' && bio2.clock === '10:40' && bio2.saved && bio2.saved.floor === 2 && bio2.saved.part === 1, { cards9, bio2 });
+
+    // --- NOVO EXPEDIENTE pede confirmação antes de sobrescrever ---
+    await sp.reload();
+    await sp.waitForTimeout(700);
+    await sp.click('#btn-start-daydream');
+    await sp.waitForTimeout(200);
+    const armed9 = await sq(() => ({ confirming: document.getElementById('btn-start-daydream').classList.contains('confirming'),
+        text: document.getElementById('btn-start-daydream').textContent, title: !document.getElementById('title-modal').classList.contains('hidden'),
+        saved: !!localStorage.getItem('hc_active_run_v1') }));
+    check(vp, 'Novo Expediente: 1º toque só pede confirmação (run salva intacta)', armed9.confirming && /SOBRESCREVER/.test(armed9.text) && armed9.title && armed9.saved, armed9);
+    await sp.click('#btn-start-daydream');
+    await sp.waitForTimeout(400);
+    await sp.click('#btn-narrative-continue');
+    await sp.waitForTimeout(400);
+    await sp.locator('#arcana-modal .arcana-choice').first().click();
+    await sp.waitForTimeout(600);
+    check(vp, 'Novo Expediente: 2º toque começa do zero e a nova run passa a ser a salva', await sq(() => {
+        const sv = JSON.parse(localStorage.getItem('hc_active_run_v1') || 'null');
+        return window.__hcDebug.state.floor === 1 && window.__hcDebug.state.part === 1 && sv && sv.summary.floor === 1 && sv.summary.part === 1;
+    }));
+
+    // --- DESISTIR (Manual "?") encerra como Burnout e limpa o save ---
+    await sp.click('#btn-codex');
+    await sp.waitForTimeout(250);
+    const abandonVis = await sq(() => !document.getElementById('btn-abandon-run').classList.contains('hidden'));
+    await sp.click('#btn-abandon-run');
+    await sp.waitForTimeout(150);
+    const stillSaved = await sq(() => !!localStorage.getItem('hc_active_run_v1') && document.getElementById('btn-abandon-run').classList.contains('confirming'));
+    await sp.click('#btn-abandon-run');
+    await sp.waitForTimeout(600);
+    check(vp, 'Desistir: pede confirmação, encerra a run e apaga o save', abandonVis && stillSaved && await sq(() =>
+        !localStorage.getItem('hc_active_run_v1') && !document.getElementById('end-modal').classList.contains('hidden')));
+    await sp.click('#btn-play-again');
+    await sp.waitForTimeout(500);
+    check(vp, 'Depois do Burnout a Recepção não oferece Continuar', await sq(() => document.getElementById('continue-row').classList.contains('hidden')));
+
+    // --- Vitória às 18:00 limpa o save; o Tutorial nunca grava ---
+    await startDay(sp);
+    await sp.waitForTimeout(300);
+    await sp.click('#btn-narrative-continue');
+    await sp.waitForTimeout(400);
+    await sp.locator('#arcana-modal .arcana-choice').first().click();
+    await sp.waitForTimeout(600);
+    const hadSave = await sq(() => !!localStorage.getItem('hc_active_run_v1'));
+    await sq(() => window.__hcDebug.endGame(true));
+    await sp.waitForTimeout(500);
+    check(vp, 'Vitória limpa a run salva', hadSave && await sq(() => !localStorage.getItem('hc_active_run_v1')));
+    for (let i = 0; i < 20 && (await sOpen()).length > 0; i++) {
+        await sq(() => { const b = ['#btn-narrative-continue', '#btn-play-again'].map(q => document.querySelector(q)).find(x => x && x.offsetParent); if (b) b.click(); });
+        await sp.waitForTimeout(350);
+    }
+    await sp.waitForTimeout(300);
+    await sq(() => window.__hcDebug.startTutorial());
+    await sp.waitForTimeout(600);
+    check(vp, 'Tutorial nunca grava run ativa', await sq(() => window.__hcDebug.saveActiveRun('teste') === false && !localStorage.getItem('hc_active_run_v1')));
+    // Save corrompido: a Recepção ignora sem erro.
+    await sq(() => localStorage.setItem('hc_active_run_v1', '{"v":1,"state":{"floor":99,"deck":["nao_existe"]}}'));
+    await sp.reload();
+    await sp.waitForTimeout(600);
+    check(vp, 'Save de run corrompido é ignorado sem erro', await sq(() => document.getElementById('continue-row').classList.contains('hidden')));
+    if (vp === 'mobile') {
+        await sq(() => localStorage.removeItem('hc_active_run_v1'));
+        await startDay(sp);
+        await sp.waitForTimeout(300);
+        await sp.click('#btn-narrative-continue');
+        await sp.waitForTimeout(400);
+        await sp.locator('#arcana-modal .arcana-choice').first().click();
+        await sp.waitForTimeout(600);
+        await sp.setViewportSize({ width: 375, height: 667 });
+        await sp.reload();
+        await sp.waitForTimeout(700);
+        check(vp, 'Recepção 375x667 com CONTINUAR EXPEDIENTE: sem overflow', await sq(() =>
+            !document.getElementById('continue-row').classList.contains('hidden')) && await sFits());
+    }
+    check(vp, 'Etapa9: 0 erros no console', serr.length === 0, serr.slice(0, 4));
+    await sp.close();
 }
 await browser.close();
 srv.close();

@@ -90,6 +90,42 @@
         victory: '18:00'
     };
 
+    // Etapa 9: cada Bioma tem 3 Partes. Nome do setor, horário do Relógio de Ponto e a frase do toast de chegada.
+    const PARTS_PER_BIOME = 3;
+    const SECTORS = {
+        1: [
+            { name: 'Arrebentação', clock: '08:17', toast: 'A maré recua e revela a trilha de conchas.' },
+            { name: 'Maré Crescente', clock: '09:05', toast: 'A água sobe até os joelhos. Algo grande respira lá no fundo.' },
+            { name: 'Covil das Marés', clock: '09:50', toast: 'O céu fica laranja-escuro: o Devorador das Marés acordou.' }
+        ],
+        2: [
+            { name: 'Ruelas Encharcadas', clock: '10:40', toast: 'Lampiões tremem nas ruelas; passos ecoam atrás de você.' },
+            { name: 'Praça do Sino', clock: '11:30', toast: 'O sino da praça toca fora de hora. Os vigias se agitam.' },
+            { name: 'Torre do Mensageiro', clock: '12:15', toast: 'A névoa fecha a torre. O Mensageiro já sabe que você veio.' }
+        ],
+        3: [
+            { name: 'Trilha Gelada', clock: '13:20', toast: 'O vento corta a trilha; as pegadas somem atrás de você.' },
+            { name: 'Desfiladeiro Branco', clock: '14:05', toast: 'O desfiladeiro estala. Sentinelas de gelo observam do alto.' },
+            { name: 'Cume do Véu', clock: '14:45', toast: 'A nevasca engrossa: no cume, o Estrategista move as peças.' }
+        ],
+        4: [
+            { name: 'Arquivo Morto', clock: '15:30', toast: 'Gavetas rangem sozinhas no corredor do Arquivo.' },
+            { name: 'Catacumbas do RH', clock: '16:10', toast: 'Fichas antigas sussurram nomes. As tochas ficam mais baixas.' },
+            { name: 'Cripta da Guardiã', clock: '16:50', toast: 'O ar pesa. Atrás da última porta, a Guardiã espera.' }
+        ],
+        5: [
+            { name: 'Beira do Vazio', clock: '17:15', toast: 'O chão vira céu. Ecos de devaneios antigos flutuam por perto.' },
+            { name: 'Mar de Estrelas', clock: '17:35', toast: 'As estrelas giram como ponteiros. Falta pouco para as 18:00.' },
+            { name: 'Trono das Horas', clock: '17:55', toast: 'Tique. Taque. O Senhor das Horas ergue o relógio.' }
+        ]
+    };
+
+    function getSector(floorNum, part) {
+        const list = SECTORS[floorNum] || SECTORS[1];
+        const p = Math.max(1, Math.min(PARTS_PER_BIOME, part || 1));
+        return Object.assign({ floor: Number(floorNum) || 1, part: p }, list[p - 1]);
+    }
+
     const REALITY_FLASH_QUIPS = [
         'Valter... está na sala? Foco na reunião!',
         'Motta? Está olhando para a parede de novo?',
@@ -172,13 +208,25 @@
         silverGemChance: 0.6,      // Baú de Prata: Gema Épica/Lendária (senão Arcana extra)
         wellGemChance: 0.7,        // Poço dos Desejos: Gema rara (senão Arcana extra)
         offeringVr: 20,            // Mesa de Oferenda: VR por carta sacrificada
-        rest: { healPrice: 25, healAmount: 20, removePrices: [30, 50, 70], relicPrice: 45, breathPrice: 45, gemPrice: 40, repairPrice: 20 }
+        // Etapa 9 (campanha de 15 Partes): escala dos inimigos por Parte; chefes separados.
+        partScale: {
+            1: { hp: 0.85, atk: 0.85, xp: 0.8, vr: 0.65 },
+            2: { hp: 0.82, atk: 0.84, xp: 0.85, vr: 0.7 },
+            3: { hp: 0.92, atk: 0.9, xp: 0.9, vr: 0.75 },
+            boss: { hp: 1.0, atk: 1.0, xp: 1.0, vr: 1.0 }
+        },
+        // Ecos do Abismo: inimigos das Fases 2-4 reforçados para o fim da campanha.
+        abyssEcho: { hp: 1.25, atk: 1.12, xp: 1.2 },
+        partPortalHeal: 15,
+        xpCurve: 1.3,
+        rest: { healPrice: 30, healAmount: 20, removePrices: [35, 60, 85], relicPrice: 55, breathPrice: 55, gemPrice: 50, repairPrice: 25 }
     };
 
+    // xpCurve (Etapa 9): a campanha de 15 Partes tem ~2x mais XP disponível; o clímax fica no nível 10-13.
     function getXpForLevel(level) {
         const idx = Math.max(0, (level || 1) - 1);
-        if (idx < XP_TABLE.length) return XP_TABLE[idx];
-        return XP_TABLE[XP_TABLE.length - 1] + (idx - XP_TABLE.length + 1) * 130;
+        const raw = idx < XP_TABLE.length ? XP_TABLE[idx] : XP_TABLE[XP_TABLE.length - 1] + (idx - XP_TABLE.length + 1) * 130;
+        return Math.round(raw * (BALANCE.xpCurve || 1));
     }
 
     // costMod: modificador temporário da carta na mão (carta-lixo Confusão).
@@ -1574,7 +1622,12 @@
         pool.common.concat(pool.boss).forEach(kind => { ENEMIES[kind].floor = Number(floor); });
     });
 
+    // Etapa 9: as Partes 1 e 2 do Abismo trazem "Ecos" dos devaneios anteriores (reforçados pela escala da Parte),
+    // sem mudar a Fase de origem deles no Bestiário. A Parte 3 continua sendo só o Senhor das Horas.
+    const ABYSS_ECHOES = ['lamplighter', 'yeti', 'gargoyle', 'wraith'];
+
     function getEnemyPool(floorNum) {
+        if (Number(floorNum) === 5) return { common: ABYSS_ECHOES.slice(), boss: BIOME_ENEMIES[5].boss, echoes: true };
         return BIOME_ENEMIES[floorNum] || BIOME_ENEMIES[1];
     }
 
@@ -2597,6 +2650,9 @@
         FIRST_TIME_TIPS: FIRST_TIME_TIPS,
         getCharacter: getCharacter,
         FLOOR_CLOCKS: FLOOR_CLOCKS,
+        SECTORS: SECTORS,
+        PARTS_PER_BIOME: PARTS_PER_BIOME,
+        getSector: getSector,
         REALITY_FLASH_QUIPS: REALITY_FLASH_QUIPS,
         XP_TABLE: XP_TABLE,
         CARDS: CARDS,

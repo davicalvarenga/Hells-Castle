@@ -26,6 +26,23 @@
     const WALL_MARGIN = 0.14;
     const VIEW_HALF_WIDTH = 2.6;    // limite lateral visível na profundidade da formação
 
+    // Etapa 9: a atmosfera muda dentro do Bioma. A Entrada é mais aberta, o Coração é o padrão e o Domínio do
+    // Chefe fecha a neblina e baixa a luz (o Abismo, sem neblina, ganha uma névoa violeta só ali).
+    const PART_ATMOS = {
+        1: { fog: 1.18, light: 1.06 },
+        2: { fog: 1.0, light: 1.0 },
+        3: { fog: 0.68, light: 0.82, voidFog: [0x1a0b2e, 9, 34] }
+    };
+    let atmosphere = { part: 1, fog: null, ambient: 0 };
+
+    function partAtmosphere(base, part) {
+        const mod = PART_ATMOS[part] || PART_ATMOS[2];
+        const fog = base.fog ? [base.fog[0], base.fog[1] * mod.fog, base.fog[2] * mod.fog] : (mod.voidFog || null);
+        const out = Object.assign({}, base, { fog: fog, ambient: [base.ambient[0], base.ambient[1] * mod.light] });
+        atmosphere = { part: part, fog: fog ? fog.slice() : null, ambient: out.ambient[1] };
+        return out;
+    }
+
     // Atmosfera de cada bioma.
     const BIOMES = {
         beach: {
@@ -253,9 +270,10 @@
         currentState = state;
 
         // O andar da run é gerado por seed; o layout base só vale como fallback.
-        const floorCfg = (state.floors && state.floors[state.floor]) || window.GameData.getFloorConfig(state.floor);
+        const floorCfg = (state.floors && (state.floors[state.floor + '.' + (state.part || 1)] || state.floors[state.floor])) ||
+            window.GameData.getFloorConfig(state.floor);
         biomeName = floorCfg.biome || 'dungeon';
-        biome = BIOMES[biomeName] || BIOMES.dungeon;
+        biome = partAtmosphere(BIOMES[biomeName] || BIOMES.dungeon, state.part || 1);
 
         camX = state.player.x;
         camZ = state.player.y;
@@ -2343,6 +2361,7 @@
     window.GameRenderer = {
         init: init,
         buildMap: buildMap,
+        getAtmosphere: () => JSON.parse(JSON.stringify(atmosphere)),
         syncState: syncState,
         setHoveredCard: setHoveredCard,
         turnCamera: turnCamera,

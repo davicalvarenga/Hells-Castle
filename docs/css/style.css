@@ -4671,3 +4671,159 @@ body.daydream-transition .viewport-frame {
         padding: 2px 6px;
     }
 }
+
+/* ===== ETAPA 9: SETOR NO TOPO E TOAST DE TRANSIÇÃO ENTRE PARTES ===== */
+.vp-sector {
+    display: block;
+    font-size: 13px;
+    line-height: 1.05;
+    color: #fde68a;
+    letter-spacing: 0.05em;
+}
+
+.sector-toast {
+    position: fixed;
+    top: 62px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 255;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    width: max-content;
+    max-width: min(560px, calc(100vw - 16px));
+    box-sizing: border-box;
+    padding: 5px 14px;
+    background: rgba(8, 6, 14, 0.86);
+    border-top: 2px solid #f5cb5c;
+    border-bottom: 2px solid #f5cb5c;
+    color: #fef3c7;
+    text-align: center;
+    text-shadow: 0 2px 0 #000;
+}
+
+.sector-toast b {
+    font-weight: 400;
+    font-size: 17px;
+    color: #fde68a;
+    letter-spacing: 0.06em;
+}
+
+.sector-toast span {
+    font-size: 14px;
+    color: #e9e3f5;
+}
+
+.sector-toast.show {
+    animation: sector-in 3.6s ease-out forwards;
+}
+
+.sector-toast.hidden {
+    display: none;
+}
+
+@keyframes sector-in {
+    0% { opacity: 0; transform: translate(-50%, -6px); }
+    10% { opacity: 1; transform: translate(-50%, 0); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@media (max-width: 680px) {
+    .vp-sector {
+        font-size: 9px;
+    }
+
+    .sector-toast {
+        top: 48px;
+        padding: 4px 10px;
+    }
+
+    .sector-toast b {
+        font-size: 13px;
+    }
+
+    .sector-toast span {
+        font-size: 11px;
+    }
+}
+
+/* ---- Etapa 9: Continuar Expediente / Novo Expediente / Desistir ---- */
+.start-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: stretch;
+}
+
+.has-saved-run .start-row .start-daydream-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 17px;
+}
+
+.continue-row {
+    display: flex;
+    flex: 1.4 1 0;
+    min-width: 0;
+}
+
+.continue-row.hidden {
+    display: none;
+}
+
+.continue-btn {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: linear-gradient(180deg, #fde68a 0%, #d97706 100%);
+    color: #2a1703;
+    box-shadow: inset 0 2px 0 #fff7d6, 0 4px 0 #090d16, 0 0 14px rgba(245, 203, 92, 0.45);
+    animation: continue-glow 1.6s ease-in-out infinite;
+}
+
+.continue-info {
+    font-size: 12px;
+    line-height: 1.1;
+    letter-spacing: 0;
+    color: #3b2306;
+}
+
+@keyframes continue-glow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.12); }
+}
+
+.start-daydream-btn.confirming,
+.abandon-btn.confirming {
+    background: linear-gradient(180deg, #f87171 0%, #b91c1c 100%);
+    color: #fff;
+}
+
+.has-saved-run .start-row #btn-start-daydream:not(.confirming) {
+    background: linear-gradient(180deg, #475569 0%, #1e293b 100%);
+    color: #e2e8f0;
+    box-shadow: inset 0 2px 0 #94a3b8, 0 4px 0 #090d16;
+}
+
+.abandon-btn {
+    margin-left: auto;
+    margin-right: 6px;
+    background: linear-gradient(180deg, #7f1d1d 0%, #450a0a 100%);
+    color: #fecaca;
+}
+
+@media (max-width: 680px) {
+    .has-saved-run .start-row .start-daydream-btn {
+        font-size: 13px;
+        padding: 3px 4px;
+    }
+
+    .continue-info {
+        font-size: 9px;
+    }
+}

@@ -60,10 +60,10 @@ function botStep(policy) {
     const vis = id => { const e = el(id); return !!e && !e.classList.contains('hidden'); };
     const good = policy === 'good';
     const LEAN_DECK = 13; // baralho do bot bom: acima disso recusa as cartas de bioma do baú
-    const snapshot = () => ({ seed: h.seed, map: (h.getFloor ? h.getFloor().layout.join('') : ''), arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
+    const snapshot = () => ({ seed: h.seed, map: (h.getFloor ? h.getFloor().layout.join('') : ''), arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills, curse: s.curse || 0 });
 
     if (vis('end-modal')) {
-        return { done: true, victory: !!s.finalVictory, floor: s.floor, final: snapshot(), floors: mem.floors,
+        return { done: true, victory: !!s.finalVictory, floor: s.floor, part: s.part || 1, final: snapshot(), floors: mem.floors,
             bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills, specials: mem.specials, introScenes: mem.introScenes || 0,
             arsenal: { arcanas: (s.arcanas || []).length, cracked: Object.keys(mem.cracks).length,
                 gems: Object.keys(s.cardGems || {}).reduce((n, id) => n + s.cardGems[id].length, 0),
@@ -131,7 +131,7 @@ function botStep(policy) {
             const back = byTitle('Voltar');
             if (back) { back.click(); return { act: 'back' }; }
         }
-        mem.rested[s.floor] = true;
+        mem.rested[s.floor + '.' + (s.part || 1)] = true;
         el('btn-rest-close').click();
         return { act: 'closeRest' };
     }
@@ -141,7 +141,7 @@ function botStep(policy) {
         const kind = el('event-modal').dataset.kind;
         if (kind === 'bau_prata' || kind === 'mesa_oferenda') {
             // Uma visita por tile: o jogador bom só sacrifica com baralho folgado; o descuidado decide no acaso.
-            mem.visited[s.floor + ':' + s.player.x + ',' + s.player.y] = true;
+            mem.visited[s.floor + '.' + (s.part || 1) + ':' + s.player.x + ',' + s.player.y] = true;
             mem.specials[kind] = (mem.specials[kind] || 0) + 1;
             const accept = good ? s.deck.length >= 11 : Math.random() < 0.5;
             (accept && btns.length > 1 ? btns[0] : btns[btns.length - 1]).click();
@@ -197,7 +197,7 @@ function botStep(policy) {
     };
     const uncleared = ch => tiles(ch).filter(t => !s.clearedTiles.has(t.x + ',' + t.y));
     // Baú de Prata e Mesa de Oferenda podem ser recusados e continuar no mapa: o bot só vai até eles uma vez.
-    const unvisited = ch => uncleared(ch).filter(t => !mem.visited[s.floor + ':' + t.x + ',' + t.y]);
+    const unvisited = ch => uncleared(ch).filter(t => !mem.visited[s.floor + '.' + (s.part || 1) + ':' + t.x + ',' + t.y]);
     const boss = alive.find(e => e.isBoss);
     const minions = alive.filter(e => !e.isBoss);
 
@@ -210,9 +210,11 @@ function botStep(policy) {
     else if (unvisited('O').length) goals = unvisited('O');
     else if (minions.length) goals = minions.map(e => ({ x: e.x, y: e.y }));
     else if (uncleared('?').length) goals = uncleared('?');
-    else if (good && boss && !mem.rested[s.floor] && tiles('M').length && fl.restName) goals = tiles('M');
+    else if (good && boss && !mem.rested[s.floor + '.' + (s.part || 1)] && tiles('M').length && fl.restName) goals = tiles('M');
     else if (boss) goals = [{ x: boss.x, y: boss.y }];
     else if (s.bossDefeated) goals = tiles('E');
+    // Etapa 9: Partes 1/3 e 2/3 não têm chefe; com o mapa limpo, o bot atravessa o portal E.
+    else if ((s.part || 3) < 3) goals = tiles('E');
     if (goals.length === 0) return { wait: true, idle: true };
 
     const start = s.player.x + ',' + s.player.y;
@@ -279,7 +281,7 @@ async function runOne(browser, baseUrl, idx) {
     const started = Date.now();
     let result = null;
     let lastAct = '';
-    while (!result && Date.now() - started < Number(arg('timeout', 240000))) {
+    while (!result && Date.now() - started < Number(arg('timeout', 600000))) {
         const r = await page.evaluate(botStep, POLICY);
         if (r.done) result = r;
         else {
@@ -328,12 +330,12 @@ results.forEach((r, i) => {
     const floors = Object.entries(r.floors || {}).map(([n, v]) => 'F' + n + ':L' + v.level + ' hp' + v.hp + '/' + v.maxHp).join(' ');
     const bosses = Object.entries(r.bossStart || {}).map(([n, v]) => 'B' + n + ':L' + v.level + ' hp' + v.hp).join(' ');
     console.log('#' + i + ' ' + (r.victory ? 'WIN ' : r.timeout ? 'TIMEOUT(' + r.mode + ',busy=' + r.busy + ') ' : r.stuck ? 'STUCK ' : 'LOSS') +
-        ' fase ' + r.floor + ' ' + (f.arcana || '-') + ' | L' + f.level + ' hp ' + f.hp + '/' + f.maxHp + ' vr ' + f.vr + ' turnos ' + r.turns +
+        ' fase ' + r.floor + (r.part ? '.' + r.part : '') + ' ' + (f.arcana || '-') + ' | L' + f.level + ' hp ' + f.hp + '/' + f.maxHp + ' vr ' + f.vr + ' curse ' + (f.curse || 0) + '% turnos ' + r.turns +
         ' | ' + floors + ' | ' + bosses + (r.arsenal ? ' | ' + JSON.stringify(r.arsenal) + ' ' + JSON.stringify(r.specials || {}) : '') +
         (r.dump ? ' | ' + r.dump : '') + (r.errors.length ? ' | ERROS: ' + r.errors.slice(0, 2).join(' / ') : ''));
 });
 const avg = key => (results.reduce((a, r) => a + ((r.final || {})[key] || 0), 0) / results.length).toFixed(1);
 const byFloor = {};
-results.filter(r => !r.victory).forEach(r => { byFloor[r.floor] = (byFloor[r.floor] || 0) + 1; });
+results.filter(r => !r.victory).forEach(r => { const k = r.floor + (r.part ? '.' + r.part : ''); byFloor[k] = (byFloor[k] || 0) + 1; });
 console.log('VITÓRIAS ' + wins + '/' + RUNS + ' | nível médio final ' + avg('level') + ' | derrotas por fase ' + JSON.stringify(byFloor) +
     ' | erros de console ' + results.reduce((a, r) => a + r.errors.length, 0));

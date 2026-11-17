@@ -34,6 +34,74 @@
 
     // Preferências de onboarding (introSeen, tutorialDone, dicas já vistas). Chave separada da meta.
     const UI_KEY = 'hc_ui_v1';
+    // ---------- RUN EM ANDAMENTO (Etapa 9: "Continuar Expediente") ----------
+    // A run inteira vai para hc_active_run_v1 nos pontos de calma (fim de combate, fila de modais vazia, troca de
+    // Parte/Bioma). Os mapas não são gravados: a seed da run os regenera iguais. Tutorial e Hora Extra não gravam.
+    const RUN_KEY = 'hc_active_run_v1';
+    const RUN_VERSION = 1;
+    const RUN_SKIP = ['floors', 'enemies', 'currentEncDef', 'forcedRewardIds'];
+
+    function canSaveRun() {
+        return !!state && !state.tutorial && !state.infinite && state.mode !== 'gameover' && state.mode !== 'combat' &&
+            !isTitleOpen() && (state.enemies || []).every(e => e.hp <= 0);
+    }
+
+    function saveActiveRun(reason) {
+        if (!canSaveRun()) return false;
+        const data = {};
+        Object.keys(state).forEach(k => {
+            if (RUN_SKIP.includes(k)) return;
+            const v = state[k];
+            if (typeof v === 'function') return;
+            data[k] = v instanceof Set ? { __set: Array.from(v) } : v;
+        });
+        data.mode = 'explore';
+        data.busy = false;
+        data.autoPlaying = false;
+        const payload = {
+            v: RUN_VERSION, savedAt: Date.now(), reason: reason || 'auto',
+            counters: { uid: uidCounter, chest: chestIndex, event: eventIndex },
+            summary: { floor: state.floor, part: state.part, level: state.level, hp: state.hp, maxHp: state.maxHp, hero: state.heroName },
+            state: data
+        };
+        try {
+            const st = metaStorage();
+            if (!st) return false;
+            st.setItem(RUN_KEY, JSON.stringify(payload));
+            return true;
+        } catch (err) {
+            return false; // cota cheia ou armazenamento bloqueado: a run só não fica salva
+        }
+    }
+
+    // Lê e valida a run salva; qualquer coisa estranha é descartada (nunca quebra a Recepção).
+    function readActiveRun() {
+        try {
+            const st = metaStorage();
+            const raw = st ? JSON.parse(st.getItem(RUN_KEY) || 'null') : null;
+            if (!raw || raw.v !== RUN_VERSION || !raw.state || typeof raw.state !== 'object') return null;
+            const r = raw.state;
+            const okFloor = Number.isInteger(r.floor) && r.floor >= 1 && r.floor <= D.FLOORS.length;
+            const okPart = Number.isInteger(r.part) && r.part >= 1 && r.part <= D.PARTS_PER_BIOME;
+            const okDeck = Array.isArray(r.deck) && r.deck.length > 0 && r.deck.every(id => D.CARDS[id]);
+            const okHp = typeof r.hp === 'number' && r.hp > 0 && typeof r.maxHp === 'number';
+            const okPlayer = r.player && Number.isInteger(r.player.x) && Number.isInteger(r.player.y);
+            if (!okFloor || !okPart || !okDeck || !okHp || !okPlayer || typeof r.runSeed !== 'number' || r.tutorial || r.infinite) return null;
+            return raw;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function clearActiveRun() {
+        try {
+            const st = metaStorage();
+            if (st) st.removeItem(RUN_KEY);
+        } catch (err) {
+            // armazenamento bloqueado: nada a limpar
+        }
+    }
+
     function sanitizeUi(raw) {
         const out = { introSeen: false, tutorialDone: false, tips: [], discoveredCardTutorials: [] };
         if (raw && typeof raw === 'object') {
@@ -80,6 +148,12 @@
         statHero: $('stat-hero'),
         statLv: $('stat-lv'),
         statFloor: $('stat-floor'),
+        statSector: $('stat-sector'),
+        continueRow: $('continue-row'),
+        continueInfo: $('continue-info'),
+        btnContinueRun: $('btn-continue-run'),
+        btnAbandonRun: $('btn-abandon-run'),
+        sectorToast: $('sector-toast'),
         statKills: $('stat-kills'),
         statVr: $('stat-vr'),
         statMight: $('stat-might'),
@@ -285,17 +359,27 @@
     }
 
     // Andar procedural (DungeonGenerator). Sem gerador ou com geração inválida, vale o layout base.
-    function generateRunFloor(run, floorNum) {
+    // Etapa 9: cada Bioma tem 3 Partes; o mapa de cada uma é gerado (e guardado) por "bioma.parte".
+    function floorKey(floorNum, part) {
+        return floorNum + '.' + (part || 1);
+    }
+
+    function generateRunFloor(run, floorNum, part) {
         const base = D.getFloorConfig(floorNum);
         const G = window.GameDungeon;
         if (!G || !base) return base;
+        const p = part || 1;
         const pool = D.getEnemyPool(base.floor);
-        const baseSeed = G.floorSeed(run.runSeed, base.floor);
+        // Parte 1 mantém a seed antiga do bioma; as outras derivam dela.
+        const baseSeed = G.floorSeed(run.runSeed, p === 1 ? base.floor : base.floor * 10 + p);
+        const sector = D.getSector(base.floor, p);
         for (let attempt = 0; attempt < 6; attempt++) {
             try {
-                const fl = G.generateFloor(base, {
+                const fl = G.generateFloor(Object.assign({}, base, { sector: sector }), {
                     seed: baseSeed + attempt,
-                    size: 11,
+                    part: p,
+                    // O Domínio do Chefe é mais curto.
+                    size: p === 3 ? 9 : 11,
                     enemyPool: pool.common,
                     bossKind: pool.boss,
                     eliteKind: pool.common[2],
@@ -310,13 +394,18 @@
         return base;
     }
 
-    function runFloor(run, floorNum) {
-        if (!run.floors[floorNum]) run.floors[floorNum] = generateRunFloor(run, floorNum);
-        return run.floors[floorNum];
+    function runFloor(run, floorNum, part) {
+        const key = floorKey(floorNum, part);
+        if (!run.floors[key]) run.floors[key] = generateRunFloor(run, floorNum, part || 1);
+        return run.floors[key];
     }
 
     function currentFloor() {
-        return runFloor(state, state.floor);
+        return runFloor(state, state.floor, state.part);
+    }
+
+    function currentSector() {
+        return D.getSector(state.floor, state.part);
     }
 
     function isTitleOpen() {
@@ -342,7 +431,7 @@
                 // Nunca nasce em parede/fora do mapa nem empilhado com outro encontro
                 if (!D.isWalkableTile(fl.layout, x, y) || list.some(e => e.x === x && e.y === y)) continue;
                 list.push({
-                    id: 'enc_' + fl.floor + '_' + fl.layout[y][x],
+                    id: 'enc_' + fl.floor + '_' + (fl.part || 1) + '_' + fl.layout[y][x],
                     x: x,
                     y: y,
                     enc: enc,
@@ -395,6 +484,7 @@
             heroTitle: hero.title,
             turn1Shield: hero.turn1Shield || 0,
             floor: 1,
+            part: 1,               // Parte do Bioma (1..3)
             runSeed: run.runSeed,
             floors: run.floors,
             curse: 0,
@@ -549,7 +639,7 @@
     }
 
     function revealAround(s, px, py, layout) {
-        const map = layout || runFloor(s, s.floor).layout;
+        const map = layout || runFloor(s, s.floor, s.part).layout;
         for (let dy = -3; dy <= 3; dy++) {
             for (let dx = -3; dx <= 3; dx++) {
                 const nx = px + dx;
@@ -561,10 +651,11 @@
         }
     }
 
-    function loadFloor(floorNum) {
-        const fl = runFloor(state, floorNum);
+    function loadFloor(floorNum, part) {
+        const fl = runFloor(state, floorNum, part || 1);
         const start = findStartPos(fl.layout);
         state.floor = fl.floor;
+        state.part = part || 1;
         state.player.x = start.x;
         state.player.y = start.y;
         state.player.dir = start.dir || 0;
@@ -1169,6 +1260,7 @@
         state.autoPlaying = false;
         R.syncState(state);
         renderAll();
+        saveActiveRun('modal');
     }
 
     // Fecha o modal atual, dá um respiro curto e abre o próximo da fila (se houver).
@@ -2119,10 +2211,43 @@
         };
     }
 
+    // Portal entre as Partes do mesmo Bioma: transição rápida, sem card narrativo; só um toast de 1 linha.
+    function requestNextPart() {
+        if (state.busy || state.mode !== 'explore') return;
+        const nextPart = (state.part || 1) + 1;
+        A.play('chest');
+        // Respiro do portal: um pouco de Sanidade entre as Partes (a campanha longa desgasta mais).
+        const healed = Math.min(state.maxHp - state.hp, B.partPortalHeal);
+        if (healed > 0) state.hp += healed;
+        loadFloor(state.floor, nextPart);
+        if (healed > 0) {
+            const heart = els.hpText.getBoundingClientRect();
+            spawnFloatingText(heart.left + heart.width / 2, heart.top, '+' + healed, 'heal');
+        }
+        const sec = currentSector();
+        showSectorToast(D.BIOMES[state.floor].label.toUpperCase() + ' · PARTE ' + nextPart + '/' + D.PARTS_PER_BIOME + ' — ' +
+            sec.name.toUpperCase(), sec.toast);
+        setLog('Portal atravessado: ' + sec.name + ' (' + sec.clock + ').');
+        saveActiveRun('part');
+    }
+
+    // Toast atmosférico de 1 linha (não bloqueia nem entra na fila de modais).
+    let sectorToastTimer = null;
+    function showSectorToast(title, line) {
+        if (!els.sectorToast) return;
+        els.sectorToast.innerHTML = '<b>' + title + '</b><span>' + line + '</span>';
+        els.sectorToast.classList.remove('hidden');
+        els.sectorToast.classList.remove('show');
+        void els.sectorToast.offsetWidth;
+        els.sectorToast.classList.add('show');
+        clearTimeout(sectorToastTimer);
+        sectorToastTimer = setTimeout(() => els.sectorToast.classList.add('hidden'), 3600);
+    }
+
     // Saída da fase: frase de conclusão -> gatilho do próximo devaneio -> carrega o bioma.
     function requestNextFloor() {
         const fl = currentFloor();
-        const next = runFloor(state, state.floor + 1);
+        const next = runFloor(state, state.floor + 1, 1);
         enqueueModal({
             type: 'narrative',
             biome: 'office',
@@ -2130,7 +2255,10 @@
             title: '"' + fl.conclusion + '"',
             lines: [fl.name + ' se desfaz como fumaça.', 'Valter respira fundo, olha o relógio e volta ao trabalho. Por enquanto.']
         });
-        enqueueModal(triggerCard(next, () => loadFloor(next.floor)));
+        enqueueModal(triggerCard(next, () => {
+            loadFloor(next.floor, 1);
+            saveActiveRun('biome');
+        }));
     }
 
     // ---------- EPÍLOGO ----------
@@ -2426,7 +2554,9 @@
             return;
         }
         if (tile === 'E') {
-            if (state.bossDefeated) {
+            if ((fl.part || 3) < D.PARTS_PER_BIOME) {
+                requestNextPart();
+            } else if (state.bossDefeated) {
                 requestNextFloor();
             } else {
                 setLog('Saída bloqueada! Derrote ' + fl.bossName + ' primeiro!');
@@ -2480,6 +2610,17 @@
             hexEvery: tpl.hexEvery || 0,
             elite: !!elite
         };
+        // Etapa 9: escala por Parte do Bioma (Entrada mais leve, Coração médio, Domínio do Chefe pesado).
+        // XP e VR por inimigo caem porque a campanha tem ~2x mais combates. A Hora Extra não usa a escala.
+        if (!state.infinite && !state.tutorial) {
+            const ps = (e.isBoss ? B.partScale.boss : B.partScale[state.part || 1]) || {};
+            const echo = !e.isBoss && state.floor === D.FLOORS.length ? B.abyssEcho : null;
+            e.hp = Math.max(1, Math.round(e.hp * (ps.hp || 1) * (echo ? echo.hp : 1)));
+            e.maxHp = e.hp;
+            e.atk = Math.max(1, Math.round(e.atk * (ps.atk || 1) * (echo ? echo.atk : 1)));
+            e.xp = Math.max(1, Math.round(e.xp * (ps.xp || 1) * (echo ? echo.xp : 1)));
+            e.vr = Math.max(1, Math.round(e.vr * (ps.vr || 1)));
+        }
         if (e.elite) {
             e.name = 'Elite: ' + e.name;
             e.hp = Math.round(e.hp * B.eliteHpMult);
@@ -4482,6 +4623,8 @@
                 if ('M?EPOW'.includes(tile)) handleTileEvent(state.player.x, state.player.y, tile);
             }
             processModalQueue();
+            // Sem modal na sequência, grava já; com modal, grava quando a fila esvaziar.
+            if (activeModal === null && modalQueue.length === 0) saveActiveRun('combat');
         });
     }
 
@@ -4531,6 +4674,7 @@
     function setupInfiniteRun() {
         state.infinite = { wave: 1 };
         state.floor = D.FLOORS.length;
+        state.part = D.PARTS_PER_BIOME;
         const fl = currentFloor();
         const start = findStartPos(fl.layout);
         state.player = { x: start.x, y: start.y, dir: start.dir || 0 };
@@ -4544,6 +4688,8 @@
 
     function endGame(victory) {
         A.setMusic(null);
+        // Vitória às 18:00, Burnout ou desistência: a run salva acaba aqui.
+        if (!state.tutorial) clearActiveRun();
         // Tutorial nunca grava meta nem histórico: perder o treino só volta para a Recepção.
         if (state.tutorial) {
             finishTutorial(false);
@@ -4620,10 +4766,14 @@
         els.xpFill.style.width = xpPct + '%';
         els.statHero.textContent = state.heroTitle.toUpperCase();
         els.statLv.textContent = String(state.level);
-        els.statFloor.textContent = state.infinite ? 'ONDA ' + state.infinite.wave : 'FASE ' + state.floor + '/' + D.FLOORS.length;
+        const sector = state.infinite || state.tutorial ? null : currentSector();
+        els.statFloor.textContent = state.infinite ? 'ONDA ' + state.infinite.wave : state.tutorial ? 'TREINO'
+            : D.BIOMES[state.floor].label.toUpperCase() + ' · PARTE ' + state.part + '/' + D.PARTS_PER_BIOME;
+        if (els.statSector) els.statSector.textContent = sector ? sector.name.toUpperCase() : state.infinite ? 'HORA EXTRA' : '';
         els.statKills.textContent = String(state.kills);
         els.statVr.textContent = String(state.vr);
-        els.clockTime.textContent = state.infinite ? '18:00+' : state.finalVictory ? D.FLOOR_CLOCKS.victory : (D.FLOOR_CLOCKS[state.floor] || '08:17');
+        els.clockTime.textContent = state.infinite ? '18:00+' : state.finalVictory ? D.FLOOR_CLOCKS.victory
+            : state.tutorial ? '08:17' : currentSector().clock;
 
         if (els.statMight) els.statMight.textContent = '+' + getStat('Might') + '%';
         if (els.statAmount) els.statAmount.textContent = '+' + getStat('Amount');
@@ -4977,7 +5127,10 @@
         els.btnInfiniteToggle.classList.toggle('hidden', !meta.infiniteUnlocked);
         els.btnInfiniteToggle.classList.toggle('on', !!meta.infiniteMode);
         els.btnInfiniteToggle.textContent = 'HORA EXTRA INFINITA: ' + (meta.infiniteMode ? 'LIGADA' : 'DESLIGADA');
-        els.btnStartDaydream.textContent = meta.infiniteMode ? 'BATER PONTO DA HORA EXTRA' : 'BATER PONTO E COMEÇAR O DIA';
+        // Com run salva o botão vira "NOVO EXPEDIENTE" (renderContinueRow cuida do texto).
+        if (!els.titleModal.classList.contains('has-saved-run')) {
+            els.btnStartDaydream.textContent = meta.infiniteMode ? 'BATER PONTO DA HORA EXTRA' : 'BATER PONTO E COMEÇAR O DIA';
+        }
     }
 
     // Seletor de Nível de Pressão: aparece depois da 1ª vitória; cada vitória no nível N libera o N+1.
@@ -5148,7 +5301,115 @@
         resetModalSystem();
         initWorld();
         renderBadge();
+        renderContinueRow();
         els.titleModal.classList.remove('hidden');
+    }
+
+    function runSummaryText(sum) {
+        const sec = D.getSector(sum.floor, sum.part);
+        return D.BIOMES[sum.floor].label.toUpperCase() + ' ' + sum.part + '/' + D.PARTS_PER_BIOME + ' · ' + sec.name +
+            ' · LV ' + sum.level + ' · ' + sum.hp + '/' + sum.maxHp + ' SANIDADE';
+    }
+
+    let newRunArmed = false;
+    let newRunTimer = null;
+
+    // Com run salva: CONTINUAR EXPEDIENTE em destaque + NOVO EXPEDIENTE (pede confirmação para sobrescrever).
+    function renderContinueRow() {
+        const saved = readActiveRun();
+        newRunArmed = false;
+        clearTimeout(newRunTimer);
+        els.continueRow.classList.toggle('hidden', !saved);
+        els.titleModal.classList.toggle('has-saved-run', !!saved);
+        els.btnStartDaydream.classList.remove('confirming');
+        if (saved) {
+            els.continueInfo.textContent = runSummaryText(saved.summary || saved.state);
+            els.btnStartDaydream.textContent = 'NOVO EXPEDIENTE';
+        } else {
+            els.btnStartDaydream.textContent = meta.infiniteMode && meta.infiniteUnlocked ? 'BATER PONTO DA HORA EXTRA' : 'BATER PONTO E COMEÇAR O DIA';
+        }
+    }
+
+    function onStartClick() {
+        if (!isTitleOpen()) return;
+        if (readActiveRun() && !newRunArmed) {
+            A.unlock();
+            A.play('immune');
+            newRunArmed = true;
+            els.btnStartDaydream.classList.add('confirming');
+            els.btnStartDaydream.textContent = 'SOBRESCREVER A RUN SALVA? TOQUE DE NOVO';
+            clearTimeout(newRunTimer);
+            newRunTimer = setTimeout(renderContinueRow, 4000);
+            return;
+        }
+        clearTimeout(newRunTimer);
+        newRunArmed = false;
+        clearActiveRun();
+        confirmStartDaydream();
+    }
+
+    function continueRun() {
+        if (!isTitleOpen()) return false;
+        const saved = readActiveRun();
+        if (!saved) {
+            renderContinueRow();
+            return false;
+        }
+        A.unlock();
+        A.play('levelup');
+        els.titleModal.classList.add('hidden');
+        els.receptionModal.classList.add('hidden');
+        resetModalSystem();
+        const r = {};
+        Object.keys(saved.state).forEach(k => {
+            const v = saved.state[k];
+            r[k] = v && typeof v === 'object' && Array.isArray(v.__set) ? new Set(v.__set) : v;
+        });
+        r.floors = {};
+        r.enemies = [];
+        r.mode = 'explore';
+        r.busy = false;
+        r.autoPlaying = false;
+        state = r;
+        uidCounter = (saved.counters && saved.counters.uid) || uidCounter;
+        chestIndex = (saved.counters && saved.counters.chest) || 0;
+        eventIndex = (saved.counters && saved.counters.event) || 0;
+        const fl = currentFloor();
+        R.setHoveredCard(null);
+        R.buildMap(fl.layout, state);
+        R.syncState(state);
+        R.settleCamera();
+        A.setAmbience(fl.biome);
+        renderAll();
+        const sec = currentSector();
+        showSectorToast('EXPEDIENTE RETOMADO · ' + D.BIOMES[state.floor].label.toUpperCase() + ' ' + state.part + '/' + D.PARTS_PER_BIOME,
+            sec.name + ' — ' + sec.clock + '. ' + sec.toast);
+        setLog('Expediente retomado: ' + sec.name + '.');
+        return true;
+    }
+
+    // Desistir (Manual "?"): encerra como Burnout, registra a run e limpa o save.
+    let abandonArmed = false;
+    function onAbandonClick() {
+        if (!state || state.tutorial || state.mode === 'gameover' || isTitleOpen()) return;
+        if (!abandonArmed) {
+            abandonArmed = true;
+            els.btnAbandonRun.textContent = 'CONFIRMAR DESISTÊNCIA?';
+            els.btnAbandonRun.classList.add('confirming');
+            setTimeout(() => {
+                abandonArmed = false;
+                els.btnAbandonRun.textContent = 'DESISTIR';
+                els.btnAbandonRun.classList.remove('confirming');
+            }, 4000);
+            return;
+        }
+        abandonArmed = false;
+        els.btnAbandonRun.textContent = 'DESISTIR';
+        els.btnAbandonRun.classList.remove('confirming');
+        closeCodex();
+        resetModalSystem();
+        state.busy = false;
+        endGame(false);
     }
 
     function confirmStartDaydream() {
@@ -5619,6 +5880,10 @@
         });
         codexOpen = true;
         R.setHoveredCard(null);
+        abandonArmed = false;
+        els.btnAbandonRun.textContent = 'DESISTIR';
+        els.btnAbandonRun.classList.remove('confirming');
+        els.btnAbandonRun.classList.toggle('hidden', !state || !!state.tutorial || state.mode === 'gameover' || isTitleOpen());
         els.codexModal.classList.remove('hidden');
         selectCodexTab(tabIndex || 0);
     }
@@ -5697,7 +5962,8 @@
         state.tutorial = { combat1: false, combat2: false, chest: false, done: false };
         state.pressure = 0;
         state.deck = D.TUTORIAL_DECK.slice();
-        state.floors[1] = D.TUTORIAL_FLOOR;
+        state.floors[floorKey(1, 1)] = D.TUTORIAL_FLOOR;
+        state.part = 1;
         const fl = currentFloor();
         const start = findStartPos(fl.layout);
         state.player = { x: start.x, y: start.y, dir: start.dir || 0 };
@@ -5888,7 +6154,9 @@
     els.btnEndTurn.addEventListener('click', endTurn);
     els.btnBossKey.addEventListener('click', toggleBossKey);
     els.btnCloseSpreadsheet.addEventListener('click', toggleBossKey);
-    els.btnStartDaydream.addEventListener('click', confirmStartDaydream);
+    els.btnStartDaydream.addEventListener('click', onStartClick);
+    els.btnContinueRun.addEventListener('click', continueRun);
+    els.btnAbandonRun.addEventListener('click', onAbandonClick);
     els.btnCodex.addEventListener('click', () => openCodex(0));
     els.btnTitleCodex.addEventListener('click', () => openCodex(0));
     els.btnCodexClose.addEventListener('click', closeCodex);
@@ -6174,6 +6442,13 @@
         get modalQueue() { return modalQueue.map(m => m.type); },
         get activeModalType() { return activeModal ? activeModal.type : null; },
         loadFloor: loadFloor,
+        saveActiveRun: saveActiveRun,
+        readActiveRun: readActiveRun,
+        continueRun: continueRun,
+        requestNextPart: requestNextPart,
+        genPart: (seed, floorNum, part) => generateRunFloor({ runSeed: seed >>> 0, floors: {} }, floorNum, part),
+        get sector() { return state ? currentSector() : null; },
+        getAtmosphere: () => R.getAtmosphere(),
         grantChestLoot: grantChestLoot,
         finishEncounter: finishEncounter,
         enqueueModal: enqueueModal,
