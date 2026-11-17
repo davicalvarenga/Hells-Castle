@@ -61,13 +61,14 @@ function botStep(policy) {
 
     if (vis('end-modal')) {
         return { done: true, victory: !!s.finalVictory, floor: s.floor, final: snapshot(), floors: mem.floors,
-            bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills, specials: mem.specials,
+            bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills, specials: mem.specials, introScenes: mem.introScenes || 0,
             arsenal: { arcanas: (s.arcanas || []).length, cracked: Object.keys(mem.cracks).length,
                 gems: Object.keys(s.cardGems || {}).reduce((n, id) => n + s.cardGems[id].length, 0),
                 extraSlots: Object.keys(s.extraGemSlots || {}).length, fused: Object.keys(s.fusedCards || {}).length } };
     }
     // 1ª visita: a cutscene abre sozinha. O bot pula e vai direto para o expediente (sem tutorial).
     if (vis('intro-overlay')) {
+        mem.introScenes = window.GameIntro ? window.GameIntro.SCENES.length : 0;
         const choice = !el('intro-choice').classList.contains('hidden');
         (choice ? el('btn-intro-direct') : el('btn-intro-skip')).click();
         return { act: 'intro' };
@@ -301,6 +302,9 @@ srv.close();
 const wins = results.filter(r => r.victory).length;
 console.log('\n=== policy=' + POLICY + ' runs=' + RUNS + ' source=' + SOURCE + ' char=' + CHAR + ' ===');
 const wrongHero = results.filter(r => r.hero !== CHAR).length;
+// Toda run nova passa pela cutscene de 1ª visita (5 cenas) antes de bater o ponto.
+const badIntro = results.filter(r => !r.timeout && !r.stuck && r.introScenes !== 5).length;
+if (badIntro) console.log('AVISO: ' + badIntro + ' run(s) não passaram pela cutscene de 5 cenas');
 if (wrongHero) console.log('AVISO: ' + wrongHero + ' run(s) não usaram o colega pedido');
 results.forEach((r, i) => {
     const f = r.final || {};

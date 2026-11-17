@@ -141,7 +141,10 @@
         btnReplayIntro: $('btn-replay-intro'),
         btnOpenTutorial: $('btn-open-tutorial'),
         introOverlay: $('intro-overlay'),
-        introCanvas: $('intro-canvas'),
+        introStage: $('intro-stage'),
+        introImg: $('intro-img'),
+        introParticles: $('intro-particles'),
+        introBubble: $('intro-bubble'),
         introTag: $('intro-tag'),
         introStep: $('intro-step'),
         introTitle: $('intro-title'),
@@ -4436,7 +4439,7 @@
         userGestured = true;
         if (introOpen) {
             A.unlock();
-            A.setAmbience(I.SCENES[intro.scene].ambience);
+            applyIntroAudio(I.SCENES[intro.scene], true);
         }
     };
     window.addEventListener('pointerdown', markGesture, true);
@@ -4446,6 +4449,20 @@
         if (userGestured) A.play(name);
     }
 
+    // Ambiente da cena + abafamento: na Cena 3 o escritório fica distante/submerso; na 4 entra o mar.
+    // immediate: rampa curta (1º gesto no meio da cena). Só roda depois do 1º gesto; o Mudo silencia tudo.
+    function applyIntroAudio(sc, immediate) {
+        if (!userGestured) return;
+        A.setAmbience(sc.ambience);
+        A.setMuffle(!!sc.muffle, immediate ? 0.3 : sc.muffle ? 2.2 : 1.2);
+    }
+
+    let introSfxTimers = [];
+
+    function clearIntroSfx() {
+        introSfxTimers.forEach(clearTimeout);
+        introSfxTimers = [];
+    }
     function openIntro(first) {
         introOpen = true;
         intro.first = !!first;
@@ -4454,10 +4471,11 @@
         els.introChoice.classList.add('hidden');
         // Na reprise, "Ir Direto" só volta para a Recepção (a run começa pelo botão de lá).
         els.btnIntroDirect.textContent = intro.first ? 'IR DIRETO PARA O EXPEDIENTE' : 'VOLTAR À RECEPÇÃO';
+        I.preload();
         showIntroScene(0);
         const frame = now => {
             if (!introOpen) return;
-            I.draw(els.introCanvas, intro.scene, (now - intro.sceneStart) / 1000, S);
+            I.drawParticles(els.introParticles, intro.scene, (now - intro.sceneStart) / 1000);
             intro.raf = requestAnimationFrame(frame);
         };
         intro.raf = requestAnimationFrame(frame);
@@ -4468,14 +4486,19 @@
         intro.scene = i;
         intro.sceneStart = performance.now();
         intro.typed = 0;
-        els.introTag.textContent = sc.time + ' — DA PLANILHA À PRAIA';
+        els.introTag.textContent = sc.tag;
         els.introStep.textContent = (i + 1) + '/' + I.SCENES.length;
         els.introTitle.textContent = sc.title;
         els.introText.textContent = '';
         els.btnIntroNext.textContent = i === I.SCENES.length - 1 ? 'CONCLUIR ▸' : 'AVANÇAR ▸';
-        if (userGestured) A.setAmbience(sc.ambience);
-        if (sc.sfx) introSound(sc.sfx);
-        I.draw(els.introCanvas, i, 0, S);
+        showIntroArt(i, sc);
+        applyIntroAudio(sc, false);
+        clearIntroSfx();
+        sc.sfx.forEach(fx => {
+            introSfxTimers.push(setTimeout(() => {
+                if (introOpen && intro.scene === i) introSound(fx.name);
+            }, fx.at));
+        });
         if (intro.typer) clearInterval(intro.typer);
         // Digitação suave; um "tec" de teclado a cada 3 letras (silencioso com o Mudo ligado).
         intro.typer = setInterval(() => {
@@ -4487,6 +4510,24 @@
                 intro.typer = null;
             }
         }, 24);
+    }
+
+    // Troca a ilustração e reinicia as animações CSS da cena. Imagem que falha não trava nada:
+    // o palco mostra o degradê de reserva da cena e a cutscene segue.
+    function showIntroArt(i, sc) {
+        const stage = els.introStage;
+        stage.className = 'intro-stage';
+        void stage.offsetWidth;
+        stage.className = 'intro-stage scene-' + (i + 1) + ' ' + sc.anim;
+        if (I.getStatus()[i] === 'failed') stage.classList.add('img-failed');
+        els.introImg.onerror = () => { if (intro.scene === i) stage.classList.add('img-failed'); };
+        els.introImg.onload = () => { if (intro.scene === i) stage.classList.remove('img-failed'); };
+        els.introImg.src = sc.image;
+        els.introImg.dataset.scene = String(i + 1);
+        const bubble = els.introBubble;
+        bubble.classList.toggle('hidden', !sc.bubble);
+        bubble.textContent = sc.bubble || '';
+        I.drawParticles(els.introParticles, i, 0);
     }
 
     function introTypingDone() {
@@ -4532,8 +4573,12 @@
         intro.typer = null;
         if (intro.raf) cancelAnimationFrame(intro.raf);
         intro.raf = null;
+        clearIntroSfx();
         els.introOverlay.classList.add('hidden');
-        if (userGestured) A.stopAmbience();
+        if (userGestured) {
+            A.setMuffle(false, 0.05);
+            A.stopAmbience();
+        }
         ui.introSeen = true;
         saveUi();
     }

@@ -332,8 +332,13 @@
     <!-- Cutscene inicial: fora da fila de modais (abre antes da run, por cima da Recepção) -->
     <div id="intro-overlay" class="intro-overlay hidden" role="dialog" aria-modal="true" aria-label="Cutscene inicial">
         <div class="intro-frame">
-            <div class="intro-tag"><span id="intro-tag">08:17 — DA PLANILHA À PRAIA</span><span id="intro-step" class="intro-step">1/4</span></div>
-            <canvas id="intro-canvas" width="320" height="180"></canvas>
+            <div class="intro-tag"><span id="intro-tag">08:17 — A ROTINA</span><span id="intro-step" class="intro-step">1/5</span></div>
+            <div id="intro-stage" class="intro-stage" aria-hidden="true">
+                <div class="intro-art"><img id="intro-img" alt="" width="1600" height="893" decoding="async" /></div>
+                <div class="intro-fx"></div>
+                <canvas id="intro-particles" class="intro-particles"></canvas>
+                <div id="intro-bubble" class="intro-bubble hidden"></div>
+            </div>
             <div class="intro-caption">
                 <h2 id="intro-title"></h2>
                 <p id="intro-text" aria-live="polite"></p>

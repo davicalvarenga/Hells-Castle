@@ -385,7 +385,7 @@
         if (!build) return;
         const amb = { biome: target, out: a.createGain(), sources: [], timer: null };
         amb.out.gain.setValueAtTime(0.0001, a.currentTime);
-        amb.out.connect(master);
+        amb.out.connect(ambienceBus(a));
         const level = build(a, amb);
         amb.out.gain.linearRampToValueAtTime(level, a.currentTime + FADE_IN_S);
         amb.sources.forEach(s => s.start());
@@ -395,6 +395,43 @@
     function setAmbience(biome) {
         wantedBiome = biome || null;
         syncAmbience();
+    }
+
+    // ---- Abafamento (cutscene, cena "O Desligamento") ----
+    // Todo ambiente passa por um passa-baixa compartilhado. Aberto (18 kHz) ele é transparente; abafado
+    // (~420 Hz) o mundo real soa distante, "submerso". As rampas são suaves para não estalar.
+    const MUFFLE_OPEN_HZ = 18000;
+    const MUFFLE_CLOSED_HZ = 420;
+    let ambFilter = null;
+    let muffled = false;
+
+    function ambienceBus(a) {
+        if (!ambFilter) {
+            ambFilter = a.createBiquadFilter();
+            ambFilter.type = 'lowpass';
+            ambFilter.Q.value = 0.7;
+            ambFilter.frequency.value = muffled ? MUFFLE_CLOSED_HZ : MUFFLE_OPEN_HZ;
+            ambFilter.connect(master);
+        }
+        return ambFilter;
+    }
+
+    // on: abafa (true) ou reabre (false). seconds: duração da rampa. Sem contexto de áudio (antes do 1º
+    // gesto ou com Mudo ligado desde o início) só guarda o estado, aplicado quando o filtro nascer.
+    function setMuffle(on, seconds) {
+        muffled = !!on;
+        if (!actx || !ambFilter) return muffled;
+        const now = actx.currentTime;
+        const dur = Math.max(0.05, seconds === undefined ? 1.6 : seconds);
+        const f = ambFilter.frequency;
+        f.cancelScheduledValues(now);
+        f.setValueAtTime(Math.max(20, f.value), now);
+        f.exponentialRampToValueAtTime(muffled ? MUFFLE_CLOSED_HZ : MUFFLE_OPEN_HZ, now + dur);
+        return muffled;
+    }
+
+    function isMuffled() {
+        return muffled;
     }
 
     function stopAmbience() {
@@ -424,6 +461,8 @@
         play: play,
         toggleMute: toggleMute,
         isMuted: isMuted,
+        setMuffle: setMuffle,
+        isMuffled: isMuffled,
         unlock: unlock,
         setAmbience: setAmbience,
         stopAmbience: stopAmbience

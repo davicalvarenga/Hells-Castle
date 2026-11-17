@@ -919,47 +919,92 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const spotIds = () => oq(() => Array.from(document.querySelectorAll('.tut-spot')).map(el => el.id ||
         (el.dataset.card || (el.closest('#hand-grid') ? 'hand:' + window.__hcDebug.state.hand[Array.from(el.parentNode.children).indexOf(el)] : el.className))));
 
-    // --- Cutscene: abre sozinha, digita, avança e desenha pixel art no canvas ---
-    const i0 = await introNow();
-    const canvasDrawn = await oq(() => {
-        const c = document.getElementById('intro-canvas');
-        const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-        const colors = new Set();
-        for (let i = 0; i < px.length; i += 4 * 97) colors.add(px[i] + ',' + px[i + 1] + ',' + px[i + 2]);
-        return colors.size;
+    // --- Cutscene: 5 ilustrações reais (PNG) num palco 16:9 animado, com partículas por cima ---
+    const SCENE_ANIMS = ['anim-kenburns', 'anim-shake', 'anim-zoom', 'anim-transmute', 'anim-pan'];
+    const sceneInfo = () => oq(() => {
+        const stage = document.getElementById('intro-stage');
+        const img = document.getElementById('intro-img');
+        const c = document.getElementById('intro-particles');
+        const r = stage.getBoundingClientRect();
+        // Lê uma cópia (1 leitura por canvas temporário): o jogo nunca faz readback do overlay.
+        const copy = document.createElement('canvas');
+        copy.width = c.width;
+        copy.height = c.height;
+        const cg = copy.getContext('2d', { willReadFrequently: true });
+        cg.drawImage(c, 0, 0);
+        const px = cg.getImageData(0, 0, copy.width, copy.height).data;
+        let lit = 0;
+        for (let i = 3; i < px.length; i += 4 * 13) if (px[i] > 0) lit++;
+        return {
+            scene: window.__hcDebug.intro.scene,
+            cls: stage.className,
+            src: img.getAttribute('src'),
+            loaded: img.complete && img.naturalWidth > 0,
+            failed: stage.classList.contains('img-failed'),
+            pixelated: getComputedStyle(img).imageRendering === 'pixelated',
+            clip: getComputedStyle(stage).overflow === 'hidden',
+            ratio: Math.round(r.width / r.height * 100) / 100,
+            inView: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth,
+            particles: lit,
+            step: document.getElementById('intro-step').textContent,
+            title: document.getElementById('intro-title').textContent,
+            bubble: document.getElementById('intro-bubble').classList.contains('hidden') ? '' : document.getElementById('intro-bubble').textContent,
+            muffled: window.GameAudio.isMuffled()
+        };
     });
-    check(vp, 'intro: abre sozinha na 1ª visita com a cena 1 desenhada', i0.open && i0.scene === 0 && canvasDrawn > 8 &&
-        await oq(() => document.getElementById('intro-title').textContent === 'Só mais uma planilha'), { i0, canvasDrawn });
+    const waitImg = () => op.waitForFunction(() => {
+        const img = document.getElementById('intro-img');
+        return img.complete && img.naturalWidth > 0;
+    }, null, { timeout: 15000 }).catch(() => {});
+    const i0 = await introNow();
+    check(vp, 'intro: abre sozinha na 1ª visita', i0.open && i0.scene === 0, i0);
     await ow(300);
     const typing = await oq(() => document.getElementById('intro-text').textContent.length);
     await op.click('#btn-intro-next');
     const full = await oq(() => document.getElementById('intro-text').textContent);
     check(vp, 'intro: texto digitado aos poucos e completado no 1º clique', typing > 0 && typing < full.length &&
-        full.indexOf('Só mais um dia') > 0, { typing });
-    await op.click('#btn-intro-next');
-    await ow(200);
-    const i1 = await introNow();
-    await op.click('#btn-intro-next');
-    await op.click('#btn-intro-next');
-    await ow(200);
-    const i2 = await introNow();
-    check(vp, 'intro: Avançar passa de cena (1 → 2 → 3) sem overflow', i1.scene === 1 && i2.scene === 2 &&
-        await oq(() => document.getElementById('intro-step').textContent === '3/4') && await noOverflow(), { i1, i2 });
-    await op.screenshot({ path: 'e2e-' + vp + '-intro.png' });
+        full.indexOf('Horizonte Serviços') > 0, { typing });
+    const seen = [];
+    for (let n = 0; n < 5; n++) {
+        if (n > 0) {
+            // completa o texto da cena anterior (se ainda digitando) e passa para a próxima
+            for (let k = 0; k < 3 && await oq(m => window.__hcDebug.intro.scene !== m, n); k++) await op.click('#btn-intro-next');
+        }
+        await waitImg();
+        await ow(n === 3 ? 1900 : 700);            // cena 4: o balão entra depois de 1,4 s
+        const info = await sceneInfo();
+        seen.push(info);
+        check(vp, 'intro cena ' + (n + 1) + '/5: PNG carregado, pixelado, palco 16:9 com animação e partículas, sem overflow',
+            info.scene === n && info.step === (n + 1) + '/5' && info.src === 'assets/intro/cena' + (n + 1) + '.png' && info.loaded && !info.failed &&
+            info.pixelated && info.clip && Math.abs(info.ratio - 1.78) <= 0.02 && info.inView && info.cls.includes('scene-' + (n + 1)) &&
+            info.cls.includes(SCENE_ANIMS[n]) && info.particles > 0 && await noOverflow(), info);
+        if (n === 1 || n === 3) await op.screenshot({ path: 'e2e-' + vp + '-intro-cena' + (n + 1) + '.png' });
+    }
+    check(vp, 'intro: títulos das 5 cenas', JSON.stringify(seen.map(x => x.title)) ===
+        JSON.stringify(['A Rotina', 'O Sufoco', 'O Desligamento', 'A Transmutação', 'A Praia do Crepúsculo']), seen.map(x => x.title));
+    check(vp, 'intro: som do escritório abafado só na Cena 3 (Desligamento); mar volta aberto nas 4 e 5',
+        JSON.stringify(seen.map(x => x.muffled)) === '[false,false,true,false,false]', seen.map(x => x.muffled));
+    check(vp, 'intro: balão "Ei, Motta" só na Cena 4', seen[3].bubble === 'Ei, Motta... tá me ouvindo?' &&
+        seen.filter(x => x.bubble).length === 1, seen.map(x => x.bubble));
+    const preloaded = await oq(() => window.GameIntro.images.map(img => img.complete && img.naturalWidth > 0));
+    check(vp, 'intro: as 5 imagens pré-carregadas (complete && naturalWidth > 0)', preloaded.length === 5 && preloaded.every(Boolean), preloaded);
     check(vp, 'intro: Pular sempre visível', await oq(() => {
         const b = document.getElementById('btn-intro-skip').getBoundingClientRect();
         return b.width > 0 && b.bottom <= innerHeight;
     }));
-    await op.click('#btn-intro-skip');
-    await ow(200);
+    // Concluir: completa o texto (se ainda estiver digitando) e abre a escolha final.
+    for (let k = 0; k < 3 && await oq(() => document.getElementById('intro-choice').classList.contains('hidden')); k++) {
+        await op.click('#btn-intro-next');
+        await ow(150);
+    }
     const choice = await oq(() => ({
         visible: !document.getElementById('intro-choice').classList.contains('hidden'),
         scene: window.__hcDebug.intro.scene,
         saved: JSON.parse(localStorage.getItem('hc_ui_v1') || '{}').introSeen === true,
         tut: document.getElementById('btn-intro-tutorial').textContent
     }));
-    check(vp, 'intro: Pular leva à cena 4 e oferece Tutorial (Recomendado) ou Ir Direto; introSeen salvo',
-        choice.visible && choice.scene === 3 && choice.saved && /RECOMENDADO/.test(choice.tut), choice);
+    check(vp, 'intro: Concluir na cena 5 oferece Tutorial (Recomendado) ou Ir Direto; introSeen salvo',
+        choice.visible && choice.scene === 4 && choice.saved && /RECOMENDADO/.test(choice.tut) && await noOverflow(), choice);
 
     // --- Tutorial guiado: Passo 1 ao 4 ---
     await op.click('#btn-intro-tutorial');
@@ -1149,9 +1194,12 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const replay = await oq(() => ({ open: window.__hcDebug.intro.open, direct: document.getElementById('btn-intro-direct').textContent }));
     await op.keyboard.press('Escape');
     await ow(200);
+    replay.afterEsc = await oq(() => ({ scene: window.__hcDebug.intro.scene,
+        choice: !document.getElementById('intro-choice').classList.contains('hidden') }));
     await op.click('#btn-intro-direct');
     await ow(300);
-    check(vp, 'intro: Rever Intro abre; Esc pula; "Voltar à Recepção" não inicia a run', replay.open && replay.direct === 'VOLTAR À RECEPÇÃO' &&
+    check(vp, 'intro: Rever Intro abre; Esc pula para a escolha na cena 5; "Voltar à Recepção" não inicia a run',
+        replay.open && replay.direct === 'VOLTAR À RECEPÇÃO' && replay.afterEsc.scene === 4 && replay.afterEsc.choice &&
         await oq(() => !window.__hcDebug.intro.open && !document.getElementById('title-modal').classList.contains('hidden')), replay);
     await op.click('#btn-open-tutorial');
     await ow(500);
@@ -1228,6 +1276,30 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'dica: a mesma dica não repete', again.filter(t => t === 'wild').length === 1 && again.includes('burn'), again);
     check(vp, 'onboarding: 0 overflow e 0 erros/avisos no console', await noOverflow() && oerr.length === 0, oerr.slice(0, 4));
     await op.close();
+
+    // --- Cutscene com uma ilustração que falha: degradê de reserva, sem travar e sem erro de script ---
+    const fp = await browser.newPage({ viewport: size });
+    const ferr = [];
+    fp.on('pageerror', e => ferr.push('PAGEERROR ' + e.message));
+    await fp.route('**/assets/intro/cena3.png', route => route.abort());
+    await fp.goto(srv.url);
+    await fp.waitForTimeout(500);
+    for (let k = 0; k < 8 && await fp.evaluate(() => window.__hcDebug.intro.scene !== 2); k++) await fp.click('#btn-intro-next');
+    await fp.waitForTimeout(700);
+    const broken = await fp.evaluate(() => ({
+        scene: window.__hcDebug.intro.scene,
+        failed: document.getElementById('intro-stage').classList.contains('img-failed'),
+        bg: getComputedStyle(document.getElementById('intro-stage')).backgroundImage,
+        status: window.GameIntro.getStatus()
+    }));
+    await fp.click('#btn-intro-skip');
+    await fp.waitForTimeout(300);
+    const skipped = await fp.evaluate(() => ({ scene: window.__hcDebug.intro.scene, failed: document.getElementById('intro-stage').classList.contains('img-failed'),
+        choice: !document.getElementById('intro-choice').classList.contains('hidden') }));
+    check(vp, 'intro: imagem que falha usa o fundo de reserva; Pular segue para a cena 5 normalmente',
+        broken.scene === 2 && broken.failed && /gradient/.test(broken.bg) && broken.status[2] === 'failed' &&
+        skipped.scene === 4 && !skipped.failed && skipped.choice && ferr.length === 0, { broken, skipped, ferr });
+    await fp.close();
 }
 await browser.close();
 srv.close();
