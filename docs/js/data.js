@@ -167,6 +167,7 @@
         gemDischargeStep: 0.5,     // Quebra-Combo: +50% de dano por Combo consumido
         crackAfterUses: 5,         // usos seguidos (no mesmo combate) que uma carta comum aguenta
         crackShatterChance: 0.25,  // carta Rachada usada além do limite: chance de estilhaçar
+        chestBiomeCardChance: 0.35,
         chestPickupChance: 0.5,    // baú também entrega 1 carta temporária
         silverGemChance: 0.6,      // Baú de Prata: Gema Épica/Lendária (senão Arcana extra)
         wellGemChance: 0.7,        // Poço dos Desejos: Gema rara (senão Arcana extra)
@@ -943,6 +944,369 @@
         }
     };
 
+    // ---------- ETAPA 8: CARTAS EXCLUSIVAS DE BIOMA (5 arquétipos) ----------
+    // biome: Fase em que a carta entra no pool (Level Up e Baús). signature: Carta Assinatura (drop garantido do Chefe da Fase).
+    // As cartas ganhas ficam no baralho ao trocar de Fase; só o pool de recompensas muda.
+    const BIOME_CARDS = {
+        // ---- Fase 1: Praia do Crepúsculo — Burn & Return ----
+        mare_alta: {
+            id: 'mare_alta', name: 'Maré Alta', origin: 'Café Derramado no Teclado', biome: 1,
+            cost: 1, type: 'atk', target: 'single', targeting: 'LeftRight',
+            damage: 4, baseAmount: 3, damageScalesWithCombo: true, burnPerHit: 2, pierceVsBurning: 1,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_wave', sfx: 'coffee',
+            desc: '3 ondas de {DMG} Esq→Dir; cada uma deixa +2 Burn na coluna. Contra inimigo já queimando, perfura +1.',
+            guide: {
+                role: 'Espalha Burn por 3 colunas de uma vez e fica mais forte quando o fogo já está aceso.',
+                tip: 'Abra a escada com Ressaca (custo 0) e siga com Maré Alta (custo 1): o Burn extra da Ressaca deixa os alvos queimando e libera o Pierce.'
+            }
+        },
+        ressaca: {
+            id: 'ressaca', name: 'Ressaca', origin: 'Segunda-Feira Pós-Feriado', biome: 1,
+            cost: 0, type: 'sup', target: 'self', burnTickNow: 1, drawIfBurning: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_undertow', sfx: 'coffee',
+            desc: 'Dispara agora 1 tick extra de TODO o Burn nas 5 colunas. Se algum inimigo estiver queimando, compra 1 carta.',
+            guide: {
+                role: 'Transforma o Burn acumulado em dano imediato, sem esperar o fim do turno.',
+                tip: 'Jogue depois de Sopro de Brasas ou Maré Alta (quando as colunas já têm Burn). Custa 0: é o primeiro degrau perfeito da escada 0→1→2.'
+            }
+        },
+        concha_eco: {
+            id: 'concha_eco', name: 'Concha do Eco', origin: 'Toque de Espera do Ramal', biome: 1, signature: true,
+            cost: 2, type: 'atk', target: 'single', targeting: 'LeftRight',
+            damage: 6, baseAmount: 3, damageScalesWithCombo: true, burnPerHit: 2, returnTimes: 1,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_shell', sfx: 'whip',
+            desc: 'Assinatura da Praia. Return (1x). 3 ecos de {DMG} Esq→Dir, cada um com +2 Burn na coluna.',
+            guide: {
+                role: 'Carta Assinatura: dano em 3 colunas que volta para a mão e pode ser jogada de novo no mesmo turno.',
+                tip: 'Como volta à mão, ela pode fechar a escada duas vezes: 0 → 1 → Concha (2) e, no turno seguinte de Cafeína, de novo. Com Maré Alta no Nível MÁX vira Tsunami Escaldante.'
+            }
+        },
+        // ---- Fase 2: Cidade Gótica — Parry/Knockback & Crit ----
+        bala_prata: {
+            id: 'bala_prata', name: 'Bala de Prata', origin: 'Caneta Prateada do Diretor', biome: 2,
+            cost: 1, type: 'atk', target: 'single', targeting: 'Target', priority: 'Attacking',
+            damage: 9, baseAmount: 1, damageScalesWithCombo: true, critChance: 0.35, critMult: 2.0,
+            knockback: true, knockbackChance: 0.8, manaOnDisarm: 1,
+            shield: 0, heal: 0, manaGain: 0,
+            icon: 'c_bullet', sfx: 'stapler',
+            desc: 'Tiro de {DMG} num Atacante. Crit 35% (2x) e 80% Knockback. Se DESARMAR, devolve +1 Cafeína.',
+            guide: {
+                role: 'Tiro preciso que corta o ataque inimigo e devolve a Cafeína gasta quando acerta o Desarme.',
+                tip: 'Desarmou? A Cafeína devolvida paga o próximo degrau da escada. Combine com Manto do Caçador (+15% Crit no turno) antes do tiro.'
+            }
+        },
+        manto_cacador: {
+            id: 'manto_cacador', name: 'Manto do Caçador', origin: 'Sobretudo do Achados e Perdidos', biome: 2,
+            cost: 0, type: 'def', target: 'self', shield: 5, scalesWithCombo: true, turnCrit: 0.15, drawIfFrontControlled: 1,
+            damage: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_cloak', sfx: 'shield',
+            desc: '+{SHIELD} Escudo (xCombo) e +15% Crit em todas as cartas neste turno. Se houver inimigo Desarmado ou Congelado na frente, compra 1 carta.',
+            guide: {
+                role: 'Defesa de custo 0 que prepara críticos para o resto do turno.',
+                tip: 'Jogue primeiro (degrau 0) e depois Bala de Prata (1) e Sino do Vigia (2): os três críticos ficam mais prováveis.'
+            }
+        },
+        sino_vigia: {
+            id: 'sino_vigia', name: 'Sino do Vigia', origin: 'Alarme de Incêndio', biome: 2, signature: true,
+            cost: 2, type: 'atk', target: 'single', targeting: 'Random',
+            damage: 6, baseAmount: 3, damageScalesWithCombo: true, bonusVsControlled: 2,
+            critChance: 0.2, critMult: 1.5, critExplosion: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_bell', sfx: 'whip',
+            desc: 'Assinatura da Cidade. 3 badaladas de {DMG} em colunas aleatórias; 2x dano em Desarmados/Congelados. Crit 20% explode nos vizinhos.',
+            guide: {
+                role: 'Carta Assinatura: castiga quem já foi controlado (Desarme ou Gelo) com dano dobrado.',
+                tip: 'Desarme primeiro com Bala de Prata ou Chicote Relâmpago, depois toque o Sino. Com Bala de Prata no Nível MÁX vira Execução Lunar.'
+            }
+        },
+        // ---- Fase 3: Pico Nevado — Freeze, Retain & Escudo ofensivo ----
+        estilhaco_glacial: {
+            id: 'estilhaco_glacial', name: 'Estilhaço Glacial', origin: 'Gelo do Bebedouro', biome: 3,
+            cost: 1, type: 'ctrl', target: 'single', targeting: 'LeftRight',
+            damage: 4, baseAmount: 3, damageScalesWithCombo: true, freeze: 1, shatterBonus: 8, shatterShield: 6,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_shard', sfx: 'whip',
+            desc: '3 lascas de {DMG} Esq→Dir, cada uma aplica 1 Gelo. Alvo JÁ congelado estilhaça: +8 de dano e +6 Escudo.',
+            guide: {
+                role: 'Congela 3 colunas e premia quem insiste no gelo com dano extra e Escudo.',
+                tip: 'Jogue duas vezes seguidas (ou depois de Lança de Geada): a segunda já encontra os alvos congelados e estilhaça.'
+            }
+        },
+        bastiao_cristal: {
+            id: 'bastiao_cristal', name: 'Bastião de Cristal', origin: 'Divisória de Acrílico', biome: 3,
+            cost: 2, type: 'def', target: 'all', targeting: 'FrontRow',
+            shield: 12, scalesWithCombo: true, retain: true, damageFromShield: true,
+            damage: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_crystal', sfx: 'shield',
+            desc: 'Retain. +{SHIELD} Escudo (xCombo) e causa dano igual ao seu Escudo TOTAL em toda a linha de frente.',
+            guide: {
+                role: 'Escudo ofensivo: quanto mais Escudo você tiver, mais forte é o golpe.',
+                tip: 'Empilhe Escudo antes (Égide do Viajante, Parmégide) e feche a escada com o Bastião. Retain: guarde-o para o turno em que o combo estiver alto.'
+            }
+        },
+        nevasca_eterna: {
+            id: 'nevasca_eterna', name: 'Nevasca Eterna', origin: 'Ar-Condicionado no Máximo', biome: 3, signature: true,
+            cost: 3, type: 'atk', target: 'all', targeting: 'FrontRow',
+            damage: 11, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true, freeze: 1, ignoreShield: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_blizzard', sfx: 'coffee',
+            desc: 'Assinatura da Neve. {DMG} em TODA a fila da frente, aplica 1 Gelo em todos e ignora 100% da Armadura.',
+            guide: {
+                role: 'Carta Assinatura: limpa a frente atravessando a Armadura e congela todo mundo.',
+                tip: 'Feche a escada 0 → 1 → 2 → Nevasca (3) para o dano sair em Combo x4. Inimigos de Armadura alta (Sentinela, Estrategista) são o alvo ideal.'
+            }
+        },
+        // ---- Fase 4: Dungeon do Arquivo — Destroy, Scavenge & Custo X ----
+        incinerar_arquivo: {
+            id: 'incinerar_arquivo', name: 'Incinerar Arquivo', origin: 'Fragmentadora de Papel', biome: 4,
+            cost: 0, type: 'sup', target: 'self', burnWorstCard: true,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_shredder', sfx: 'coffee',
+            desc: 'Destroy (nesta luta) a carta-lixo da mão (ou a mais fraca). Se queimar uma carta: +2 Cafeína e +15% Might neste combate.',
+            guide: {
+                role: 'Limpa a mão das cartas-lixo dos chefes e converte a perda em Cafeína e Might.',
+                tip: 'Ótima contra Folha Presa e Bomba de Mana. As cartas queimadas engordam o Pacto das Catacumbas (Scavenge).'
+            }
+        },
+        pacto_catacumbas: {
+            id: 'pacto_catacumbas', name: 'Pacto das Catacumbas', origin: 'Arquivo Morto', biome: 4,
+            cost: 1, type: 'atk', target: 'single', targeting: 'Target',
+            damage: 5, baseAmount: 1, scavenge: 3, scavengeCap: 10,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_skull', sfx: 'stapler',
+            desc: 'Scavenge: {DMG} no alvo (5 + 3 por carta no Descarte e na pilha de Destroy desta luta, até +30).',
+            guide: {
+                role: 'Fica mais forte quanto mais longa a luta: conta o Descarte e as cartas destruídas.',
+                tip: 'Use no fim da escada, depois de jogar e queimar cartas (Incinerar Arquivo, pickups, cartas Destroy).'
+            }
+        },
+        grimorio_proibido: {
+            id: 'grimorio_proibido', name: 'Grimório Proibido', origin: 'Planilha com Macro', biome: 4, signature: true,
+            cost: 0, xCost: true, gemSlots: 2, type: 'atk', target: 'single', targeting: 'Random',
+            damage: 5, damageScalesWithCombo: true, xHitsBonus: 2, afterlifeShot: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_grimoire', sfx: 'coffee',
+            desc: 'Assinatura da Dungeon. Custo X: gasta TODA a Cafeína e dispara X + 2 projéteis de {DMG} (X = {X}). Pós-Vida: se for descartada no fim do turno, dispara 1 projétil.',
+            guide: {
+                role: 'Carta Assinatura: transforma toda a Cafeína que sobrou em uma rajada de projéteis.',
+                tip: 'Jogue por último no turno. Mesmo sem Cafeína ela não é desperdiçada: no fim do turno dispara 1 projétil (Pós-Vida).'
+            }
+        },
+        // ---- Fase 5: Abismo Estrelado — Combo infinito & custo dinâmico ----
+        ponteiro_invertido: {
+            id: 'ponteiro_invertido', name: 'Ponteiro Invertido', origin: 'Relógio de Parede Quebrado', biome: 5,
+            cost: 0, type: 'wild', isWild: true, target: 'self', turnReverse: true, handDiscount: 1,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_clockhand', sfx: 'card',
+            desc: 'Wild. Combo Reverso até o fim do turno (a escada pode subir OU descer 1) e a carta mais cara da mão custa 1 a menos.',
+            guide: {
+                role: 'Libera a escada nos dois sentidos pelo resto do turno: 2 → 1 → 2 → 3 também comba.',
+                tip: 'Jogue no começo do turno: com o Combo Reverso, quase toda mão vira uma cadeia longa. Prepara o Paradoxo das 18h.'
+            }
+        },
+        espelho_cosmico: {
+            id: 'espelho_cosmico', name: 'Espelho Cósmico', origin: 'Ctrl+C, Ctrl+V', biome: 5,
+            cost: 2, type: 'sup', target: 'self', mirrorLast: true,
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_mirror', sfx: 'card',
+            desc: 'Cria na mão uma cópia temporária da última carta jogada neste turno, com custo -1 e Destroy.',
+            guide: {
+                role: 'Duplica a carta mais forte do turno, mais barata.',
+                tip: 'Jogue logo depois de uma carta cara (Nevasca, Concha, Cometa). A cópia custa 1 a menos e pode continuar a escada.'
+            }
+        },
+        paradoxo_18h: {
+            id: 'paradoxo_18h', name: 'Paradoxo das 18h', origin: 'Hora Extra Não Paga', biome: 5,
+            cost: 4, type: 'atk', target: 'all', targeting: 'FrontRow', comboCostCut: true,
+            damage: 10, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_paradox', sfx: 'coffee',
+            desc: '{DMG} em TODA a fila da frente. Com a cadeia ativa custa 4 menos o Combo (x2 → 2, x3 → 1, x4+ → 0).',
+            guide: {
+                role: 'Finalizador do combo: fica de graça quando a cadeia passa de x4.',
+                tip: 'Monte a escada 0 → 1 → 2 → 3 (ou use Wilds) e solte o Paradoxo custando 0 no Combo x4+.'
+            }
+        },
+        // ---- Fusões dos arquétipos (as duas cartas no Nível MÁX) ----
+        tsunami_escaldante: {
+            id: 'tsunami_escaldante', name: 'Tsunami Escaldante', origin: 'Inundação no Térreo', biome: 1,
+            cost: 2, type: 'atk', target: 'all', targeting: 'FrontRow', pierce: 1, pierceType: 'OncePerEnemy',
+            damage: 10, baseAmount: 1, damageScalesWithCombo: true, damageScalesWithAmount: true,
+            burn: 4, burnAllColumns: true, returnTimes: 1, evolved: true, fused: true,
+            shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_tsunami', sfx: 'coffee',
+            desc: 'FUSÃO: Return (1x). {DMG} na frente e na retaguarda + {BURN} Burn nas 5 colunas.'
+        },
+        execucao_lunar: {
+            id: 'execucao_lunar', name: 'Execução Lunar', origin: 'Demissão em Lua Cheia', biome: 2,
+            cost: 2, type: 'atk', target: 'single', targeting: 'Random', priority: 'Attacking',
+            damage: 9, baseAmount: 3, amountScalesWithCombo: true, bonusVsControlled: 2,
+            critChance: 0.4, critMult: 2.0, critExplosion: true, knockback: true, knockbackChance: 0.8, manaOnDisarm: 1,
+            evolved: true, fused: true,
+            shield: 0, heal: 0, manaGain: 0,
+            icon: 'c_moon', sfx: 'stapler',
+            desc: 'FUSÃO: {HITS} tiros de {DMG} em Atacantes (2x em Desarmados/Congelados). Crit 40% (2x) explode; 80% Knockback; Desarme devolve +1 Cafeína.'
+        },
+        glaciar_absoluto: {
+            id: 'glaciar_absoluto', name: 'Glaciar Absoluto', origin: 'Câmara Fria do Refeitório', biome: 3,
+            cost: 2, type: 'def', target: 'all', targeting: 'FrontRow',
+            shield: 16, scalesWithCombo: true, retain: true, damageFromShield: true, freezeFront: 1, ignoreShield: true,
+            evolved: true, fused: true,
+            damage: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'c_glacier', sfx: 'shield',
+            desc: 'FUSÃO: Retain. +{SHIELD} Escudo (xCombo), congela a frente e causa dano = seu Escudo TOTAL nela (ignora Armadura).'
+        }
+    };
+    Object.keys(BIOME_CARDS).forEach(id => { CARDS[id] = BIOME_CARDS[id]; });
+
+    // Biomas (Fases) para selos, filtros do Bestiário e dicas.
+    const BIOMES = {
+        1: { id: 1, key: 'praia', label: 'Praia', name: 'Praia do Crepúsculo', archetype: 'Burn & Return', color: '#f59e0b' },
+        2: { id: 2, key: 'cidade', label: 'Cidade', name: 'Cidade Gótica', archetype: 'Desarme & Crítico', color: '#a855f7' },
+        3: { id: 3, key: 'neve', label: 'Neve', name: 'Pico Nevado', archetype: 'Gelo, Retain & Escudo', color: '#38bdf8' },
+        4: { id: 4, key: 'dungeon', label: 'Dungeon', name: 'Dungeon do Arquivo', archetype: 'Destroy, Scavenge & Custo X', color: '#84cc16' },
+        5: { id: 5, key: 'abismo', label: 'Abismo', name: 'Abismo Estrelado', archetype: 'Combo infinito & custo dinâmico', color: '#f472b6' }
+    };
+
+    // Cartas que o Bioma oferece no pool (Level Up/Baús). A Assinatura só vem do Chefe (exceto no Abismo, que não tem próxima Fase).
+    function getBiomeCards(biome, includeSignature) {
+        return Object.keys(BIOME_CARDS).filter(id => {
+            const c = BIOME_CARDS[id];
+            return c.biome === biome && !c.evolved && (includeSignature || !c.signature);
+        });
+    }
+
+    function getSignatureCard(biome) {
+        return Object.keys(BIOME_CARDS).find(id => BIOME_CARDS[id].biome === biome && BIOME_CARDS[id].signature) || null;
+    }
+
+    // Glossário curto das keywords (ficha da carta e modal "Nova Carta Descoberta!").
+    const KEYWORDS = {
+        Wild: 'Sempre continua o combo, qualquer que seja o custo. Depois dela a próxima pode custar 0 ou 1.',
+        CustoX: 'Gasta TODA a Cafeína; X é quanto foi gasto.',
+        Burn: 'Fogo na coluna: no fim do seu turno, causa dano igual aos stacks no inimigo da frente e perde 1 stack.',
+        Return: 'Depois de jogada, volta para a mão (o número diz quantas vezes por turno).',
+        Retain: 'Fica na mão no fim do turno em vez de ir ao descarte.',
+        Destroy: 'Sai da luta depois de jogada (ou da run, se for de uso único).',
+        Pierce: 'O golpe atravessa e acerta também quem está atrás na mesma coluna.',
+        Crit: 'Chance de causar dano multiplicado (1.5x ou 2x).',
+        CritExplosion: 'O crítico respinga dano nas colunas vizinhas.',
+        Knockback: 'Chance de DESARMAR: o inimigo perde o ataque deste turno.',
+        Gelo: 'Congela: o inimigo não ataca e o próximo golpe nele causa 1.5x.',
+        Escudo: 'Absorve dano até o início do seu próximo turno.',
+        IgnoraArmadura: 'O dano atravessa o Escudo/Armadura do inimigo.',
+        Scavenge: 'Ganha força com as cartas no Descarte e na pilha de Destroy desta luta.',
+        PosVida: 'Se for descartada da mão no fim do turno, ainda dispara um efeito.',
+        ComboReverso: 'A escada aceita descer 1 de custo além de subir 1.',
+        CustoDinamico: 'O custo muda durante o turno (por combo ou descontos).',
+        Temporaria: 'Some ao ser jogada ou no fim do turno; nunca entra no baralho.',
+        Loop: 'Dispara de novo no fim do turno.',
+        Persistente: 'O Burn da coluna não cai abaixo de um piso nesta luta.',
+        Assinatura: 'Carta Assinatura: garantida ao derrotar o Chefe do Bioma (você pode recusar).',
+        Fusao: 'Nasce da fusão de duas cartas no Nível MÁX (oferecida no Level Up).',
+        Evolucao: 'Nasce de uma carta no Nível MÁX + a Relíquia de Evolução certa.'
+    };
+    const KEYWORD_LABELS = {
+        CustoX: 'Custo X', CritExplosion: 'Crit Explosion', IgnoraArmadura: 'Ignora Armadura', PosVida: 'Pós-Vida',
+        ComboReverso: 'Combo Reverso', CustoDinamico: 'Custo Dinâmico', Temporaria: 'Temporária', Fusao: 'Fusão', Evolucao: 'Evolução'
+    };
+
+    function getCardKeywords(card) {
+        if (!card) return [];
+        const k = [];
+        const add = (key, cond) => { if (cond && !k.includes(key)) k.push(key); };
+        add('Wild', isWildCard(card));
+        add('CustoX', card.xCost);
+        add('Burn', card.burn > 0 || card.burnPerHit > 0 || card.burnTickNow);
+        add('Persistente', card.burnPersist > 0);
+        add('Return', card.returnTimes > 0);
+        add('Retain', card.retain);
+        add('Destroy', card.destroy || card.burnWorstCard || card.mirrorLast);
+        add('Pierce', card.pierce > 0 || card.pierceVsBurning > 0);
+        add('Crit', card.critChance > 0 || card.turnCrit > 0);
+        add('CritExplosion', card.critExplosion);
+        add('Knockback', card.knockback);
+        add('Gelo', card.freeze > 0 || card.freezeFront > 0 || card.shatterBonus > 0);
+        add('Escudo', card.shield > 0);
+        add('IgnoraArmadura', card.ignoreShield);
+        add('Scavenge', card.scavenge > 0);
+        add('PosVida', card.afterlifeShot);
+        add('ComboReverso', card.turnReverse);
+        add('CustoDinamico', card.comboCostCut || card.handDiscount > 0 || card.discardDiscount > 0 || card.costDiscount > 0);
+        add('Temporaria', card.tempOnly || card.mirrorLast);
+        add('Loop', card.endTurnRepeat);
+        add('Assinatura', card.signature);
+        add('Fusao', card.fused);
+        add('Evolucao', card.evolved && !card.fused);
+        return k.map(key => ({ key: key, label: KEYWORD_LABELS[key] || key, text: KEYWORDS[key] }));
+    }
+
+    // Padrão de mira nas 5 colunas (0..4) para a ficha da carta: 'hit' certo, 'maybe' possível; order = ordem dos acertos.
+    function getTargetPattern(card) {
+        const cells = [0, 1, 2, 3, 4].map(() => ({ mark: '', order: '' }));
+        if (!card) return { cells: cells, caption: '' };
+        const hits = card.baseAmount || 1;
+        const offensive = card.damage > 0 || card.knockback || card.damageFromShield || card.freezeFront > 0 || card.burn > 0;
+        if (!offensive) {
+            return { cells: cells, caption: card.burnTickNow ? 'Sem mira: age sobre o Burn das 5 colunas.' : 'Sem mira: o efeito é em você (mão, Cafeína, Escudo ou combo).' };
+        }
+        if (card.targeting === 'FrontRow' || card.damageFromShield || (card.freezeFront > 0 && !card.targeting)) {
+            cells.forEach(c => { c.mark = 'hit'; });
+            return { cells: cells, caption: 'Onda: atinge o inimigo da FRENTE em todas as 5 colunas de uma vez' + (card.pierce ? ' e perfura a retaguarda.' : '.') };
+        }
+        if (card.targeting === 'LeftRight' || card.targeting === 'RightLeft') {
+            const n = Math.min(5, hits);
+            for (let i = 0; i < n; i++) {
+                const col = card.targeting === 'LeftRight' ? i : 4 - i;
+                cells[col].mark = 'hit';
+                cells[col].order = String(i + 1);
+            }
+            return {
+                cells: cells,
+                caption: (card.targeting === 'LeftRight' ? 'Esq→Dir' : 'Dir→Esq') + ': cada acerto vai para a próxima coluna ocupada' +
+                    (card.priority === 'Attacking' ? ', priorizando quem vai atacar.' : '.')
+            };
+        }
+        if (card.targeting === 'Random') {
+            cells.forEach(c => { c.mark = 'maybe'; c.order = '?'; });
+            return { cells: cells, caption: 'Aleatório: cada acerto sorteia uma coluna ocupada' + (card.priority === 'Attacking' ? ' entre os Atacantes.' : '.') };
+        }
+        cells[2].mark = 'hit';
+        cells[2].order = '1';
+        return {
+            cells: cells,
+            caption: 'Alvo: o inimigo que você selecionou (toque nele)' + (card.priority === 'Attacking' ? '; sem seleção, o primeiro Atacante' : '') +
+                (card.pierce > 0 ? '. Perfura ' + card.pierce + ' atrás.' : '.')
+        };
+    }
+
+    // Texto didático da ficha: papel tático e dica de combo/sinergia (cartas novas trazem o próprio "guide").
+    const TYPE_ROLES = {
+        atk: 'Ataque: causa dano nos inimigos.',
+        def: 'Defesa: gera Escudo e protege a Sanidade.',
+        ctrl: 'Controle: atrapalha os inimigos (Desarme, Gelo, área).',
+        sup: 'Suporte: buffs, Cafeína ou compra de cartas; ótima ponte de combo.',
+        wild: 'Wild: sempre continua o combo, qualquer que seja o custo.',
+        crawler: 'Crachá de colega: ativa a passiva do retrato por alguns turnos.',
+        curse: 'Carta-lixo de chefe: atrapalha até ser jogada ou descartada.'
+    };
+
+    function getCardGuide(card) {
+        if (!card) return { role: '', tip: '' };
+        if (card.guide) return card.guide;
+        let tip;
+        if (card.type === 'curse') tip = 'Livre-se dela cedo: jogar queima a carta. Incinerar Arquivo também resolve.';
+        else if (isWildCard(card)) tip = 'Use para emendar a escada quando faltar o custo certo: depois dela, a próxima pode custar 0 ou 1.';
+        else if (card.xCost) tip = 'Jogue por último no turno, quando sobrar mais Cafeína.';
+        else if (card.evolved) tip = 'Carta evoluída: mantém o lugar na escada (custo ' + card.cost + ') com efeito muito mais forte.';
+        else tip = 'Escada de combo: jogue cartas de custo crescente (0 → 1 → 2 → 3) no mesmo turno; cada degrau soma +1 ao Combo.' +
+            (card.cost === 0 ? ' Custo 0 abre a escada de graça.' : ' Ela ocupa o degrau ' + card.cost + '.');
+        return { role: TYPE_ROLES[card.type] || '', tip: tip };
+    }
+
     const STARTING_DECK = [
         'grito_guerra',
         'vislumbre',
@@ -1013,7 +1377,11 @@
             id: 'fus_gladio_aurora',
             cards: ['mordida_ferro', 'pocao_fogo'],
             toCard: 'gladio_aurora'
-        }
+        },
+        // Etapa 8: fusões dos arquétipos de bioma.
+        { id: 'fus_tsunami', cards: ['mare_alta', 'concha_eco'], toCard: 'tsunami_escaldante' },
+        { id: 'fus_execucao', cards: ['bala_prata', 'sino_vigia'], toCard: 'execucao_lunar' },
+        { id: 'fus_glaciar', cards: ['estilhaco_glacial', 'bastiao_cristal'], toCard: 'glaciar_absoluto' }
     ];
 
     // Cartas temporárias que podem vir nos baús.
@@ -1102,11 +1470,11 @@
         lamplighter: enemy('lamplighter', 'Acendedor de Lampiões', 'Aviso de Hora Extra', 42, 7, 11, 5,
             { sprite: 'herald', kbResist: 30, attackStyle: 'orb', quip: '"Só mais uma coisinha antes de você sair."' }),
         // ---- Fase 3: Pico Nevado & Fortaleza de Gelo ----
-        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 52, 8, 14, 6,
+        wolf: enemy('wolf', 'Lobo da Nevasca', 'Prazo Apertado', 52, 7, 14, 6,
             { quip: '"Auuu... para ontem!"' }),
-        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 46, 7, 14, 6,
+        serpent: enemy('serpent', 'Serpente de Cristal', 'Gráfico em Queda', 46, 6, 14, 6,
             { enemyShield: 10, attackStyle: 'orb', quip: '"Ssssegundo o gráfico, estamos atrasssados."' }),
-        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 64, 7, 15, 6,
+        sentinel: enemy('sentinel', 'Sentinela Congelado', 'Pauta Travada', 64, 6, 15, 6,
             { enemyShield: 14, kbResist: 50, armorEvery: 3, armorGain: 10, quip: '"Este item fica para a próxima reunião."' }),
         estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 149, 10, 45, 24,
             { isBoss: true, hexEvery: 4, kbResist: 100, shieldPerTurn: 12, attackStyle: 'orb',
@@ -1116,14 +1484,14 @@
               },
               quip: '"Tudo é prioridade máxima. Tudo."' }),
 
-        yeti: enemy('yeti', 'Yeti do Desfiladeiro', 'Planilha Congelada', 74, 9, 16, 6,
+        yeti: enemy('yeti', 'Yeti do Desfiladeiro', 'Planilha Congelada', 74, 8, 16, 6,
             { sprite: 'sentinel', armorEvery: 4, armorGain: 10, quip: '"Carregando... não responde."' }),
         // ---- Fase 4: Dungeon Subterrânea ----
-        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 64, 10, 18, 7,
+        skeleton: enemy('skeleton', 'Esqueleto do Arquivo', 'Pasta de 1998', 58, 9, 18, 7,
             { quip: '"Protocolo... em três vias..."' }),
-        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 71, 11, 19, 7,
+        mimic: enemy('mimic', 'Mímico de Gaveta', 'Gaveta Emperrada', 64, 10, 19, 7,
             { kbResist: 25, quip: '"NHAC! Faltou o carimbo!"' }),
-        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 82, 9, 20, 7,
+        gargoyle: enemy('gargoyle', 'Gárgula de Pedra', 'Arquivo Morto', 74, 8, 20, 7,
             { enemyShield: 16, kbResist: 50, armorEvery: 3, armorGain: 12, attackStyle: 'orb', quip: '"Nada sai daqui. Nada."' }),
         guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 188, 12, 60, 28,
             { isBoss: true, hexEvery: 4, kbResist: 100, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
@@ -1133,7 +1501,7 @@
               },
               dropRelic: 'foto_parque', quip: '"Você guardou tudo... menos o que importava."' }),
 
-        wraith: enemy('wraith', 'Aparição do Corredor', 'Chamado Reaberto', 70, 12, 20, 7,
+        wraith: enemy('wraith', 'Aparição do Corredor', 'Chamado Reaberto', 64, 11, 20, 7,
             { sprite: 'skeleton', buffAllies: 2, attackStyle: 'wave', quip: '"Este chamado foi reaberto pela 4ª vez."' }),
         // ---- Fase 5: O Abismo Estrelado ----
         horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 250, 14, 0, 0,
@@ -1480,8 +1848,24 @@
         cardReward('anel_trovoes', 'Carta Custo 2: 2+ raios de 6 dano e dispara de novo no fim do turno.'),
         cardReward('orvalho_ardente', 'Carta Custo 1: 4 dano + 3 Burn que nunca cai abaixo de 2 na coluna.'),
         maxLevelReward('selo_eclipse', 'Polir o Selo'),
-        maxLevelReward('orvalho_ardente', 'Destilar o Orvalho')
+        maxLevelReward('orvalho_ardente', 'Destilar o Orvalho'),
+        // ---- Etapa 8: Nível MÁX das cartas que fundem (aparecem em qualquer Fase para quem já tem a carta) ----
+        maxLevelReward('mare_alta', 'Subir a Maré'),
+        maxLevelReward('concha_eco', 'Afinar a Concha'),
+        maxLevelReward('bala_prata', 'Polir a Prata'),
+        maxLevelReward('sino_vigia', 'Afinar o Sino'),
+        maxLevelReward('estilhaco_glacial', 'Afiar o Gelo'),
+        maxLevelReward('bastiao_cristal', 'Lapidar o Cristal')
     ];
+
+    // Cartas exclusivas de Bioma: entram no pool do Level Up só enquanto você está naquela Fase.
+    Object.keys(BIOME_CARDS).forEach(id => {
+        const c = BIOME_CARDS[id];
+        if (c.evolved || (c.signature && c.biome < 5)) return;
+        const rw = cardReward(id, 'Exclusiva da ' + BIOMES[c.biome].name + ' (custo ' + (c.xCost ? 'X' : c.cost) + '): ' + c.guide.role);
+        rw.biome = c.biome;
+        LEVEL_UP_REWARDS.push(rw);
+    });
 
     EVOLUTIONS.forEach(ev => {
         LEVEL_UP_REWARDS.push({
@@ -2253,6 +2637,14 @@
         cardHasGem: cardHasGem,
         GEM_RARITY_WEIGHT: GEM_RARITY_WEIGHT,
         GEM_RARITY_LABEL: GEM_RARITY_LABEL,
+        BIOME_CARDS: BIOME_CARDS,
+        BIOMES: BIOMES,
+        KEYWORDS: KEYWORDS,
+        getBiomeCards: getBiomeCards,
+        getSignatureCard: getSignatureCard,
+        getCardKeywords: getCardKeywords,
+        getTargetPattern: getTargetPattern,
+        getCardGuide: getCardGuide,
         pickGemByRarity: pickGemByRarity,
         isOneShotCard: isOneShotCard,
         isBreakableCard: isBreakableCard,

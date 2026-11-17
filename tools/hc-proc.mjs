@@ -2,10 +2,16 @@
 import { chromium } from 'playwright-core';
 import { fileURLToPath } from 'node:url';
 import { serve, CHROME_ARGS } from './serve.mjs';
+import fs from 'node:fs';
+import vm from 'node:vm';
 // Requer: npm i --no-save playwright-core. Uso: node tools/hc-proc.mjs (grava capturas proc-*.png na pasta atual)
 
 const REPO = process.env.HC_REPO || fileURLToPath(new URL('..', import.meta.url));
 const srv = await serve(REPO + '/docs');
+// Intro vista e cartas já explicadas: este teste cobre mapas, não o modal de descoberta.
+const dataCtx = vm.createContext({ window: {}, console });
+vm.runInContext(fs.readFileSync(REPO + '/docs/js/data.js', 'utf8'), dataCtx);
+const UI_SEEN = JSON.stringify({ introSeen: true, discoveredCardTutorials: Object.keys(dataCtx.window.GameData.CARDS) });
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: CHROME_ARGS });
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -38,7 +44,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.type() + ': ' + m.text()); });
     page.on('pageerror', e => errors.push('PAGEERROR ' + e.message));
     // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
-    await page.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await page.addInitScript(ui => localStorage.setItem('hc_ui_v1', ui), UI_SEEN);
 
     await start(page);
     const a = await fingerprint(page);

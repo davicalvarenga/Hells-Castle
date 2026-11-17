@@ -7,9 +7,14 @@ import { serve, CHROME_ARGS } from './serve.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const REPO = process.env.HC_REPO || fileURLToPath(new URL('..', import.meta.url));
 const srv = await serve(REPO + '/docs');
+// Páginas antigas: intro vista e todas as cartas já explicadas (a Etapa 8 testa a descoberta numa página própria).
+const dataCtx = vm.createContext({ window: {}, console });
+vm.runInContext(fs.readFileSync(path.join(REPO, 'docs/js/data.js'), 'utf8'), dataCtx);
+const UI_SEEN = JSON.stringify({ introSeen: true, discoveredCardTutorials: Object.keys(dataCtx.window.GameData.CARDS) });
 // Itch.io: mesma pasta docs/ servida numa subpasta (jogo/) e embutida num iframe (host.html).
 const subRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-itch-'));
 fs.symlinkSync(path.resolve(REPO, 'docs'), path.join(subRoot, 'jogo'), 'dir');
@@ -23,7 +28,7 @@ const check = (vp, name, ok, detail) => {
     console.log((ok ? 'ok   ' : 'FAIL ') + vp + ' ' + name + (detail ? ' ' + JSON.stringify(detail) : ''));
 };
 const CLOSE_ANY = '#levelup-modal:not(.hidden) .reward-card, #gem-modal:not(.hidden) #btn-gem-discard, ' +
-    '#narrative-modal:not(.hidden) #btn-narrative-continue';
+    '#narrative-modal:not(.hidden) #btn-narrative-continue, #discovery-modal:not(.hidden) #btn-discovery-ok';
 
 for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', { width: 390, height: 844 }]]) {
     const page = await browser.newPage({ viewport: size });
@@ -31,7 +36,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('pageerror', e => errors.push('PAGEERROR ' + e.message));
     // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
-    await page.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await page.addInitScript(ui => localStorage.setItem('hc_ui_v1', ui), UI_SEEN);
     await page.goto(srv.url);
     const openModals = () => page.evaluate(() => Array.from(document.querySelectorAll('.modal-overlay'))
         .filter(m => !m.classList.contains('hidden')).map(m => m.id));
@@ -897,7 +902,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     mp.on('console', m => { if (m.type() === 'error') merr.push(m.text()); });
     mp.on('pageerror', e => merr.push('PAGEERROR ' + e.message));
     // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
-    await mp.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await mp.addInitScript(ui => localStorage.setItem('hc_ui_v1', ui), UI_SEEN);
     await mp.goto(srv.url);
     await mp.waitForTimeout(400);
     const mq = (fn, arg) => mp.evaluate(fn, arg);
@@ -1090,7 +1095,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const perr = [];
     pp.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') perr.push(m.type() + ': ' + m.text()); });
     pp.on('pageerror', e => perr.push('PAGEERROR ' + e.message));
-    await pp.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await pp.addInitScript(ui => localStorage.setItem('hc_ui_v1', ui), UI_SEEN);
     await pp.goto(srv.url);
     await pp.waitForTimeout(400);
     const pq = (fn, arg) => pp.evaluate(fn, arg);
@@ -1526,7 +1531,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
                 scrolls: c.scrollHeight > c.clientHeight, inView: box.top >= 0 && box.bottom <= innerHeight };
         }, id));
     }
-    check(vp, 'Manual: 5 abas navegáveis, todas com conteúdo, dentro da tela', tabs.length === 5 &&
+    check(vp, 'Manual: 6 abas navegáveis (com o Bestiário de Cartas), todas com conteúdo, dentro da tela', tabs.length === 6 &&
         tabInfo.every(t => t.tab && t.active && t.chars > 400 && t.inView) && await noOverflow(), tabInfo);
     check(vp, 'Manual: rolagem interna no conteúdo quando o texto é longo', tabInfo.some(t => t.scrolls));
     const codexText = await oq(() => {
@@ -1584,7 +1589,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const aerr = [];
     ap.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') aerr.push(m.type() + ': ' + m.text()); });
     ap.on('pageerror', e => aerr.push('PAGEERROR ' + e.message));
-    await ap.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await ap.addInitScript(ui => localStorage.setItem('hc_ui_v1', ui), UI_SEEN);
     await ap.goto(srv.url);
     await ap.waitForTimeout(400);
     const aq = (fn, arg) => ap.evaluate(fn, arg);
@@ -1704,7 +1709,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const gerr = [];
     gp.on('console', m => { if (m.type() === 'error') gerr.push(m.text()); });
     gp.on('pageerror', e => gerr.push('PAGEERROR ' + e.message));
-    await gp.addInitScript(() => { if (!localStorage.getItem('hc_ui_v1')) localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })); });
+    await gp.addInitScript(ui => { if (!localStorage.getItem('hc_ui_v1')) localStorage.setItem('hc_ui_v1', ui); }, UI_SEEN);
     await gp.goto(srv.url);
     await gp.waitForTimeout(400);
     const gq = (fn, arg) => gp.evaluate(fn, arg);
@@ -1719,7 +1724,7 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'Etapa7: Recepção com [COLEÇÃO & METAS][BACKUP DO SAVE] sem overflow',
         await gq(() => !!document.getElementById('btn-open-collection').offsetParent && !!document.getElementById('btn-open-backup').offsetParent) && await gFits());
 
-    // --- Coleção: 4 abas, 18 metas, tudo bloqueado como silhueta ??? com dica ---
+    // --- Coleção: 4 abas, todas as metas pendentes, tudo bloqueado como silhueta ??? com dica ---
     await gp.click('#btn-open-collection');
     await gp.waitForTimeout(250);
     const col0 = await gq(() => ({
@@ -1728,8 +1733,9 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         done: document.querySelectorAll('#collection-content .col-tile.goal.done').length,
         progress: document.getElementById('collection-progress').textContent
     }));
-    check(vp, 'Coleção: abre na aba Metas com 18 carimbos pendentes', col0.tabs.length === 4 && col0.goals === 18 && col0.done === 0 &&
-        /Metas 0\/18/.test(col0.progress), col0);
+    const goalTotal = await gq(() => window.GameMeta.GOALS.length);
+    check(vp, 'Coleção: abre na aba Metas com ' + goalTotal + ' carimbos pendentes', col0.tabs.length === 4 && goalTotal === 24 && col0.goals === goalTotal &&
+        col0.done === 0 && new RegExp('Metas 0/' + goalTotal).test(col0.progress), col0);
     check(vp, 'Coleção: só rolagem interna (sem overflow da página nem da caixa)', await gFits());
     const colTabs = {};
     for (const tab of ['cartas', 'gemas', 'bestiario']) {
@@ -1942,6 +1948,295 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
             outside.length === 0 && rerr.length === 0 && Array.isArray(imgs) && imgs.slice(0, 3).every(x => x === 'loaded'), { bad, outside, rerr, imgs });
         await rp.close();
     }
+    // ================= ETAPA 8: CARTAS DE BIOMA, NOVA CARTA DESCOBERTA E BESTIÁRIO DE CARTAS =================
+    // Página nova com save limpo: nenhuma carta foi "descoberta" ainda (o modal de descoberta aparece de verdade).
+    const np = await browser.newPage({ viewport: size });
+    const nerr = [];
+    np.on('console', m => { if (m.type() === 'error') nerr.push(m.text()); });
+    np.on('pageerror', e => nerr.push('PAGEERROR ' + e.message));
+    await np.addInitScript(() => { if (!localStorage.getItem('hc_ui_v1')) localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })); });
+    await np.goto(srv.url);
+    await np.waitForTimeout(400);
+    const nq = (fn, arg) => np.evaluate(fn, arg);
+    const nOpen = () => nq(() => Array.from(document.querySelectorAll('.modal-overlay')).filter(m => !m.classList.contains('hidden')).map(m => m.id));
+    const nFits = () => nq(() => {
+        const d = document.documentElement;
+        const box = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden) .modal-box')).pop();
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth &&
+            (!box || (box.getBoundingClientRect().bottom <= innerHeight + 1 && box.getBoundingClientRect().top >= -1));
+    });
+    await np.click('#btn-start-daydream');
+    await np.waitForTimeout(300);
+    await np.click('#btn-narrative-continue');
+    await np.waitForTimeout(400);
+    await np.locator('#arcana-modal .arcana-choice').first().click();
+    await np.waitForTimeout(500);
+
+    // --- Pool por Bioma: na Fase 1 só as exclusivas da Praia (a Assinatura não entra no pool) ---
+    const pool1 = await nq(() => window.__hcDebug.levelUpPoolIds());
+    check(vp, 'Bioma 1: Maré Alta e Ressaca no pool; Assinatura e cartas de outros biomas fora',
+        pool1.includes('add_mare_alta') && pool1.includes('add_ressaca') && !pool1.includes('add_concha_eco') &&
+        !pool1.some(id => ['add_bala_prata', 'add_manto_cacador', 'add_estilhaco_glacial', 'add_incinerar_arquivo', 'add_paradoxo_18h'].includes(id)), pool1.filter(id => /add_/.test(id)));
+
+    // --- Fila única: Level Up -> NOVA CARTA DESCOBERTA! -> Gema, sem travar ---
+    await nq(() => {
+        const h = window.__hcDebug;
+        h.forceLevelUp(['add_ressaca', 'add_mare_alta', 'garrafa_agua']);
+        h.enqueueModal({ type: 'levelup' });
+        h.enqueueModal({ type: 'gem', gemId: 'double' });
+    });
+    await np.waitForTimeout(400);
+    const q0 = { open: await nOpen(), queue: await nq(() => window.__hcDebug.modalQueue) };
+    await np.click('#reward-grid .reward-card[data-reward="add_mare_alta"]');
+    await np.waitForTimeout(400);
+    const disc = await nq(() => {
+        const m = document.getElementById('discovery-modal');
+        return {
+            active: window.__hcDebug.activeModalType, card: m.dataset.card, queue: window.__hcDebug.modalQueue,
+            title: document.getElementById('discovery-title').textContent,
+            cells: m.querySelectorAll('.pat-row .pat-cell').length, hits: m.querySelectorAll('.pat-cell.hit').length,
+            seal: m.querySelector('.cs-seal').textContent, keys: Array.from(m.querySelectorAll('.cs-keys dt')).map(d => d.textContent),
+            tip: (m.querySelector('.cs-block:nth-of-type(3) p') || {}).textContent || '', focus: document.activeElement && document.activeElement.id,
+            saved: JSON.parse(localStorage.getItem('hc_ui_v1')).discoveredCardTutorials
+        };
+    });
+    check(vp, 'Descoberta: Level Up abre "NOVA CARTA DESCOBERTA!" antes da Gema (fila única)', q0.open.length === 1 && q0.open[0] === 'levelup-modal' &&
+        disc.active === 'discovery' && disc.card === 'mare_alta' && JSON.stringify(disc.queue) === '["gem"]' &&
+        JSON.stringify(await nOpen()) === '["discovery-modal"]', { q0, disc });
+    check(vp, 'Descoberta: carta ampliada, selo do Bioma, mira 0..4, dica de combo, keywords e foco no Entendi!',
+        /NOVA CARTA DESCOBERTA/.test(disc.title) && disc.cells === 5 && disc.hits === 3 && /PRAIA/.test(disc.seal) &&
+        disc.keys.includes('Burn') && disc.keys.includes('Pierce') && /Ressaca/.test(disc.tip) && disc.focus === 'btn-discovery-ok' &&
+        disc.saved.includes('mare_alta'), disc);
+    check(vp, 'Descoberta: modal cabe na tela (rolagem só interna)', await nFits());
+    await np.screenshot({ path: 'e2e-' + vp + '-descoberta.png' });
+    await np.keyboard.press('Enter');
+    await np.waitForTimeout(350);
+    const afterDisc = { active: await nq(() => window.__hcDebug.activeModalType), open: await nOpen() };
+    check(vp, 'Descoberta: Enter fecha limpo e a fila segue para a Gema', afterDisc.active === 'gem' && JSON.stringify(afterDisc.open) === '["gem-modal"]', afterDisc);
+    await np.click('#btn-gem-discard');
+    await np.waitForTimeout(400);
+    check(vp, 'Descoberta: fila zera e o jogo volta à exploração', await nq(() => window.__hcDebug.state.mode === 'explore' &&
+        window.__hcDebug.activeModalType === null && window.__hcDebug.modalQueue.length === 0) && (await nOpen()).length === 0);
+    // Mesma carta de novo (outra cópia): nada de modal repetido. Esc também fecha.
+    await nq(() => {
+        const h = window.__hcDebug;
+        h.forceLevelUp(['add_mare_alta', 'add_ressaca', 'garrafa_agua']);
+        h.enqueueModal({ type: 'levelup' });
+    });
+    await np.waitForTimeout(350);
+    await np.click('#reward-grid .reward-card[data-reward="add_mare_alta"]');
+    await np.waitForTimeout(400);
+    check(vp, 'Descoberta: não repete para carta já explicada', await nq(() => window.__hcDebug.activeModalType === null &&
+        window.__hcDebug.state.deck.filter(id => id === 'mare_alta').length === 2));
+    await nq(() => {
+        const h = window.__hcDebug;
+        h.forceLevelUp(['add_ressaca', 'garrafa_agua', 'reajuste_vr']);
+        h.enqueueModal({ type: 'levelup' });
+    });
+    await np.waitForTimeout(350);
+    await np.click('#reward-grid .reward-card[data-reward="add_ressaca"]');
+    await np.waitForTimeout(400);
+    const escOpen = await nq(() => window.__hcDebug.activeModalType);
+    await np.keyboard.press('Escape');
+    await np.waitForTimeout(350);
+    check(vp, 'Descoberta: Esc também fecha e retoma o jogo', escOpen === 'discovery' && await nq(() => window.__hcDebug.activeModalType === null &&
+        window.__hcDebug.state.mode === 'explore'), escOpen);
+
+    // --- Baú: carta do Bioma com opção de RECUSAR (deck intacto) ---
+    const deckBeforeChest = await nq(() => window.__hcDebug.state.deck.slice());
+    await nq(() => {
+        const rnd = Math.random;
+        Math.random = () => 0.01;
+        try { window.__hcDebug.grantChestLoot(); } finally { Math.random = rnd; }
+        window.__hcDebug.processModals();
+            });
+    await np.waitForTimeout(400);
+    const chestSeq = [];
+    for (let i = 0; i < 12 && (await nOpen()).length > 0; i++) {
+        const st8 = await nq(() => ({ t: window.__hcDebug.activeModalType, kind: document.getElementById('gem-modal').dataset.kind,
+            cards: Array.from(document.querySelectorAll('#gem-targets .gem-target-card')).map(b => b.dataset.card) }));
+        chestSeq.push(st8.t + (st8.t === 'pick' ? ':' + st8.kind + ':' + st8.cards.join('+') : ''));
+        if (st8.t === 'discovery') await np.click('#btn-discovery-ok');
+        else await np.click('#btn-gem-discard');
+        await np.waitForTimeout(350);
+    }
+    const deckAfterChest = await nq(() => window.__hcDebug.state.deck.slice());
+    check(vp, 'Baú: oferece carta exclusiva do Bioma e RECUSAR mantém o baralho', chestSeq.some(x => /^pick:biome:/.test(x) &&
+        x.split(':')[2].split('+').every(id => ['mare_alta', 'ressaca'].includes(id))) &&
+        deckAfterChest.filter(id => !['e_ampulheta', 'e_sino', 'e_saco_moedas', 'e_coracao'].includes(id)).length === deckBeforeChest.length, chestSeq);
+
+    // --- Chefe do Bioma: Carta Assinatura garantida (1x por Fase) -> descoberta ---
+    await nq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        s.enemies.forEach(e => { e.hp = 0; });
+        s.bossDefeated = true;
+        h.finishEncounter();
+    });
+    await np.waitForTimeout(1600);
+    const sig = await nq(() => ({ t: window.__hcDebug.activeModalType, kind: document.getElementById('gem-modal').dataset.kind,
+        cards: Array.from(document.querySelectorAll('#gem-targets .gem-target-card')).map(b => b.dataset.card),
+        title: document.getElementById('gem-title').textContent, decline: document.getElementById('btn-gem-discard').textContent }));
+    check(vp, 'Chefe: Carta Assinatura da Praia (Concha do Eco) garantida com RECUSAR', sig.t === 'pick' && sig.kind === 'signature' &&
+        JSON.stringify(sig.cards) === '["concha_eco"]' && /ASSINATURA/.test(sig.title) && /RECUSAR/.test(sig.decline), sig);
+    await np.click('#gem-targets .gem-target-card');
+    await np.waitForTimeout(400);
+    const sigDisc = await nq(() => ({ t: window.__hcDebug.activeModalType, card: document.getElementById('discovery-modal').dataset.card,
+        seal: document.querySelector('#discovery-modal .cs-seal').textContent, recipe: document.getElementById('discovery-modal').textContent }));
+    check(vp, 'Chefe: Assinatura aceita abre a descoberta com selo ASSINATURA e receita de fusão', sigDisc.t === 'discovery' && sigDisc.card === 'concha_eco' &&
+        /ASSINATURA/.test(sigDisc.seal) && /Tsunami Escaldante/.test(sigDisc.recipe), sigDisc);
+    await np.click('#btn-discovery-ok');
+    await np.waitForTimeout(400);
+    await nq(() => {
+        const h = window.__hcDebug;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        h.state.enemies.forEach(e => { e.hp = 0; });
+        h.state.bossDefeated = true;
+        h.finishEncounter();
+    });
+    await np.waitForTimeout(1600);
+    check(vp, 'Chefe: Assinatura não se repete na mesma Fase', await nq(() => window.__hcDebug.activeModalType === null));
+
+    // --- Troca de Bioma: baralho preservado integralmente; o pool muda para a Cidade ---
+    const deckF1 = await nq(() => window.__hcDebug.state.deck.slice().sort().join(','));
+    await nq(() => window.__hcDebug.loadFloor(2));
+    await np.waitForTimeout(600);
+    const f2 = await nq(() => ({ floor: window.__hcDebug.state.floor, deck: window.__hcDebug.state.deck.slice().sort().join(','),
+        pool: window.__hcDebug.levelUpPoolIds() }));
+    check(vp, 'Troca de Bioma: todas as cartas da Fase 1 continuam no baralho', f2.floor === 2 && f2.deck === deckF1 &&
+        ['mare_alta', 'ressaca', 'concha_eco'].every(id => f2.deck.includes(id)), { deckF1, deck: f2.deck });
+    check(vp, 'Bioma 2: pool troca para Bala de Prata/Manto; Nível MÁX da Praia segue para quem tem a carta',
+        f2.pool.includes('add_bala_prata') && f2.pool.includes('add_manto_cacador') && !f2.pool.includes('add_mare_alta') &&
+        f2.pool.includes('up_mare_alta') && f2.pool.includes('up_concha_eco'), f2.pool.filter(id => /add_|up_/.test(id)));
+
+    // --- Metas da Etapa 8 com jogadas reais ---
+    const arena8 = (hand, setup) => nq(([cards, su]) => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        s.enemies.forEach(e => { e.hp = 999; e.maxHp = 999; e.atk = 1; e.hasIntent = true; e.kbResist = 0; e.frost = 0; e.shield = 0; });
+        s.hand = cards.slice();
+        s.handReturnCounts = cards.map(() => 0);
+        s.handCostMods = cards.map(() => 0);
+        s.handTemp = cards.map(() => false);
+        s.mana = 20;
+        s.busy = false;
+        // allFront: todos os inimigos na linha de frente, um por coluna.
+        if (su && su.allFront) s.enemies.forEach((e, i) => { e.row = 0; e.col = i % 5; });
+        Object.assign(s, su || {});
+        delete s.allFront;
+    }, [hand, setup]);
+    const play8 = async (id, rnd) => {
+        await nq(([cid, r]) => {
+            const h = window.__hcDebug;
+            if (r !== undefined) { window.__rnd = Math.random; Math.random = () => r; }
+            h.playCard(h.state.hand.indexOf(cid));
+        }, [id, rnd]);
+        await np.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 30000 });
+        await nq(() => { if (window.__rnd) { Math.random = window.__rnd; window.__rnd = null; } });
+    };
+    const goals8 = () => nq(() => window.__hcDebug.meta.goals);
+    await arena8(['ressaca'], { columnBurn: [40, 40, 40, 40, 40] });
+    await play8('ressaca');
+    check(vp, 'Metas: Piromaníaco (50+ de Burn numa luta) via Ressaca', (await goals8()).piromaniaco === true &&
+        await nq(() => window.__hcDebug.state.fightBurnDmg >= 50));
+    await arena8(['chicote_dados'], { kbBonus: 1, allFront: true });
+    await play8('chicote_dados', 0);
+    check(vp, 'Metas: Caçador Implacável (3 desarmes no turno)', (await goals8()).cacador_implacavel === true, await nq(() => window.__hcDebug.state.turnDisarms));
+    await arena8(['bastiao_cristal'], { shield: 30 });
+    await play8('bastiao_cristal');
+    check(vp, 'Metas: Fortaleza Viva (35+ de dano de Escudo) via Bastião de Cristal', (await goals8()).fortaleza_viva === true,
+        await nq(() => window.__hcDebug.state.turnShieldDmg));
+    await arena8(['incinerar_arquivo', 'folha_presa', 'folha_presa', 'confusao', 'bomba_mana', 'cafeina_pura'], { handTemp: [false, false, false, false, false, true] });
+    await play8('incinerar_arquivo');
+    await play8('cafeina_pura');
+    await play8('folha_presa');
+    await play8('folha_presa');
+    check(vp, 'Metas: Queima de Arquivo (4+ Destroy numa luta) com Incinerar Arquivo', (await goals8()).queima_arquivo === true,
+        await nq(() => window.__hcDebug.state.fightDestroys));
+    await arena8(['mordida_ferro'], { comboCount: 5, lastComboCost: 0, comboCarry: false, comboReverse: false });
+    await play8('mordida_ferro');
+    check(vp, 'Metas: Mestre do Paradoxo (Combo x7)', (await goals8()).mestre_paradoxo === true);
+    await arena8(['paradoxo_18h', 'ponteiro_invertido'], {});
+    const costs = await nq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        const at = id => h.getHandCost(s.hand.indexOf(id));
+        const out = [at('paradoxo_18h')];
+        s.lastComboCost = 1;
+        [0, 1, 2, 3, 6].forEach(c => { s.comboCount = c; out.push(at('paradoxo_18h')); });
+        return out;
+    });
+    check(vp, 'Paradoxo das 18h: custo 4 sem cadeia; x2 -> 2, x3 -> 1, x4+ -> 0', JSON.stringify(costs) === '[4,3,2,1,0,0]', costs);
+    // Viajante de Mundos: cartas de 3 biomas jogadas + vitória.
+    await nq(() => { window.__hcDebug.state.biomesPlayed = [1, 2]; });
+    await arena8(['nevasca_eterna'], {});
+    await play8('nevasca_eterna');
+    await nq(() => window.__hcDebug.endGame(true));
+    await np.waitForTimeout(500);
+    check(vp, 'Metas: Viajante de Mundos (vitória com cartas de 3 biomas)', await nq(() =>
+        JSON.parse(localStorage.getItem('hc_meta_v1')).goals.viajante_mundos === true));
+    for (let i = 0; i < 20 && (await nOpen()).length > 0; i++) {
+        await nq(() => { const b = ['#btn-narrative-continue', '#btn-play-again'].map(q => document.querySelector(q)).find(x => x && x.offsetParent); if (b) b.click(); });
+        await np.waitForTimeout(350);
+    }
+    await np.waitForTimeout(300);
+
+    // --- Bestiário de Cartas na Coleção: filtros, silhuetas com dica e ficha ---
+    await np.click('#btn-open-collection');
+    await np.waitForTimeout(250);
+    await nq(() => document.querySelector('#collection-tabs [data-tab="cartas"]').click());
+    await np.waitForTimeout(150);
+    const chips = await nq(() => Array.from(document.querySelectorAll('#collection-content .bf-chip')).map(b => b.textContent));
+    check(vp, 'Bestiário: filtros Todas/Base/Praia/Cidade/Neve/Dungeon/Abismo/Evoluções',
+        JSON.stringify(chips) === '["Todas","Base","Praia","Cidade","Neve","Dungeon","Abismo","Evoluções"]', chips);
+    const byFilter = {};
+    for (const f of ['praia', 'cidade', 'evolucoes']) {
+        await nq(fl => document.querySelector('#collection-content .bf-chip[data-filter="' + fl + '"]').click(), f);
+        await np.waitForTimeout(120);
+        byFilter[f] = await nq(() => Array.from(document.querySelectorAll('#collection-content .card-tile')).map(t => ({
+            card: t.dataset.card, locked: t.classList.contains('locked'), name: t.querySelector('b').textContent, hint: t.querySelector('small').textContent })));
+    }
+    const lockedBala = byFilter.cidade.find(t => t.card === 'bala_prata');
+    const lockedSino = byFilter.cidade.find(t => t.card === 'sino_vigia');
+    check(vp, 'Bestiário: Praia descoberta; Cidade em silhueta ??? com dica do Bioma/Chefe',
+        byFilter.praia.length === 3 && byFilter.praia.every(t => !t.locked) &&
+        lockedBala && lockedBala.locked && lockedBala.name === '???' && /Cidade Gótica/.test(lockedBala.hint) &&
+        lockedSino && /Assinatura: derrote Mensageiro/.test(lockedSino.hint) &&
+        ['tsunami_escaldante', 'execucao_lunar', 'glaciar_absoluto'].every(id => byFilter.evolucoes.some(t => t.card === id)), { byFilter });
+    await nq(() => document.querySelector('#collection-content .bf-chip[data-filter="praia"]').click());
+    await np.waitForTimeout(120);
+    await np.click('#collection-content .card-tile[data-card="mare_alta"]');
+    await np.waitForTimeout(200);
+    const sheet = await nq(() => {
+        const c = document.getElementById('collection-content');
+        return { sheet: c.dataset.sheet, cells: c.querySelectorAll('.pat-cell').length, text: c.textContent };
+    });
+    check(vp, 'Bestiário: tocar numa carta descoberta abre a ficha (mira, papel, combo e receita)', sheet.sheet === 'mare_alta' && sheet.cells === 5 &&
+        /Papel tático/i.test(sheet.text) && /Dica de combo/i.test(sheet.text) && /Funde com Concha do Eco/.test(sheet.text) && await nFits(), sheet.sheet);
+    await np.screenshot({ path: 'e2e-' + vp + '-bestiario.png' });
+    await np.click('#collection-content .sheet-back');
+    await np.waitForTimeout(150);
+    check(vp, 'Bestiário: VOLTAR retorna à lista no mesmo filtro', await nq(() => document.getElementById('collection-content').dataset.filter === 'praia' &&
+        !!document.querySelector('#collection-content .card-tile')));
+    await np.click('#btn-collection-close');
+    await np.waitForTimeout(150);
+    // Manual "?": aba Cartas com o mesmo Bestiário.
+    await np.click('#btn-title-codex');
+    await np.waitForTimeout(250);
+    await np.click('.codex-tab[data-tab="cartas"]');
+    await np.waitForTimeout(150);
+    const codexCards = await nq(() => ({ chips: document.querySelectorAll('#codex-content .bf-chip').length,
+        tiles: document.querySelectorAll('#codex-content .card-tile').length, unlocked: document.querySelectorAll('#codex-content .card-tile:not(.locked)').length }));
+    await np.click('#codex-content .card-tile[data-card="ressaca"]');
+    await np.waitForTimeout(150);
+    check(vp, 'Manual "?": aba Cartas com filtros e ficha da carta', codexCards.chips === 8 && codexCards.tiles > 60 && codexCards.unlocked > 5 &&
+        await nq(() => !!document.querySelector('#codex-content .card-sheet[data-card="ressaca"]')) && await nFits(), codexCards);
+    await np.keyboard.press('Escape');
+    await np.waitForTimeout(150);
+    check(vp, 'Etapa8: 0 erros no console e 0 overflow', nerr.length === 0 && await nFits(), nerr.slice(0, 4));
+    await np.close();
 }
 await browser.close();
 srv.close();

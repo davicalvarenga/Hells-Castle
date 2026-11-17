@@ -313,7 +313,8 @@ test('evoluções e fusão: cartas existem e toda evolução tem como chegar ao 
         const relic = D.LEVEL_UP_REWARDS.find(r => r.id === ev.passiveId);
         assert.equal(relic.requiresCard, ev.requiresOwned ? ev.fromCard : undefined, ev.passiveId);
     });
-    assert.equal(D.FUSIONS.length, 1);
+    // 1 fusão original + 3 dos arquétipos de bioma (Etapa 8).
+    assert.equal(D.FUSIONS.length, 4);
     D.FUSIONS.forEach(f => {
         assert.equal(f.cards.length, 2);
         f.cards.forEach(id => assert.ok(D.LEVEL_UP_REWARDS.some(r => r.id === 'up_' + id), 'fusão precisa de up_' + id));

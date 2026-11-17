@@ -59,6 +59,7 @@ function botStep(policy) {
     const el = id => document.getElementById(id);
     const vis = id => { const e = el(id); return !!e && !e.classList.contains('hidden'); };
     const good = policy === 'good';
+    const LEAN_DECK = 13; // baralho do bot bom: acima disso recusa as cartas de bioma do baú
     const snapshot = () => ({ seed: h.seed, map: (h.getFloor ? h.getFloor().layout.join('') : ''), arcana: s.arcana, level: s.level, hp: s.hp, maxHp: s.maxHp, vr: s.vr, deck: s.deck.length, kills: s.kills });
 
     if (vis('end-modal')) {
@@ -66,7 +67,8 @@ function botStep(policy) {
             bossStart: mem.bossStart, turns: mem.turns, overkills: s.overkills, specials: mem.specials, introScenes: mem.introScenes || 0,
             arsenal: { arcanas: (s.arcanas || []).length, cracked: Object.keys(mem.cracks).length,
                 gems: Object.keys(s.cardGems || {}).reduce((n, id) => n + s.cardGems[id].length, 0),
-                extraSlots: Object.keys(s.extraGemSlots || {}).length, fused: Object.keys(s.fusedCards || {}).length } };
+                extraSlots: Object.keys(s.extraGemSlots || {}).length, fused: Object.keys(s.fusedCards || {}).length,
+                biomeCards: s.deck.filter(id => window.GameData.CARDS[id].biome).length, discovered: ((window.__hcDebug.ui || {}).discoveredCardTutorials || []).length } };
     }
     // 1ª visita: a cutscene abre sozinha. O bot pula e vai direto para o expediente (sem tutorial).
     if (vis('intro-overlay')) {
@@ -88,12 +90,20 @@ function botStep(policy) {
         picks[Math.floor(Math.random() * picks.length)].click();
         return { act: 'arcana' };
     }
+    // Nova Carta Descoberta!: lê e fecha como um jogador faria (fila única segue sozinha).
+    if (vis('discovery-modal')) { el('btn-discovery-ok').click(); return { act: 'discovery' }; }
     if (vis('gem-modal')) {
         const targets = Array.from(document.querySelectorAll('#gem-modal .gem-target-card:not([disabled])'));
         // Sacrifício (Baú de Prata / Mesa de Oferenda): entrega a carta com mais cópias no baralho.
         if (el('gem-modal').dataset.kind === 'sacrifice') {
             const copies = b => s.deck.filter(id => id === b.dataset.card).length;
             targets.sort((a, b) => copies(b) - copies(a));
+        }
+        // Carta de Bioma do baú: o bot bom só aceita com o baralho ainda enxuto (RECUSAR mantém a consistência).
+        // A Carta Assinatura do Chefe é sempre aceita; o descuidado aceita tudo.
+        if (el('gem-modal').dataset.kind === 'biome' && good && s.deck.filter(id => !D.CARDS[id].consumable).length >= LEAN_DECK) {
+            el('btn-gem-discard').click();
+            return { act: 'declineBiome' };
         }
         (targets[0] || el('btn-gem-discard')).click();
         return { act: 'gem' };

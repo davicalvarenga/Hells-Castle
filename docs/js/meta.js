@@ -71,7 +71,14 @@
         { id: 'mao_pesada', name: 'Mão Pesada', desc: 'Estilhace 3 cartas na mesma run.', reward: 40, icon: 'ata', scope: 'run' },
         { id: 'arquiteto', name: 'Arquiteto do Almoxarifado', desc: 'Compre 10 ranks de PowerUp no total.', reward: 60, icon: 'headphones', scope: 'meta' },
         { id: 'recrutador', name: 'Recrutador', desc: 'Tenha os 4 colegas contratados.', reward: 80, icon: 'hero_claudia', scope: 'meta' },
-        { id: 'estagiario', name: 'Estágio Concluído', desc: 'Conclua o Tutorial Guiado.', reward: 40, icon: 'hero_valter', scope: 'run' }
+        { id: 'estagiario', name: 'Estágio Concluído', desc: 'Conclua o Tutorial Guiado.', reward: 40, icon: 'hero_valter', scope: 'run' },
+        // Etapa 8: arquétipos das cartas de bioma.
+        { id: 'piromaniaco', name: 'Piromaníaco', desc: 'Cause 50+ de dano de Burn numa única luta.', reward: 60, icon: 'c_wave', scope: 'run' },
+        { id: 'cacador_implacavel', name: 'Caçador Implacável', desc: 'Desarme 3 inimigos no mesmo turno.', reward: 80, icon: 'c_bullet', scope: 'run' },
+        { id: 'fortaleza_viva', name: 'Fortaleza Viva', desc: 'Cause 35+ de dano baseado em Escudo num turno.', reward: 80, icon: 'c_crystal', scope: 'run' },
+        { id: 'queima_arquivo', name: 'Queima de Arquivo', desc: 'Destrua 4+ cartas com Destroy numa luta.', reward: 60, icon: 'c_shredder', scope: 'run' },
+        { id: 'mestre_paradoxo', name: 'Mestre do Paradoxo', desc: 'Chegue ao Combo x7+ num turno.', reward: 120, icon: 'c_paradox', scope: 'run' },
+        { id: 'viajante_mundos', name: 'Viajante de Mundos', desc: 'Vença jogando cartas exclusivas de 3+ biomas diferentes.', reward: 150, icon: 'c_mirror', scope: 'run' }
     ];
     const GOAL_BY_ID = GOALS.reduce((acc, g) => { acc[g.id] = g; return acc; }, {});
     const SEEN_KINDS = ['cards', 'gems', 'arcanas', 'enemies'];

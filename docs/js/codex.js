@@ -185,7 +185,9 @@
         { id: 'combo', label: 'Combo', title: 'Combo & Turnos', build: combo },
         { id: 'atributos', label: 'Atributos', title: 'Atributos & Keywords', build: stats },
         { id: 'inimigos', label: 'Inimigos', title: 'Inimigos & Overkill', build: enemies },
-        { id: 'progressao', label: 'Progressão', title: 'Gemas, Eventos & Recepção', build: progression }
+        { id: 'progressao', label: 'Progressão', title: 'Gemas, Eventos & Recepção', build: progression },
+        // Bestiário de Cartas: o conteúdo é interativo e montado pelo jogo (filtros + ficha de cada carta).
+        { id: 'cartas', label: 'Cartas', title: 'Bestiário de Cartas', build: () => '' }
     ];
 
     function build(D, M) {

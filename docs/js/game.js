@@ -35,11 +35,13 @@
     // Preferências de onboarding (introSeen, tutorialDone, dicas já vistas). Chave separada da meta.
     const UI_KEY = 'hc_ui_v1';
     function sanitizeUi(raw) {
-        const out = { introSeen: false, tutorialDone: false, tips: [] };
+        const out = { introSeen: false, tutorialDone: false, tips: [], discoveredCardTutorials: [] };
         if (raw && typeof raw === 'object') {
             out.introSeen = raw.introSeen === true;
             out.tutorialDone = raw.tutorialDone === true;
             out.tips = Array.isArray(raw.tips) ? Array.from(new Set(raw.tips.filter(id => D.FIRST_TIME_TIPS[id]))) : [];
+            out.discoveredCardTutorials = Array.isArray(raw.discoveredCardTutorials)
+                ? Array.from(new Set(raw.discoveredCardTutorials.filter(id => typeof id === 'string' && D.CARDS[id]))) : [];
         }
         return out;
     }
@@ -161,6 +163,9 @@
         btnBackupConfirm: $('btn-backup-confirm'),
         btnBackupClose: $('btn-backup-close'),
         goalToast: $('goal-toast'),
+        discoveryModal: $('discovery-modal'),
+        discoveryBody: $('discovery-body'),
+        btnDiscoveryOk: $('btn-discovery-ok'),
         btnTitleCodex: $('btn-title-codex'),
         btnReplayIntro: $('btn-replay-intro'),
         btnOpenTutorial: $('btn-open-tutorial'),
@@ -473,10 +478,30 @@
         };
         applyHeroAndMeta(s, hero);
         revealAround(s, start.x, start.y, fl.layout);
+        // Etapa 8: o baralho inicial nunca conta como "carta nova" para o modal de descoberta.
+        s.discoveryBase = s.deck.slice();
+        s.biomesPlayed = [];
+        s.signatureFloors = [];
+        resetTurnTrackers(s);
+        s.fightBurnDmg = 0;
+        s.fightDestroys = 0;
         return s;
     }
 
     // Colega escolhido + PowerUps do Almoxarifado + slots da Grafia entram na run aqui (uma vez, no início).
+    // Rastreadores por turno (cartas de bioma e metas): Crit extra, Combo Reverso, desarmes e dano de Escudo.
+    function resetTurnTrackers(s) {
+        s.turnCrit = 0;
+        s.turnReverse = false;
+        s.turnDisarms = 0;
+        s.turnShieldDmg = 0;
+        s.turnLastPlayedId = null;
+    }
+
+    function isReverseActive() {
+        return !!(state && (state.comboReverse || state.turnReverse));
+    }
+
     function applyHeroAndMeta(s, hero) {
         const rank = id => M.rankOf(meta, id);
         s.heroId = hero.id;
@@ -749,11 +774,18 @@
         }
 
         const x = card.xCost ? Math.max(0, typeof xValue === 'number' ? xValue : ((state && state.mana) || 0)) : 0;
+        // Grimório Proibido: Custo X vira número de projéteis (X + bônus), não multiplicador de dano.
+        if (card.xHitsBonus) hits = x + card.xHitsBonus;
         let dmg = card.damage || 0;
+        // Scavenge: +N por carta no Descarte e na pilha de Destroy desta luta (com teto).
+        if (card.scavenge > 0 && state && state.mode === 'combat') {
+            const piles = (state.discardPile || []).length + (state.destroyedPile || []).length;
+            dmg += card.scavenge * Math.min(card.scavengeCap || 99, piles);
+        }
         if (dmg > 0) {
             if (card.damageScalesWithCombo) dmg *= mult;
             if (card.damageScalesWithAmount) dmg *= (1 + statAmt);
-            if (card.xCost) dmg *= x;
+            if (card.xCost && !card.xHitsBonus) dmg *= x;
             dmg = dmg > 0 ? Math.max(1, Math.round(dmg * mightMult)) : 0;
         }
 
@@ -1003,6 +1035,86 @@
         if (gained > 0) processModalQueue();
     }
 
+    // ---------- NOVA CARTA DESCOBERTA! (1ª vez que uma carta entra no baralho) ----------
+    // Compara o baralho com o que a run já conhecia; cada carta inédita (fora do Tutorial base) vira um item
+    // {type:'discovery'} logo no INÍCIO da fila, para aparecer antes da gema/evento seguinte. Salvo em hc_ui_v1.
+    function detectNewCards() {
+        if (!state || state.tutorial || !state.discoveryBase) return [];
+        const fresh = [];
+        state.deck.forEach(id => {
+            if (state.discoveryBase.includes(id)) return;
+            state.discoveryBase.push(id);
+            const card = D.CARDS[id];
+            if (!card || card.consumable || card.tempOnly || card.type === 'curse') return;
+            if (ui.discoveredCardTutorials.includes(id)) return;
+            ui.discoveredCardTutorials.push(id);
+            markSeen('cards', id);
+            fresh.push({ type: 'discovery', cardId: id });
+        });
+        if (fresh.length > 0) {
+            saveUi();
+            modalQueue.unshift.apply(modalQueue, fresh);
+        }
+        return fresh;
+    }
+
+    function openDiscoveryModal(item) {
+        A.play('levelup');
+        els.discoveryBody.innerHTML = cardSheetHtml(item.cardId, { discovery: true });
+        els.discoveryModal.dataset.card = item.cardId;
+        els.discoveryModal.classList.remove('hidden');
+        els.btnDiscoveryOk.disabled = false;
+        later(30, () => { if (activeModal === item) els.btnDiscoveryOk.focus({ preventScroll: true }); });
+    }
+
+    // Ficha completa de uma carta (modal de descoberta e Bestiário de Cartas).
+    function cardSheetHtml(cardId, opts) {
+        const o = opts || {};
+        const card = D.CARDS[cardId];
+        const biome = card.biome ? D.BIOMES[card.biome] : null;
+        const pattern = D.getTargetPattern(card);
+        const guide = D.getCardGuide(card);
+        const keywords = D.getCardKeywords(card);
+        const typeLabel = card.type === 'crawler' ? 'Crachá' : card.type === 'curse' ? 'Lixo' : (D.CARD_TYPE_LABELS[card.type] || card.type);
+        const cost = card.xCost ? 'X' : card.comboCostCut ? card.cost + '↓' : String(card.cost);
+        const seal = card.fused ? 'FUSÃO' : card.evolved ? 'EVOLUÇÃO' : biome ? (card.signature ? 'ASSINATURA · ' : '') + biome.label.toUpperCase() : 'BASE';
+        const recipe = cardRecipeText(cardId);
+        const cells = pattern.cells.map((c, i) => '<span class="pat-cell ' + (c.mark || 'none') + '" title="Coluna ' + i + '"><i>' + i + '</i><b>' +
+            (c.order || (c.mark === 'hit' ? '●' : '')) + '</b></span>').join('');
+        return '<div class="card-sheet' + (o.discovery ? ' is-discovery' : '') + '" data-card="' + cardId + '">' +
+            '<div class="cs-card" style="--seal:' + (biome ? biome.color : card.evolved ? '#f5cb5c' : '#94a3b8') + '">' +
+            '<span class="cs-cost">' + cost + '</span>' +
+            '<img src="' + S.getIconUrl(card.icon) + '" alt="" />' +
+            '<b class="cs-name">' + card.name + '</b>' +
+            '<small class="cs-origin">' + card.origin + '</small>' +
+            '<span class="cs-seal">' + seal + '</span>' +
+            '<span class="cs-type">' + typeLabel + '</span></div>' +
+            '<div class="cs-info">' +
+            '<p class="cs-desc">' + formatCardDesc(card, getCardPreviewValues(card, 1)) + '</p>' +
+            '<div class="cs-block"><h5>Mira nas 5 colunas</h5><div class="pat-row">' + cells + '</div><small>' + pattern.caption + '</small></div>' +
+            '<div class="cs-block"><h5>Papel tático</h5><p>' + guide.role + '</p></div>' +
+            '<div class="cs-block"><h5>Dica de combo</h5><p>' + guide.tip + '</p></div>' +
+            (recipe ? '<div class="cs-block"><h5>Evolução / Fusão</h5><p>' + recipe + '</p></div>' : '') +
+            (keywords.length > 0 ? '<div class="cs-block"><h5>Keywords</h5><dl class="cs-keys">' +
+                keywords.map(k => '<dt>' + k.label + '</dt><dd>' + k.text + '</dd>').join('') + '</dl></div>' : '') +
+            '</div></div>';
+    }
+
+    // Receita de evolução/fusão em que a carta participa (como origem ou resultado).
+    function cardRecipeText(cardId) {
+        const name = id => D.CARDS[id].name;
+        const out = [];
+        D.EVOLUTIONS.forEach(ev => {
+            if (ev.fromCard === cardId) out.push('Nível MÁX + Relíquia ' + ev.title + ' → ' + name(ev.toCard) + '.');
+            if (ev.toCard === cardId) out.push('Nasce de ' + name(ev.fromCard) + ' (Nível MÁX) + Relíquia ' + ev.title + '.');
+        });
+        D.FUSIONS.forEach(f => {
+            if (f.cards.includes(cardId)) out.push('Funde com ' + f.cards.filter(id => id !== cardId).map(name).join(' + ') + ' (ambas no Nível MÁX) → ' + name(f.toCard) + '.');
+            if (f.toCard === cardId) out.push('Fusão de ' + f.cards.map(name).join(' + ') + ', ambas no Nível MÁX.');
+        });
+        return out.join(' ');
+    }
+
     // ---------- FILA DE MODAIS ----------
     function enqueueModal(item) {
         modalQueue.push(item);
@@ -1043,6 +1155,7 @@
             gem: openGemModal,
             pick: openPickModal,
             arcana: openArcanaModal,
+            discovery: openDiscoveryModal,
             epilogue: openEpilogue
         };
         openers[activeModal.type](activeModal);
@@ -1063,9 +1176,10 @@
         flushSeen();
         const item = activeModal;
         if (!item) return;
-        [els.levelupModal, els.restModal, els.eventModal, els.narrativeModal, els.gemModal, els.arcanaModal].forEach(m => m.classList.add('hidden'));
+        [els.levelupModal, els.restModal, els.eventModal, els.narrativeModal, els.gemModal, els.arcanaModal, els.discoveryModal].forEach(m => m.classList.add('hidden'));
         activeModal = null;
         if (afterClose) afterClose(item);
+        detectNewCards();
         later(80, processModalQueue);
     }
 
@@ -1083,7 +1197,7 @@
         modalQueue = [];
         activeModal = null;
         modalActionLocked = false;
-        [els.levelupModal, els.restModal, els.eventModal, els.narrativeModal, els.gemModal, els.arcanaModal, els.endModal].forEach(m => m.classList.add('hidden'));
+        [els.levelupModal, els.restModal, els.eventModal, els.narrativeModal, els.gemModal, els.arcanaModal, els.endModal, els.discoveryModal].forEach(m => m.classList.add('hidden'));
         els.epilogueOverlay.classList.add('hidden');
     }
 
@@ -1093,9 +1207,52 @@
             if (rw.once && (state.takenRewards.includes(rw.id) || state.relics.includes(rw.id))) return false;
             if (rw.id && rw.id.indexOf('up_') === 0 && getCardLevel(rw.id.slice(3)) >= B.maxCardLevel) return false;
             if (rw.requiresCard && !state.deck.includes(rw.requiresCard)) return false;
+            // Cartas exclusivas: só no Bioma atual (nunca no Tutorial).
+            if (rw.biome && (state.tutorial || rw.biome !== currentBiome())) return false;
             if (rw.rare && Math.random() > 0.35) return false;
             return true;
         });
+    }
+
+    function currentBiome() {
+        return Math.max(1, Math.min(D.FLOORS.length, (state && state.floor) || 1));
+    }
+
+    // Baú: oferece até 2 cartas exclusivas do Bioma atual (pegar 1 ou recusar).
+    function biomeCardPick() {
+        const biome = D.BIOMES[currentBiome()];
+        const options = shuffle(D.getBiomeCards(biome.id, biome.id === D.FLOORS.length)).slice(0, 2);
+        return {
+            type: 'pick', kind: 'biome',
+            title: 'BAÚ: CARTA DA ' + biome.name.toUpperCase(),
+            desc: 'Exclusiva deste Bioma (' + biome.archetype + '). Pegue 1 para o baralho ou recuse para manter o deck enxuto.',
+            cards: options,
+            declineLabel: 'RECUSAR',
+            cardNote: () => 'Exclusiva: ' + biome.label,
+            onPick: id => {
+                state.deck.push(id);
+                setLog('Nova carta no baralho: ' + D.CARDS[id].name + '!');
+            }
+        };
+    }
+
+    // Chefe do Bioma derrotado: Carta Assinatura garantida (pode recusar), uma vez por Fase.
+    function signatureCardPick(floor) {
+        const sigId = D.getSignatureCard(floor);
+        if (!sigId) return null;
+        const biome = D.BIOMES[floor];
+        return {
+            type: 'pick', kind: 'signature',
+            title: 'CARTA ASSINATURA: ' + biome.name.toUpperCase(),
+            desc: 'Prêmio do Chefe: ' + D.CARDS[sigId].name + ' (' + biome.archetype + '). Ela segue no baralho nas próximas Fases.',
+            cards: [sigId],
+            declineLabel: 'RECUSAR',
+            cardNote: () => 'Assinatura',
+            onPick: id => {
+                state.deck.push(id);
+                triggerGoldBanner('CARTA ASSINATURA: ' + D.CARDS[id].name.toUpperCase());
+            }
+        };
     }
 
     function buildFusionChoice(fus) {
@@ -1132,6 +1289,12 @@
     }
 
     function buildLevelUpChoices() {
+        // Gancho de teste (__hcDebug.forceLevelUp): ofertas fixas para o próximo Level Up.
+        if (state.forcedRewardIds) {
+            const forced = state.forcedRewardIds.map(id => D.LEVEL_UP_REWARDS.find(r => r.id === id)).filter(Boolean);
+            state.forcedRewardIds = null;
+            if (forced.length > 0) return forced;
+        }
         const fourthChance = 0.025 * getLuckMultiplier();
         const slotCount = Math.random() < fourthChance ? 4 : 3;
         const choices = D.EVOLUTIONS.filter(isEvolutionReady).map(buildEvolutionChoice)
@@ -1402,6 +1565,7 @@
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'reward-card' + (rw.kind === 'evolucao' || rw.kind === 'fusao' ? ' evo-choice' : '');
+            btn.dataset.reward = rw.id;
             const kindLabel = rw.kind === 'carta'
                 ? 'Nova Carta'
                 : rw.kind === 'reliquia'
@@ -2217,12 +2381,14 @@
             modalQueue.push({ type: 'gem', gemId: 'double' }, { type: 'arcana' });
         } else {
             modalQueue.push({ type: 'gem', gemId: randomGemId() });
+            if (Math.random() < B.chestBiomeCardChance) modalQueue.push(biomeCardPick());
         }
         if (!state.tutorial && Math.random() < B.chestPickupChance) {
             const pickup = grantPickup();
             setLog(loot.title + ': ' + loot.text + ' Pickup: ' + D.CARDS[pickup].name + '!');
         }
         const evolved = checkAndTriggerEvolutions(true);
+        detectNewCards();
         const p = viewportPoint(0.5, 0.48);
         spawnFloatingText(p.x, p.y - 12, '+' + loot.hp + ' Sanidade', 'heal');
         if (evolved.length > 0) {
@@ -2508,6 +2674,9 @@
         state.columnBurn = [0, 0, 0, 0, 0];
         state.columnBurnFloor = [0, 0, 0, 0, 0];
         state.bossOverkillDmg = 0;
+        state.fightBurnDmg = 0;
+        state.fightDestroys = 0;
+        resetTurnTrackers(state);
         state.combatHurt = !!ambush;
         state.cardUses = {};
         state.discardDiscount = {};
@@ -2651,8 +2820,15 @@
         const cardId = state.hand[handIndex];
         const card = cardOf(cardId);
         if (card.xCost) return D.getXCostMod(card, typeof mana === 'number' ? mana : state.mana);
-        return (state.handCostMods[handIndex] || 0) - (state.discardDiscount[cardId] || 0) -
+        return (state.handCostMods[handIndex] || 0) - (state.discardDiscount[cardId] || 0) - comboCostCut(card) -
             (useNextDiscount === false ? 0 : (state.nextCostDiscount || 0));
+    }
+
+    // Paradoxo das 18h: com a cadeia ativa custa 4 menos o Combo atual (x2 -> 2, x3 -> 1, x4+ -> 0).
+    function comboCostCut(card) {
+        if (!card || !card.comboCostCut || !state || state.mode !== 'combat') return 0;
+        const chainActive = state.comboCarry || (state.lastComboCost !== null && state.lastComboCost !== undefined);
+        return chainActive ? D.getComboMult(state.comboCount) : 0;
     }
 
     function getHandCost(handIndex, mana, useNextDiscount) {
@@ -2743,9 +2919,36 @@
         let bounceChance = (card.bouncy || 0) * getLuckMultiplier();
         const alreadyHit = [];
         let enemy = target;
+        // Maré Alta: +Pierce se a coluna do alvo já está queimando.
+        if (card.pierceVsBurning > 0 && target && (state.columnBurn[target.col] || 0) > 0) pierceLeft += card.pierceVsBurning;
         while (enemy) {
             alreadyHit.push(enemy.uid);
-            if (pv.damage > 0 && applyDamageToEnemy(enemy, pv.damage, card, usedMult, opts).overkill) overkill = true;
+            let hitDmg = pv.damage;
+            const pos = getEnemyTargetPos(enemy);
+            // Sino do Vigia / Execução Lunar: 2x em quem está Desarmado ou Congelado.
+            if (hitDmg > 0 && card.bonusVsControlled > 1 && (enemy.disarmed || enemy.frost > 0)) {
+                hitDmg = Math.round(hitDmg * card.bonusVsControlled);
+                spawnFloatingText(pos.x, pos.y - 40, 'PUNIÇÃO x' + card.bonusVsControlled, 'combo');
+            }
+            // Estilhaço Glacial: alvo que JÁ estava congelado estilhaça (dano extra + Escudo uma vez por jogada).
+            if (card.shatterBonus > 0 && enemy.frost > 0 && enemy.hp > 0) {
+                hitDmg += card.shatterBonus;
+                spawnFloatingText(pos.x, pos.y - 40, 'ESTILHAÇOU! +' + card.shatterBonus, 'combo');
+                if (opts && opts.play && !opts.play.shattered && card.shatterShield > 0) {
+                    opts.play.shattered = true;
+                    state.shield += card.shatterShield;
+                    const p = viewportPoint(0.5, 0.72);
+                    spawnFloatingText(p.x, p.y, '+' + card.shatterShield + ' Escudo', 'shield');
+                }
+            }
+            if (hitDmg > 0 && applyDamageToEnemy(enemy, hitDmg, card, usedMult, opts).overkill) overkill = true;
+            if (card.burnPerHit > 0) {
+                const add = D.withDuration(card.burnPerHit, getStat('Duration'));
+                state.columnBurn[enemy.col] = (state.columnBurn[enemy.col] || 0) + add;
+                const cp = R.getColumnScreenPos(enemy.col);
+                spawnFloatingText(cp.x, cp.y - 26, '+' + add + ' BURN', 'player-hit');
+                showTip('burn');
+            }
             if (card.knockback && enemy.hp > 0) tryKnockback(enemy, card, getEnemyTargetPos(enemy));
             const frost = (D.cardHasGem(card, 'freeze') ? 1 : 0) + (card.freeze || 0) +
                 (pv.damage > 0 && Math.random() * 100 < getStat('Freeze') ? 1 : 0);
@@ -2785,7 +2988,13 @@
     function comboBonusLabel() {
         if (state.comboCarry) return 'PRÓX: QUALQUER';
         if (state.lastComboCost === null || state.lastComboCost === undefined) return 'INICIE A CADEIA';
-        return 'PRÓX: C' + D.nextComboCosts(state.lastComboCost, state.comboReverse).join('/C') + ' ou WILD';
+        return 'PRÓX: C' + D.nextComboCosts(state.lastComboCost, isReverseActive()).join('/C') + ' ou WILD';
+    }
+
+    // Chance de crítico da carta + bônus do turno (Manto do Caçador vale para qualquer carta de dano).
+    function critChanceOf(card) {
+        if (!card || !(card.damage > 0 || card.critChance > 0)) return 0;
+        return (card.critChance || 0) + ((state && state.turnCrit) || 0);
     }
 
     function applyDamageToEnemy(enemy, rawDmg, card, usedMult, opts) {
@@ -2795,8 +3004,8 @@
 
         // Overkill ativo em Chefe: converte dano adicional diretamente em VR extra
         if (enemy.overkill) {
-            const critRoll = (!o.isSplash && !o.isBurn && card && card.critChance > 0)
-                ? Math.random() < (card.critChance * getLuckMultiplier())
+            const critRoll = (!o.isSplash && !o.isBurn && critChanceOf(card) > 0)
+                ? Math.random() < (critChanceOf(card) * getLuckMultiplier())
                 : false;
             const dmg = critRoll ? Math.round(rawDmg * (card.critMult || 1.5)) : rawDmg;
             const extraVr = gainVr(Math.max(1, Math.ceil(dmg / 4)));
@@ -2813,8 +3022,8 @@
 
         let dmg = rawDmg;
         let isCrit = false;
-        if (!o.isSplash && !o.isBurn && card && card.critChance > 0) {
-            const effCrit = card.critChance * getLuckMultiplier();
+        if (!o.isSplash && !o.isBurn && critChanceOf(card) > 0) {
+            const effCrit = critChanceOf(card) * getLuckMultiplier();
             if (Math.random() < effCrit) {
                 dmg = Math.round(dmg * (card.critMult || 1.5));
                 isCrit = true;
@@ -2851,6 +3060,8 @@
                 spawnFloatingText(pos.x, pos.y - 6, 'Área -' + remaining, 'shield');
             } else if (o.isBurn) {
                 spawnFloatingText(pos.x, pos.y - 12, (o.label || 'Burn') + ' -' + remaining, 'player-hit');
+                state.fightBurnDmg = (state.fightBurnDmg || 0) + Math.min(remaining, prevHp);
+                if (state.fightBurnDmg >= 50) goal('piromaniaco');
             } else {
                 R.spawnDamageNumber(pos.x, pos.y - 10, remaining, { crit: false });
             }
@@ -2950,6 +3161,12 @@
             enemy.hasIntent = false;
             A.play('stun');
             spawnFloatingText(pos.x, pos.y + 16, 'DESARMADO!', 'shield');
+            state.turnDisarms = (state.turnDisarms || 0) + 1;
+            if (state.turnDisarms >= 3) goal('cacador_implacavel');
+            if (card.manaOnDisarm > 0) {
+                state.mana += card.manaOnDisarm;
+                spawnFloatingText(pos.x, pos.y + 30, '+' + card.manaOnDisarm + ' Cafeína', 'combo');
+            }
         } else {
             spawnFloatingText(pos.x, pos.y + 16, 'RESISTIU!', 'player-hit');
         }
@@ -3193,7 +3410,7 @@
             const p = viewportPoint(0.5, 0.72);
             spawnFloatingText(p.x, p.y, '+' + pv.shield + ' Escudo', 'shield');
             if (hasArcana('golpe_escudo')) {
-                getFrontEnemies(true).forEach(front => applyDamageToEnemy(front, state.shield, null, usedMult, { noSplash: true }));
+                getFrontEnemies(true).forEach(front => noteShieldDamage(applyDamageToEnemy(front, state.shield, null, usedMult, { noSplash: true }).dealt));
             }
         }
         if (pv.heal > 0) {
@@ -3256,10 +3473,11 @@
         if (card.freezeFront > 0) getFrontEnemies(false).forEach(front => applyFrost(front, card.freezeFront));
         if (card.erase) eraseEnemies(card);
         if (card.crawler) activateCrawler(card);
+        const special = runSpecialEffects(card, fx, usedMult);
 
         if (!(pv.damage > 0 || card.knockback || card.burn > 0)) {
             A.play(card.sfx);
-            done({ hits: 0, overkill: false });
+            done({ hits: special.hits, overkill: special.overkill });
             return;
         }
 
@@ -3267,8 +3485,9 @@
         const spike = fx.gems && D.cardHasGem(card, 'spike') ? state.shield : 0;
         const demi = fx.gems && D.cardHasGem(card, 'demi');
         // Cada acerto escolhe o alvo pelo padrão de mira com o tabuleiro atual (inimigos morrem no meio).
-        const totalHits = Math.max(1, pv.hits);
+        const totalHits = fx.forceHits || Math.max(1, pv.hits);
         const isWave = card.targeting === 'FrontRow';
+        const playMemo = {};
         const aim = { lastCol: null, bag: [] };
         let burnApplied = false;
         let hitNum = 0;
@@ -3318,12 +3537,13 @@
                     }
                     if (spike > 0 && pv.damage > 0) {
                         hitPv = Object.assign({}, pv, { damage: pv.damage + spike });
+                        noteShieldDamage(spike);
                         const p = viewportPoint(0.5, 0.66);
                         spawnFloatingText(p.x, p.y, 'ARMADURA +' + spike + ' de dano', 'shield');
                     }
                 }
                 targets.forEach(target => {
-                    if (resolveHit(card, hitPv, usedMult, target, aim, { noSplash: isWave })) anyOverkill = true;
+                    if (resolveHit(card, hitPv, usedMult, target, aim, { noSplash: isWave, play: playMemo })) anyOverkill = true;
                 });
                 // Onda: cada frente recebe de uma vez o splash das outras colunas atingidas.
                 if (isWave && targets.length > 1) applyAreaSplash(-1, hitPv.damage, card, usedMult, targets.length - 1);
@@ -3338,6 +3558,128 @@
             later(155, runHit);
         };
         runHit();
+    }
+
+    // ---------- ETAPA 8: EFEITOS DAS CARTAS DE BIOMA ----------
+    // Efeitos sem mira (antes dos acertos). Retorna { hits, overkill } do dano que eles mesmos causaram.
+    function runSpecialEffects(card, fx, usedMult) {
+        const out = { hits: 0, overkill: false };
+        const note = (text, kind, fy) => {
+            const p = viewportPoint(0.5, fy || 0.5);
+            spawnFloatingText(p.x, p.y, text, kind || 'combo');
+        };
+        if (card.turnCrit > 0) {
+            state.turnCrit = (state.turnCrit || 0) + card.turnCrit;
+            note('+' + Math.round(card.turnCrit * 100) + '% Crit neste turno', 'combo', 0.54);
+        }
+        if (card.drawIfFrontControlled > 0 && getFrontEnemies(false).some(e => e.hp > 0 && (e.disarmed || e.frost > 0))) {
+            drawCards(card.drawIfFrontControlled);
+            note('Alvo controlado: +1 carta', 'combo', 0.6);
+        }
+        if (card.burnTickNow > 0) {
+            for (let i = 0; i < card.burnTickNow; i++) {
+                const res = tickColumnBurn('Ressaca');
+                if (res.overkill) out.overkill = true;
+            }
+            if (card.drawIfBurning > 0 && getFrontEnemies(false).some(e => e.hp > 0 && (state.columnBurn[e.col] || 0) > 0)) {
+                drawCards(card.drawIfBurning);
+                note('Inimigo queimando: +1 carta', 'combo', 0.6);
+            }
+        }
+        if (card.burnWorstCard) incinerateWorstCard();
+        if (card.turnReverse) {
+            state.turnReverse = true;
+            note('COMBO REVERSO até o fim do turno', 'combo', 0.5);
+        }
+        if (card.handDiscount > 0) {
+            let best = -1;
+            state.hand.forEach((id, idx) => {
+                const c = cardOf(id);
+                if (c.xCost || c.type === 'curse' || getHandCost(idx) <= 0) return;
+                if (best < 0 || getHandCost(idx) > getHandCost(best)) best = idx;
+            });
+            if (best >= 0) {
+                state.handCostMods[best] = (state.handCostMods[best] || 0) - card.handDiscount;
+                note(cardOf(state.hand[best]).name + ': custo -' + card.handDiscount, 'combo', 0.62);
+            }
+        }
+        if (card.mirrorLast) {
+            const src = fx.prevPlayedId && D.CARDS[fx.prevPlayedId];
+            if (!src || src.mirrorLast) note('Nada para espelhar neste turno', 'buff', 0.58);
+            else if (state.hand.length >= B.maxHandSize) note('Mão cheia!', 'buff', 0.58);
+            else {
+                pushToHand(src.id, 0, true);
+                state.handCostMods[state.hand.length - 1] = -1;
+                note('ESPELHO: ' + src.name + ' (custo -1, Destroy)', 'combo', 0.58);
+            }
+        }
+        // Bastião de Cristal / Glaciar Absoluto: dano = Escudo total na linha de frente.
+        if (card.damageFromShield && state.shield > 0) {
+            const dmg = state.shield;
+            const fronts = getFrontEnemies(true).filter(e => e.hp > 0 || e.overkill);
+            if (fronts.length > 0) R.fireProjectile({ kind: 'wave', duration: 150 });
+            fronts.forEach(front => {
+                const res = applyDamageToEnemy(front, dmg, card, usedMult, { noSplash: true });
+                if (res.overkill) out.overkill = true;
+                noteShieldDamage(res.dealt);
+            });
+            if (fronts.length > 0) {
+                out.hits = 1;
+                note('MURALHA OFENSIVA: ' + dmg + ' de dano', 'combo big-hit', 0.46);
+            }
+        }
+        return out;
+    }
+
+    // Fortaleza Viva: soma o dano baseado em Escudo causado neste turno.
+    function noteShieldDamage(amount) {
+        state.turnShieldDmg = (state.turnShieldDmg || 0) + Math.max(0, amount || 0);
+        if (state.turnShieldDmg >= 35) goal('fortaleza_viva');
+    }
+
+    // Queima de Arquivo: cartas destruídas com Destroy nesta luta.
+    function noteDestroyed(count) {
+        state.fightDestroys = (state.fightDestroys || 0) + (count || 1);
+        if (state.fightDestroys >= 4) goal('queima_arquivo');
+    }
+
+    // Incinerar Arquivo: queima a carta-lixo da mão; sem lixo, a mais fraca (menor custo e dano).
+    function incinerateWorstCard() {
+        const candidates = state.hand.map((id, idx) => ({ id: id, idx: idx, c: cardOf(id) }))
+            .filter(x => !x.c.crawler && !x.c.consumable && !x.c.burnWorstCard);
+        if (candidates.length === 0) {
+            const p = viewportPoint(0.5, 0.56);
+            spawnFloatingText(p.x, p.y, 'Nada para incinerar', 'buff');
+            return false;
+        }
+        const weight = x => (x.c.type === 'curse' ? -100 : 0) + (x.c.xCost ? 2 : x.c.cost) * 10 + (x.c.damage || 0) + (x.c.shield || 0) / 2;
+        const victim = candidates.sort((a, b) => weight(a) - weight(b))[0];
+        const removed = removeFromHand(victim.idx);
+        state.destroyedPile.push(removed.cardId);
+        noteDestroyed(1);
+        state.mana += 2;
+        state.combatBuff.Might += 15;
+        const p = viewportPoint(0.5, 0.56);
+        spawnFloatingText(p.x, p.y, 'INCINEROU ' + D.CARDS[removed.cardId].name + ': +2 Cafeína, +15% Might', 'combo');
+        A.play('death');
+        return true;
+    }
+
+    // Um tick de Burn em todas as colunas (fim do turno ou Ressaca). Retorna { ticked, overkill }.
+    function tickColumnBurn(label) {
+        let ticked = false;
+        let overkill = false;
+        for (let col = 0; col < 5; col++) {
+            const stacks = state.columnBurn[col] || 0;
+            if (stacks <= 0) continue;
+            const front = getFrontEnemyAtCol(col, false);
+            if (front && front.hp > 0) {
+                ticked = true;
+                if (applyDamageToEnemy(front, stacks, null, 1, { isBurn: true, label: label }).overkill) overkill = true;
+            }
+            state.columnBurn[col] = Math.max(state.columnBurnFloor[col] || 0, stacks - 1);
+        }
+        return { ticked: ticked, overkill: overkill };
     }
 
     // ---------- CARTA DE CRAWLER ----------
@@ -3413,7 +3755,7 @@
         // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild. Quebrar a sequência
         // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a próxima pode custar 0 ou 1.
         const chained = card.type !== 'curse' &&
-            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
+            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, isReverseActive()));
         state.comboCarry = false;
         state.comboReverse = D.cardHasGem(card, 'reverse');
         state.comboCount = chained ? state.comboCount + 1 : 0;
@@ -3422,6 +3764,14 @@
         const usedMult = D.getComboMult(state.comboCount);
         state.combo = usedMult;
         if (usedMult >= 5) goal('escadinha');
+        if (usedMult >= 7) goal('mestre_paradoxo');
+        // Viajante de Mundos: biomas das cartas exclusivas jogadas nesta run.
+        if (card.biome && !state.tutorial) {
+            state.biomesPlayed = state.biomesPlayed || [];
+            if (!state.biomesPlayed.includes(card.biome)) state.biomesPlayed.push(card.biome);
+        }
+        const prevPlayedId = state.turnLastPlayedId;
+        if (card.type !== 'curse' && !card.consumable) state.turnLastPlayedId = cardId;
         const isWild = D.isWildCard(card);
 
         // Quebra-Combo: o efeito sai no multiplicador atual + bônus pelo Combo consumido; a cadeia volta a 1x.
@@ -3446,8 +3796,10 @@
             state.destroyedPile.push(cardId);
         } else if (isTemp) {
             state.destroyedPile.push(cardId);
+            noteDestroyed(1);
         } else if (destroyed) {
             state.destroyedPile.push(cardId);
+            noteDestroyed(1);
             if (D.isOneShotCard(card)) {
                 // Uso único (bônus permanente ou pickup): a carta sai do baralho da run, não só da luta.
                 removeCardFromDeck(cardId);
@@ -3505,7 +3857,7 @@
         if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
         state.busy = true;
         triggerCrawler(card);
-        runCardEffect(card, { mult: usedMult, x: xValue, dmgMult: dmgMult, gems: true }, res => {
+        runCardEffect(card, { mult: usedMult, x: xValue, dmgMult: dmgMult, gems: true, prevPlayedId: prevPlayedId }, res => {
             hitNum = res.hits;
             anyOverkill = res.overkill;
             // Eco: repete o efeito da carta anterior do turno (como ela saiu), sem custo nem combo.
@@ -3540,6 +3892,11 @@
         if (c.crawler) return hasTarget && !(state.crawler && state.crawler.turns > 0);
         if (c.damage > 0 || c.knockback || c.burn > 0 || c.erase || c.freezeFront > 0) return hasTarget;
         if (c.buffAmount > 0) return state.combatBuff.Amount < B.combatAmountCap;
+        // Cartas de bioma sem dano direto: só quando o efeito tem o que aproveitar.
+        if (c.burnTickNow) return getFrontEnemies(false).some(e => e.hp > 0 && (state.columnBurn[e.col] || 0) > 0);
+        if (c.burnWorstCard) return state.hand.some(hid => D.CARDS[hid].type === 'curse');
+        if (c.turnReverse || c.handDiscount > 0) return state.hand.length > 1;
+        if (c.mirrorLast) return !!state.turnLastPlayedId && state.hand.length <= B.maxHandSize;
         // Pickup de cura só vale com Sanidade faltando; desconto e +Combo só com outra carta para aproveitar.
         if (c.consumable && c.heal > 0) return state.hp <= state.maxHp - c.heal;
         if (c.costDiscount > 0 || c.comboBonus > 0) return state.hand.length > 1;
@@ -3556,7 +3913,7 @@
         const ordered = [];
         let simLastCost = currentLastCost !== undefined ? currentLastCost : state.lastComboCost;
         let simMana = availableMana !== undefined ? availableMana : state.mana;
-        let simReverse = state.comboReverse;
+        let simReverse = isReverseActive();
         // Custo X e Quebra-Combo fecham a jogada: gastam tudo (Cafeína / Combo), então ficam por último.
         const isFinisher = idx => !!cardAt(idx).xCost || D.cardHasGem(cardAt(idx), 'discharge');
 
@@ -3586,7 +3943,7 @@
             remaining.splice(remaining.indexOf(chosenIdx), 1);
             simMana = Math.max(0, simMana - chosenCost + (cardAt(chosenIdx).manaGain || 0));
             simLastCost = D.isWildCard(cardAt(chosenIdx)) ? -1 : chosenCost;
-            simReverse = D.cardHasGem(cardAt(chosenIdx), 'reverse');
+            simReverse = D.cardHasGem(cardAt(chosenIdx), 'reverse') || !!state.turnReverse || !!cardAt(chosenIdx).turnReverse;
         }
         return ordered;
     }
@@ -3672,6 +4029,7 @@
         }
         state.nextCostDiscount = 0;
         state.turnLastFx = null;
+        resetTurnTrackers(state);
 
         // Cartas com Retain permanecem na mão; as temporárias somem (mesmo com Retain); as demais vão para o descarte.
         const retainedIds = state.hand.filter((cid, idx) => cardOf(cid).retain && !isTempInHand(idx));
@@ -3840,7 +4198,13 @@
         state.endTurnEchoes = [];
         for (let idx = state.hand.length - 1; idx >= 0; idx--) {
             const card = cardOf(state.hand[idx]);
-            if (card.retain || isTempInHand(idx) || card.type === 'curse' || !D.cardHasGem(card, 'afterlife')) continue;
+            if (card.retain || isTempInHand(idx) || card.type === 'curse') continue;
+            if (card.afterlifeShot) {
+                queue.push({ label: 'PÓS-VIDA', card: card, mult: 1, forceHits: 1 });
+                discardFromHand(idx);
+                continue;
+            }
+            if (!D.cardHasGem(card, 'afterlife')) continue;
             queue.push({ label: 'PÓS-VIDA', card: card, mult: 1 });
             discardFromHand(idx);
         }
@@ -3858,7 +4222,7 @@
             fired++;
             const p = viewportPoint(0.5, 0.44);
             spawnFloatingText(p.x, p.y, item.label + ': ' + item.card.name, 'combo');
-            runCardEffect(item.card, { mult: item.mult, x: 0, dmgMult: 1, gems: false }, res => {
+            runCardEffect(item.card, { mult: item.mult, x: 0, dmgMult: 1, gems: false, forceHits: item.forceHits }, res => {
                 if (res.overkill) triggerOverkillBanner();
                 R.syncState(state);
                 renderAll();
@@ -3898,20 +4262,9 @@
         }
 
         // Tick de Burn por Coluna (0..4) no fim do turno do jogador, antes dos inimigos agirem.
-        let burnTicked = false;
-        let anyBurnOverkill = false;
-        for (let col = 0; col < 5; col++) {
-            const stacks = state.columnBurn[col] || 0;
-            if (stacks <= 0) continue;
-            const front = getFrontEnemyAtCol(col, false);
-            if (front && front.hp > 0) {
-                burnTicked = true;
-                if (applyDamageToEnemy(front, stacks, null, 1, { isBurn: true }).overkill) {
-                    anyBurnOverkill = true;
-                }
-            }
-            state.columnBurn[col] = Math.max(state.columnBurnFloor[col] || 0, stacks - 1);
-        }
+        const burnTick = tickColumnBurn();
+        const burnTicked = burnTick.ticked;
+        const anyBurnOverkill = burnTick.overkill;
         if (burnTicked) {
             A.play('hit');
             if (anyBurnOverkill) triggerOverkillBanner();
@@ -4090,6 +4443,11 @@
                 grantRelic(state.pendingDrop);
                 state.pendingDrop = null;
             }
+            if (state.bossDefeated && !state.infinite && !state.tutorial && !state.signatureFloors.includes(state.floor)) {
+                state.signatureFloors.push(state.floor);
+                const sig = signatureCardPick(state.floor);
+                if (sig) modalQueue.push(sig);
+            }
 
             const recovery = getStat('Recovery');
             if (recovery > 0 && state.hp < state.maxHp) {
@@ -4236,6 +4594,7 @@
         });
         // Minimalista: vitória sem gastar VR na fogueira (spendVr só é usado lá).
         if (victory && !state.infinite && !(state.vrSpent > 0)) goal('minimalista');
+        if (victory && (state.biomesPlayed || []).length >= 3) goal('viajante_mundos');
         const paidGoals = settleMetaGoals();
         flushSeen();
         const saved = saveMeta();
@@ -4349,7 +4708,7 @@
         if (!card || state.hand[handIndex] === undefined) return { uids: [], cols: [], dmg: {}, lethal: {}, random: false, hits: 0 };
         const costMod = getHandCostMod(handIndex);
         const willCombo = card.type !== 'curse' &&
-            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
+            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, isReverseActive()));
         const mult = willCombo ? state.comboCount + 2 : 1;
         const pv = getCardPreviewValues(card, mult, true, card.xCost ? getHandCost(handIndex) : undefined);
         const out = { uids: [], cols: [], dmg: {}, lethal: {}, random: card.targeting === 'Random',
@@ -4437,7 +4796,7 @@
             '<img src="' + S.getIconUrl(cardOf(id).icon) + '" alt="" /><b>' +
             (D.isWildCard(cardOf(id)) ? 'W' : cardOf(id).xCost ? 'X' : cardOf(id).cost) + '</b></span>').join('') +
             '<span class="chain-next" title="Próximo custo que mantém o combo">' +
-            (state.comboCarry ? '▸*' : hasChain ? '▸' + D.nextComboCosts(state.lastComboCost, state.comboReverse).join('/') : '▸?') + '</span>';
+            (state.comboCarry ? '▸*' : hasChain ? '▸' + D.nextComboCosts(state.lastComboCost, isReverseActive()).join('/') : '▸?') + '</span>';
         els.pileCounts.textContent = 'COMPRA ' + state.drawPile.length + ' · DESC ' +
             (state.discardPile.length + state.comboPile.length);
 
@@ -4465,7 +4824,7 @@
             const costShift = card.xCost ? 0 : effCost - (card.cost || 0);
             const isWild = D.isWildCard(card);
             const willCombo = card.type !== 'curse' &&
-                (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
+                (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, isReverseActive()));
             const nextMult = willCombo ? (state.comboCount + 2) : 1;
             const pv = getCardPreviewValues(card, nextMult, true);
             const desc = formatCardDesc(card, pv, willCombo ? getCardPreviewValues(card, 1, true) : null);
@@ -5000,6 +5359,13 @@
 
     // Dica curta de onde encontrar cada coisa ainda não descoberta.
     function cardHint(card) {
+        if (card.biome && !card.evolved) {
+            const b = D.BIOMES[card.biome];
+            const boss = Object.values(D.ENEMIES).find(e => e.isBoss && e.floor === card.biome);
+            return card.signature && card.biome < D.FLOORS.length
+                ? 'Assinatura: derrote ' + (boss ? boss.name : 'o Chefe') + ' (' + b.name + ').'
+                : 'Exclusiva da ' + b.name + ' (Fase ' + b.id + '): Level Up e Baús.';
+        }
         const ev = D.EVOLUTIONS.find(e => e.toCard === card.id);
         if (ev) return 'Evolua ' + D.CARDS[ev.fromCard].name + ' com ' + ev.title + '.';
         const fus = D.FUSIONS.find(f => f.toCard === card.id);
@@ -5044,15 +5410,9 @@
                     '<em>' + (done ? '✔ CARIMBADA' : '+' + g.reward + ' CR') + '</em></div>';
             }).join('');
         } else if (id === 'cartas') {
-            const ids = Object.keys(D.CARDS);
-            const base = ids.filter(cid => !D.CARDS[cid].evolved);
-            const evo = ids.filter(cid => D.CARDS[cid].evolved);
-            const tile = cid => {
-                const c = D.CARDS[cid];
-                const ok = seen.cards.includes(cid);
-                return collectionTile(ok, c.icon, c.name, ok ? (c.evolved ? (c.fused ? 'Fusão' : 'Evolução') : 'Custo ' + (c.xCost ? 'X' : c.cost)) : cardHint(c));
-            };
-            html = '<h4>Cartas</h4>' + base.map(tile).join('') + '<h4>Evoluções & Fusões</h4>' + evo.map(tile).join('');
+            renderCardBestiary(box, 'todas');
+            box.scrollTop = 0;
+            return;
         } else if (id === 'gemas') {
             html = '<h4>Gemas</h4>' + Object.keys(D.GEMS).map(gid => {
                 const g = D.GEMS[gid];
@@ -5103,6 +5463,56 @@
     function closeCollection() {
         collectionOpen = false;
         els.collectionModal.classList.add('hidden');
+    }
+
+    // Bestiário de Cartas: filtros por origem, silhuetas ??? com dica e ficha ao tocar numa carta descoberta.
+    const CARD_FILTERS = [
+        { id: 'todas', label: 'Todas', test: () => true },
+        { id: 'base', label: 'Base', test: c => !c.biome && !c.evolved },
+        { id: 'praia', label: 'Praia', test: c => c.biome === 1 && !c.evolved },
+        { id: 'cidade', label: 'Cidade', test: c => c.biome === 2 && !c.evolved },
+        { id: 'neve', label: 'Neve', test: c => c.biome === 3 && !c.evolved },
+        { id: 'dungeon', label: 'Dungeon', test: c => c.biome === 4 && !c.evolved },
+        { id: 'abismo', label: 'Abismo', test: c => c.biome === 5 && !c.evolved },
+        { id: 'evolucoes', label: 'Evoluções', test: c => !!c.evolved }
+    ];
+
+    function renderCardBestiary(box, filterId) {
+        const filter = CARD_FILTERS.find(f => f.id === filterId) || CARD_FILTERS[0];
+        const seenCards = meta.seen.cards;
+        const ids = Object.keys(D.CARDS).filter(cid => filter.test(D.CARDS[cid]));
+        const found = ids.filter(cid => seenCards.includes(cid)).length;
+        const chips = CARD_FILTERS.map(f => '<button type="button" class="bf-chip' + (f.id === filter.id ? ' active' : '') + '" data-filter="' + f.id + '">' +
+            f.label + '</button>').join('');
+        const tiles = ids.map(cid => {
+            const c = D.CARDS[cid];
+            const ok = seenCards.includes(cid);
+            const sub = ok ? (c.evolved ? (c.fused ? 'Fusão' : 'Evolução') : (c.biome ? D.BIOMES[c.biome].label + ' · ' : '') + 'Custo ' + (c.xCost ? 'X' : c.cost)) : cardHint(c);
+            return '<button type="button" class="col-tile card-tile' + (ok ? '' : ' locked') + '" data-card="' + cid + '"' + (ok ? '' : ' disabled') +
+                (c.biome ? ' style="--seal:' + D.BIOMES[c.biome].color + '"' : '') + '>' +
+                '<img src="' + S.getIconUrl(c.icon) + '" alt="" /><b>' + (ok ? c.name : '???') + '</b><small>' + sub + '</small></button>';
+        }).join('');
+        box.innerHTML = '<div class="bestiary-filters" role="group" aria-label="Filtrar cartas">' + chips + '</div>' +
+            '<div class="bestiary-count">' + found + '/' + ids.length + ' descobertas</div>' +
+            '<div class="col-grid">' + tiles + '</div>';
+        box.dataset.filter = filter.id;
+        box.querySelectorAll('.bf-chip').forEach(b => b.addEventListener('click', () => {
+            A.play('card');
+            renderCardBestiary(box, b.dataset.filter);
+            box.scrollTop = 0;
+        }));
+        box.querySelectorAll('.card-tile:not(.locked)').forEach(b => b.addEventListener('click', () => {
+            A.play('card');
+            box.innerHTML = '<button type="button" class="bevel-btn sheet-back">← VOLTAR</button>' + cardSheetHtml(b.dataset.card);
+            box.dataset.sheet = b.dataset.card;
+            box.scrollTop = 0;
+            box.querySelector('.sheet-back').addEventListener('click', () => {
+                A.play('card');
+                delete box.dataset.sheet;
+                renderCardBestiary(box, filter.id);
+            });
+        }));
+        delete box.dataset.sheet;
     }
 
     // ---------- BACKUP DO SAVE ----------
@@ -5219,9 +5629,18 @@
             b.classList.toggle('active', j === i);
             b.setAttribute('aria-selected', j === i ? 'true' : 'false');
         });
+        els.codexContent.dataset.tab = tab.id;
+        if (tab.id === 'cartas') {
+            // Bestiário interativo: o mesmo da Coleção (filtros + ficha), acessível no meio da run.
+            const wrap = document.createElement('div');
+            els.codexContent.innerHTML = '<h3>' + tab.title + '</h3>';
+            els.codexContent.appendChild(wrap);
+            renderCardBestiary(wrap, 'todas');
+            els.codexContent.scrollTop = 0;
+            return;
+        }
         els.codexContent.innerHTML = '<h3>' + tab.title + '</h3>' + tab.html;
         els.codexContent.scrollTop = 0;
-        els.codexContent.dataset.tab = tab.id;
     }
 
     function closeCodex() {
@@ -5572,6 +5991,16 @@
         closeActiveModal();
     }));
 
+    els.btnDiscoveryOk.addEventListener('click', guardModalAction(() => {
+        if (activeModal.type !== 'discovery') {
+            modalActionLocked = false;
+            return;
+        }
+        A.play('card');
+        els.btnDiscoveryOk.disabled = true;
+        closeActiveModal();
+    }));
+
     els.btnRestClose.addEventListener('click', () => {
         if (!activeModal || activeModal.type !== 'rest') return;
         A.unlock();
@@ -5642,6 +6071,11 @@
         if (isTitleOpen() || !state || state.mode === 'gameover') return;
 
         if (activeModal !== null) {
+            if (activeModal.type === 'discovery' && (ev.key === 'Enter' || ev.key === 'Escape' || ev.key === ' ')) {
+                ev.preventDefault();
+                els.btnDiscoveryOk.click();
+                return;
+            }
             if (activeModal.type === 'rest' && ev.key === 'Escape') els.btnRestClose.click();
             if (activeModal.type === 'narrative' && (ev.key === 'Enter' || ev.key === ' ')) {
                 ev.preventDefault();
@@ -5736,6 +6170,19 @@
         get ui() { return ui; },
         goal: goal,
         openCollection: openCollection,
+        detectNewCards: detectNewCards,
+        get modalQueue() { return modalQueue.map(m => m.type); },
+        get activeModalType() { return activeModal ? activeModal.type : null; },
+        loadFloor: loadFloor,
+        grantChestLoot: grantChestLoot,
+        finishEncounter: finishEncounter,
+        enqueueModal: enqueueModal,
+        biomeCardPick: biomeCardPick,
+        cardSheetHtml: cardSheetHtml,
+        getHandCost: getHandCost,
+        levelUpPoolIds: () => getEligibleLevelUpPool().map(rw => rw.id),
+        forceLevelUp: ids => { state.forcedRewardIds = ids.slice(); },
+        processModals: () => processModalQueue(),
         get intro() { return { open: introOpen, scene: intro.scene, typed: intro.typed }; },
         get codexOpen() { return codexOpen; },
         openIntro: openIntro,

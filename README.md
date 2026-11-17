@@ -81,11 +81,27 @@ Tudo é salvo no navegador (`localStorage`, chave `hc_meta_v1`). Se o armazename
 - **Carta de Crawler:** cada colega começa com o próprio crachá no baralho. Jogado, o retrato fica ativo por 3 turnos (Duration prolonga) e dispara a passiva sempre que você joga uma carta do tipo dele.
 - **Hora Extra Infinita:** liberada ao vencer o Senhor das Horas pela primeira vez. Ondas contínuas no Abismo Estrelado (Elite a cada 3, chefe a cada 5), cada uma mais forte, com HP, ATK e Curse subindo a cada turno. O recorde de ondas fica salvo.
 
+## Cartas de Bioma (5 arquétipos)
+
+O baralho é seu a run inteira: ao passar de Fase você **mantém todas as cartas** conquistadas antes. Cada Bioma acrescenta 3 cartas exclusivas ao pool de recompensas **enquanto você está nele** (Level Up e Baús, sempre com a opção de recusar), e o Chefe de cada Fase entrega 1 **Carta Assinatura** garantida, que você também pode recusar.
+
+| Bioma | Arquétipo | Cartas (Assinatura em negrito) |
+| --- | --- | --- |
+| Praia do Crepúsculo | Burn & Return | Maré Alta, Ressaca, **Concha do Eco** |
+| Cidade Gótica | Desarme & Crítico | Bala de Prata, Manto do Caçador, **Sino do Vigia** |
+| Pico Nevado | Gelo, Retain & Escudo ofensivo | Estilhaço Glacial, Bastião de Cristal, **Nevasca Eterna** |
+| Dungeon do Arquivo | Destroy, Scavenge & Custo X | Incinerar Arquivo, Pacto das Catacumbas, **Grimório Proibido** |
+| Abismo Estrelado | Combo infinito & custo dinâmico | Ponteiro Invertido, Espelho Cósmico, Paradoxo das 18h |
+
+- **Fusões novas** (as duas cartas no Nível MÁX, oferecidas no Level Up): Maré Alta + Concha do Eco → **Tsunami Escaldante**; Bala de Prata + Sino do Vigia → **Execução Lunar**; Estilhaço Glacial + Bastião de Cristal → **Glaciar Absoluto**. O Nível MÁX dessas cartas aparece em qualquer Fase para quem já as tem.
+- **Nova Carta Descoberta!:** na primeira vez que uma carta entra no seu baralho, um modal mostra a carta ampliada, o selo do Bioma, a mira nas 5 colunas, o papel tático, uma dica de combo e as keywords. **Entendi!** (ou Enter/Esc) fecha e a fila de modais continua. Cada carta só é explicada uma vez (salvo em `hc_ui_v1`); o Tutorial guiado não mostra esse modal.
+- **Bestiário de Cartas:** na Coleção (aba Cartas) e no Manual `?` (aba Cartas), com filtros Todas, Base, Praia, Cidade, Neve, Dungeon, Abismo e Evoluções. Cartas ainda não obtidas aparecem como `???` com a dica do Bioma/Chefe; tocar numa carta descoberta abre a ficha completa, com a receita de evolução/fusão.
+
 ## Coleção & Metas ("Carimbos do RH")
 
 Na Recepção, **COLEÇÃO & METAS** abre um painel com rolagem só interna:
 
-- **Metas:** 18 conquistas salvas no `localStorage`, cada uma pagando uma única vez de +40 a +150 CR. Entre elas: Primeiro Ponto, Mestre da Escadinha (Combo x5+), Ultramatança (100+ de Overkill num chefe), Minimalista (vencer sem usar a Fogueira), Alquimista (2+ evoluções/fusões na run), Colegas de Turno (vencer com Vivi, Seu Jorge e Cláudia), Caçador de Segredos (Trapaceiro + Final Secreto), Sob Pressão (vencer nas Pressões 3 e 5) e Infinito (onda 5+ na Hora Extra). Metas cumpridas durante a run aparecem num aviso discreto no topo, sem pausar o jogo.
+- **Metas:** 24 conquistas salvas no `localStorage`, cada uma pagando uma única vez de +40 a +150 CR. Entre elas: Primeiro Ponto, Mestre da Escadinha (Combo x5+), Ultramatança (100+ de Overkill num chefe), Minimalista (vencer sem usar a Fogueira), Alquimista (2+ evoluções/fusões na run), Colegas de Turno (vencer com Vivi, Seu Jorge e Cláudia), Caçador de Segredos (Trapaceiro + Final Secreto), Sob Pressão (vencer nas Pressões 3 e 5) e Infinito (onda 5+ na Hora Extra), mais as dos arquétipos de bioma: Piromaníaco (50+ de Burn numa luta), Caçador Implacável (3 desarmes no turno), Fortaleza Viva (35+ de dano de Escudo no turno), Queima de Arquivo (4+ cartas com Destroy numa luta), Mestre do Paradoxo (Combo x7) e Viajante de Mundos (vencer usando cartas de 3+ biomas). Metas cumpridas durante a run aparecem num aviso discreto no topo, sem pausar o jogo.
 - **Coleção / Bestiário:** cartas (com evoluções e fusões), gemas, Arcanas, inimigos e chefes já vistos. O que ainda não apareceu fica como silhueta `???` com uma dica de onde encontrar.
 
 ## Backup do Save

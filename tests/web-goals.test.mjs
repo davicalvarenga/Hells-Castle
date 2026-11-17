@@ -18,8 +18,8 @@ const IDS = {
 };
 const fresh = () => M.sanitize ? M.sanitize(M.defaults(), IDS) : M.defaults();
 
-test('metas: 16 a 20, ids únicos, recompensa entre 40 e 150 CR e as obrigatórias presentes', () => {
-    assert.ok(M.GOALS.length >= 16 && M.GOALS.length <= 20, 'total ' + M.GOALS.length);
+test('metas: 18 da Etapa 7 + 6 da Etapa 8, ids únicos, recompensa entre 40 e 150 CR e as obrigatórias presentes', () => {
+    assert.equal(M.GOALS.length, 24, 'total ' + M.GOALS.length);
     assert.equal(new Set(M.GOALS.map(g => g.id)).size, M.GOALS.length);
     M.GOALS.forEach(g => {
         assert.ok(g.reward >= 40 && g.reward <= 150, g.id);

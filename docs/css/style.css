@@ -4367,3 +4367,307 @@ body.daydream-transition .viewport-frame {
     .col-tile small { font-size: 11px; }
     .collection-progress { font-size: 14px; }
 }
+
+/* ===== ETAPA 8: NOVA CARTA DESCOBERTA, FICHA DA CARTA E BESTIÁRIO DE CARTAS ===== */
+.codex-tabs:not(.collection-tabs) {
+    grid-template-columns: repeat(6, 1fr);
+}
+
+.discovery-box {
+    width: min(720px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    text-align: left;
+    border-color: #f5cb5c;
+}
+
+.discovery-box h2 {
+    margin: 0;
+    text-align: center;
+    color: #fde68a;
+    font-size: 26px;
+    animation: discovery-pop 0.5s ease-out;
+}
+
+@keyframes discovery-pop {
+    from { transform: scale(0.85); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.discovery-body {
+    min-height: 0;
+}
+
+.discovery-ok {
+    align-self: center;
+    min-width: 180px;
+    padding: 6px 18px;
+    font-size: 20px;
+}
+
+.card-sheet {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    gap: 10px;
+    align-items: start;
+}
+
+.cs-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 22px 8px 8px;
+    background: linear-gradient(180deg, #2a2038 0%, #140f1d 100%);
+    border: 3px solid var(--seal, #94a3b8);
+    box-shadow: 0 0 0 2px #090510, 0 0 16px color-mix(in srgb, var(--seal, #94a3b8) 45%, transparent);
+    text-align: center;
+}
+
+.is-discovery .cs-card {
+    animation: discovery-pop 0.45s ease-out;
+}
+
+.cs-card img {
+    width: 84px;
+    height: 84px;
+    image-rendering: pixelated;
+}
+
+.cs-cost {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    min-width: 26px;
+    padding: 0 4px;
+    background: #f5cb5c;
+    color: #1c1305;
+    border: 2px solid #090510;
+    font-size: 18px;
+    line-height: 20px;
+}
+
+.cs-name {
+    font-size: 18px;
+    color: #fef3c7;
+    line-height: 1.05;
+}
+
+.cs-origin {
+    font-size: 12px;
+    color: #c4b5dd;
+}
+
+.cs-seal {
+    margin-top: 4px;
+    padding: 1px 6px;
+    background: var(--seal, #94a3b8);
+    color: #0b0712;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+}
+
+.cs-type {
+    font-size: 12px;
+    color: #e2e8f0;
+}
+
+.cs-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    color: #efe7fb;
+}
+
+.cs-desc {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.15;
+    color: #fef3c7;
+}
+
+.cs-block h5 {
+    margin: 0 0 2px;
+    font-size: 14px;
+    color: #fbbf24;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.cs-block p,
+.cs-block small {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.15;
+}
+
+.cs-block small {
+    display: block;
+    margin-top: 2px;
+    color: #c4b5dd;
+}
+
+.pat-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    max-width: 260px;
+}
+
+.pat-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1px 0 2px;
+    background: #140f1d;
+    border: 1px solid #3b2f55;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.pat-cell i {
+    font-style: normal;
+    color: #7c6a99;
+}
+
+.pat-cell b {
+    min-height: 14px;
+    font-size: 14px;
+}
+
+.pat-cell.hit {
+    background: #7f1d1d;
+    border-color: #f87171;
+    color: #fff;
+}
+
+.pat-cell.maybe {
+    background: #3b2f55;
+    border-color: #a78bfa;
+    color: #e9d5ff;
+}
+
+.cs-keys {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1px 8px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.12;
+}
+
+.cs-keys dt {
+    color: #fde68a;
+}
+
+.cs-keys dd {
+    margin: 0;
+    color: #e2d8f2;
+}
+
+.bestiary-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0;
+}
+
+.bf-chip {
+    padding: 2px 8px;
+    background: #231a33;
+    color: #d6c8ec;
+    border: 1px solid #4c3d63;
+    font-size: 14px;
+}
+
+.bf-chip.active {
+    background: #f5cb5c;
+    color: #1c1305;
+    border-color: #090510;
+}
+
+.bestiary-count {
+    font-size: 13px;
+    color: #c4b5dd;
+    margin-bottom: 4px;
+}
+
+.card-tile {
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-left: 3px solid var(--seal, #4c3d63);
+}
+
+.card-tile:not(.locked):hover {
+    box-shadow: inset 0 0 0 1px #f5cb5c;
+}
+
+.card-tile.locked {
+    cursor: default;
+}
+
+.sheet-back {
+    margin: 4px 0 8px;
+    padding: 3px 12px;
+    font-size: 14px;
+}
+
+@media (max-width: 680px) {
+    .codex-tabs:not(.collection-tabs) .codex-tab {
+        font-size: 11px;
+    }
+
+    .discovery-box {
+        padding: 8px;
+        gap: 6px;
+    }
+
+    .discovery-box h2 {
+        font-size: 20px;
+    }
+
+    .card-sheet {
+        grid-template-columns: 1fr;
+    }
+
+    .cs-card {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        padding: 6px 8px 6px 34px;
+        gap: 2px 8px;
+    }
+
+    .cs-card img {
+        width: 44px;
+        height: 44px;
+    }
+
+    .cs-name {
+        font-size: 16px;
+    }
+
+    .cs-desc {
+        font-size: 14px;
+    }
+
+    .cs-block p,
+    .cs-block small {
+        font-size: 13px;
+    }
+
+    .cs-keys {
+        font-size: 12px;
+    }
+
+    .bf-chip {
+        font-size: 12px;
+        padding: 2px 6px;
+    }
+}
