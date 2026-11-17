@@ -196,6 +196,25 @@
                 tone(147, 0.16, 'sawtooth', 0.22, 220);
                 tone(220, 0.22, 'square', 0.18, 110, 0.1);
                 break;
+            // ---- Cutscene inicial ----
+            case 'type':
+                // Tecla de teclado de escritório, bem baixinha
+                noise(0.018, 0.05, 'highpass', 2600 + Math.random() * 900);
+                break;
+            case 'mail':
+                // Notificação de e-mail urgente
+                tone(1046, 0.07, 'sine', 0.12, 0);
+                tone(1568, 0.1, 'sine', 0.1, 0, 0.07);
+                break;
+            case 'printer':
+                // Impressora engasgando: ronco grave + rangido
+                noise(0.45, 0.22, 'lowpass', 260, 0, 120);
+                tone(62, 0.4, 'sawtooth', 0.08, 48);
+                break;
+            case 'wave':
+                // Onda quebrando na areia
+                noise(1.2, 0.2, 'lowpass', 900, 0, 260);
+                break;
         }
     }
 
@@ -261,6 +280,18 @@
 
     // Cada construtor liga seus nós em amb.out e devolve o volume final da camada.
     const AMBIENCE_BUILDERS = {
+        office(a, amb) {
+            // Zumbido das lâmpadas fluorescentes + teclas distantes.
+            const hum = a.createGain();
+            hum.gain.value = 0.5;
+            modulate(a, amb, hum.gain, 0.3, 0.12);
+            hum.connect(amb.out);
+            [120, 240.6].forEach(f => oscillator(a, amb, 'sine', f).connect(hum));
+            scheduleSparse(amb, 900, 2600, () => {
+                ambientTone(a, amb, 2400 + Math.random() * 1200, 0.03, 0.025);
+            });
+            return 0.07;
+        },
         beach(a, amb) {
             // Ondas: ruído grave cujo volume sobe e desce devagar.
             const src = loopedNoise(a);

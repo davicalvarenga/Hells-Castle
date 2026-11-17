@@ -37,6 +37,8 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const errors = [];
     page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.type() + ': ' + m.text()); });
     page.on('pageerror', e => errors.push('PAGEERROR ' + e.message));
+    // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
+    await page.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
 
     await start(page);
     const a = await fingerprint(page);

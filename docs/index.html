@@ -11,6 +11,16 @@
 <body>
     <!-- Pequenos botões pixel art no canto superior direito -->
     <div class="top-right-tools">
+        <button id="btn-codex" class="tool-btn codex-btn" type="button" title="Manual do Expediente (todas as mecânicas)" aria-label="Manual do Expediente">
+            <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+                <rect fill="#f5cb5c" x="5" y="2" width="6" height="2"/>
+                <rect fill="#f5cb5c" x="3" y="3" width="3" height="3"/>
+                <rect fill="#f5cb5c" x="10" y="3" width="3" height="4"/>
+                <rect fill="#f5cb5c" x="8" y="7" width="3" height="2"/>
+                <rect fill="#f5cb5c" x="7" y="8" width="3" height="3"/>
+                <rect fill="#f5cb5c" x="7" y="12" width="3" height="3"/>
+            </svg>
+        </button>
         <button id="btn-boss-key" class="tool-btn boss-key-btn" type="button" title="Modo Planilha / Boss Key (Tecla P)">
             <svg viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
                 <rect fill="#1d6f42" x="1" y="2" width="14" height="12"/>
@@ -293,6 +303,11 @@
                 <button id="btn-open-forge" class="reception-btn" type="button">GRAFIA</button>
                 <button id="btn-open-curation" class="reception-btn" type="button">CURADORIA</button>
             </div>
+            <div class="reception-actions onboarding-actions">
+                <button id="btn-replay-intro" class="reception-btn" type="button">REVER INTRO</button>
+                <button id="btn-open-tutorial" class="reception-btn" type="button">TUTORIAL</button>
+                <button id="btn-title-codex" class="reception-btn" type="button">MANUAL ?</button>
+            </div>
             <button id="btn-infinite-toggle" class="infinite-toggle hidden" type="button">HORA EXTRA INFINITA: DESLIGADA</button>
             <button id="btn-start-daydream" class="start-daydream-btn" type="button">BATER PONTO E COMEÇAR O DIA</button>
         </div>
@@ -312,6 +327,52 @@
                 <button id="btn-reception-close" class="bevel-btn modal-restart" type="button">VOLTAR À RECEPÇÃO</button>
             </div>
         </div>
+    </div>
+
+    <!-- Cutscene inicial: fora da fila de modais (abre antes da run, por cima da Recepção) -->
+    <div id="intro-overlay" class="intro-overlay hidden" role="dialog" aria-modal="true" aria-label="Cutscene inicial">
+        <div class="intro-frame">
+            <div class="intro-tag"><span id="intro-tag">08:17 — DA PLANILHA À PRAIA</span><span id="intro-step" class="intro-step">1/4</span></div>
+            <canvas id="intro-canvas" width="320" height="180"></canvas>
+            <div class="intro-caption">
+                <h2 id="intro-title"></h2>
+                <p id="intro-text" aria-live="polite"></p>
+            </div>
+            <div id="intro-actions" class="intro-actions">
+                <button id="btn-intro-skip" class="bevel-btn intro-skip" type="button">PULAR (SKIP)</button>
+                <button id="btn-intro-next" class="start-daydream-btn intro-next" type="button">AVANÇAR ▸</button>
+            </div>
+            <div id="intro-choice" class="intro-choice hidden">
+                <button id="btn-intro-tutorial" class="start-daydream-btn" type="button">INICIAR TUTORIAL GUIADO (RECOMENDADO)</button>
+                <button id="btn-intro-direct" class="bevel-btn" type="button">IR DIRETO PARA O EXPEDIENTE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual do Expediente (Códice "?"): rolagem só dentro do conteúdo da aba -->
+    <div id="codex-modal" class="modal-overlay codex-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="codex-title">
+        <div class="modal-box codex-box">
+            <div class="codex-head">
+                <h2 id="codex-title">MANUAL DO EXPEDIENTE</h2>
+                <button id="btn-codex-close" class="bevel-btn codex-close" type="button" aria-label="Fechar manual">FECHAR</button>
+            </div>
+            <div id="codex-tabs" class="codex-tabs" role="tablist"></div>
+            <div id="codex-content" class="codex-content" role="tabpanel" tabindex="0"></div>
+        </div>
+    </div>
+
+    <!-- Tutorial guiado: cartão do passo atual (não bloqueia cliques no jogo) -->
+    <div id="tutorial-coach" class="tutorial-coach hidden" aria-live="polite">
+        <div class="coach-head"><span id="coach-step">PASSO 1/4</span><button id="btn-tutorial-exit" type="button">SAIR DO TUTORIAL</button></div>
+        <div id="coach-title" class="coach-title"></div>
+        <div id="coach-text" class="coach-text"></div>
+    </div>
+
+    <!-- Dica de 1ª vez (toast, sem bloquear nada) -->
+    <div id="tip-card" class="tip-card hidden" aria-live="polite">
+        <span class="tip-tag">DICA</span>
+        <b id="tip-title"></b>
+        <span id="tip-text"></span>
     </div>
 
     <!-- Boss Key: Modo Planilha Corporativa (Tecla P) -->
@@ -460,6 +521,8 @@
     <script src="js/sprites.js"></script>
     <script src="js/data.js"></script>
     <script src="js/meta.js"></script>
+    <script src="js/intro.js"></script>
+    <script src="js/codex.js"></script>
     <script src="js/dungeon.js"></script>
     <script src="js/renderer3d.js"></script>
     <script src="js/game.js"></script>

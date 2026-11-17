@@ -3293,3 +3293,415 @@ body.daydream-transition .viewport-frame {
         font-size: 10px;
     }
 }
+
+/* ===== ONBOARDING: CUTSCENE, MANUAL "?", TUTORIAL GUIADO E DICAS DE 1ª VEZ ===== */
+.onboarding-actions {
+    margin-top: -2px;
+}
+
+.onboarding-actions .reception-btn {
+    font-size: 14px;
+    padding: 4px 4px;
+    background: linear-gradient(180deg, #1e3a5f 0%, #10213a 100%);
+}
+
+/* ---- Cutscene ---- */
+.intro-overlay {
+    position: fixed;
+    inset: 0;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 130;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    background: radial-gradient(circle at 50% 30%, #1c1630 0%, #06050c 75%);
+    overflow: hidden;
+}
+
+.intro-frame {
+    width: min(880px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    background: #110d1c;
+    border: 3px solid #090510;
+    border-top: 6px solid #38bdf8;
+    box-shadow: inset 0 0 0 2px #3b2f55, 0 14px 36px rgba(0, 0, 0, 0.9);
+    min-height: 0;
+}
+
+.intro-tag {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 15px;
+    color: #4ade80;
+    background: #0b1016;
+    border: 2px solid #334155;
+    padding: 2px 8px;
+}
+
+.intro-step {
+    color: #94a3b8;
+}
+
+#intro-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    max-height: 56dvh;
+    object-fit: contain;
+    image-rendering: pixelated;
+    background: #000;
+    border: 2px solid #090510;
+    min-height: 0;
+}
+
+.intro-caption h2 {
+    margin: 0 0 3px;
+    font-size: 26px;
+    color: #fde68a;
+    line-height: 1;
+}
+
+.intro-caption p {
+    margin: 0;
+    min-height: 3.3em;
+    font-size: 18px;
+    line-height: 1.12;
+    color: #f1e9ff;
+}
+
+.intro-actions,
+.intro-choice {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.intro-actions .bevel-btn,
+.intro-choice .bevel-btn {
+    padding: 6px 14px;
+    font-size: 17px;
+}
+
+.intro-next,
+.intro-choice .start-daydream-btn {
+    font-size: 19px;
+    padding: 6px 18px;
+}
+
+/* ---- Manual do Expediente ---- */
+.codex-overlay {
+    z-index: 110;
+}
+
+.codex-box {
+    width: min(880px, 100%);
+    height: min(88dvh, 760px);
+    max-height: 88dvh;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    overflow: hidden;
+    text-align: left;
+}
+
+.codex-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.codex-head h2 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.codex-close {
+    padding: 4px 12px;
+    font-size: 15px;
+}
+
+.codex-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+}
+
+.codex-tab {
+    padding: 5px 2px;
+    background: #231a33;
+    color: #d6c8ec;
+    border: 2px solid #090510;
+    box-shadow: inset 0 0 0 1px #4c3d63;
+    font-size: 15px;
+}
+
+.codex-tab.active {
+    background: linear-gradient(180deg, #f5cb5c 0%, #c9952a 100%);
+    color: #1c1305;
+}
+
+.codex-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 10px 10px;
+    background: rgba(9, 6, 16, 0.6);
+    border: 1px solid #3b2f55;
+    color: #efe7fb;
+    font-size: 16px;
+    line-height: 1.18;
+}
+
+.codex-content h3 {
+    margin: 10px 0 4px;
+    font-size: 20px;
+    color: #fde68a;
+}
+
+.codex-content p {
+    margin: 0 0 6px;
+    font-size: 16px;
+    color: #efe7fb;
+}
+
+.codex-content ul {
+    margin: 0 0 6px;
+    padding-left: 18px;
+}
+
+.codex-dl {
+    display: grid;
+    grid-template-columns: minmax(110px, 30%) 1fr;
+    gap: 3px 10px;
+    margin: 0 0 6px;
+}
+
+.codex-dl dt {
+    color: #9fe8ff;
+}
+
+.codex-dl dd {
+    margin: 0;
+}
+
+.codex-content kbd,
+.codex-content code {
+    padding: 0 3px;
+    background: #2b2140;
+    border: 1px solid #5b4d75;
+    font-family: inherit;
+}
+
+/* ---- Tutorial guiado ---- */
+.tutorial-coach {
+    position: fixed;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, calc(100vw - 16px));
+    z-index: 120;
+    padding: 6px 10px 8px;
+    background: rgba(12, 22, 40, 0.94);
+    border: 2px solid #38bdf8;
+    box-shadow: 0 0 0 2px #090d16, 0 6px 18px rgba(0, 0, 0, 0.7);
+    color: #e0f2fe;
+    pointer-events: none;
+}
+
+.coach-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    color: #4ade80;
+}
+
+.coach-head button {
+    pointer-events: auto;
+    padding: 1px 8px;
+    background: #3b0d12;
+    color: #fecaca;
+    border: 2px solid #090d16;
+    font-size: 13px;
+}
+
+.coach-title {
+    font-size: 19px;
+    color: #fde68a;
+    line-height: 1;
+    margin: 2px 0;
+}
+
+.coach-text {
+    font-size: 15px;
+    line-height: 1.12;
+}
+
+.tut-spot {
+    outline: 3px solid #ffd147 !important;
+    outline-offset: 2px;
+    animation: tut-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes tut-pulse {
+    0%, 100% { outline-color: #ffd147; box-shadow: 0 0 0 0 rgba(255, 209, 71, 0.75); }
+    50% { outline-color: #fff7d0; box-shadow: 0 0 16px 4px rgba(255, 209, 71, 0.6); }
+}
+
+/* ---- Dica de 1ª vez ---- */
+.tip-card {
+    position: fixed;
+    top: 52px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(460px, calc(100vw - 16px));
+    z-index: 70;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    padding: 6px 10px;
+    background: rgba(26, 21, 36, 0.95);
+    border: 2px solid #f5cb5c;
+    box-shadow: 0 0 0 2px #090510, 0 6px 16px rgba(0, 0, 0, 0.7);
+    color: #f1e9ff;
+    font-size: 15px;
+    line-height: 1.1;
+    pointer-events: none;
+    animation: tip-in 0.25s ease-out;
+}
+
+.tip-tag {
+    padding: 0 5px;
+    background: #f5cb5c;
+    color: #1c1305;
+    font-size: 12px;
+}
+
+#tip-title {
+    color: #fde68a;
+}
+
+#tip-text {
+    flex-basis: 100%;
+}
+
+@keyframes tip-in {
+    from { opacity: 0; transform: translate(-50%, -8px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (max-width: 680px) {
+    .onboarding-actions .reception-btn {
+        font-size: 12px;
+        padding: 3px 2px;
+    }
+
+    .intro-overlay {
+        padding: 6px;
+    }
+
+    .intro-frame {
+        padding: 6px 8px 8px;
+        gap: 6px;
+    }
+
+    .intro-tag {
+        font-size: 12px;
+    }
+
+    .intro-caption h2 {
+        font-size: 21px;
+    }
+
+    .intro-caption p {
+        font-size: 15px;
+        min-height: 5.6em;
+    }
+
+    .intro-actions .bevel-btn,
+    .intro-choice .bevel-btn {
+        font-size: 14px;
+        padding: 5px 10px;
+    }
+
+    .intro-next,
+    .intro-choice .start-daydream-btn {
+        font-size: 15px;
+        padding: 5px 10px;
+    }
+
+    .intro-choice {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .codex-box {
+        height: 90dvh;
+        max-height: 90dvh;
+        padding: 8px;
+        gap: 6px;
+    }
+
+    .codex-head h2 {
+        font-size: 19px;
+    }
+
+    .codex-tab {
+        font-size: 12px;
+        padding: 4px 1px;
+    }
+
+    .codex-content {
+        font-size: 14px;
+        padding: 2px 6px 8px;
+    }
+
+    .codex-content h3 {
+        font-size: 17px;
+    }
+
+    .codex-content p {
+        font-size: 14px;
+    }
+
+    .codex-dl {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    .codex-dl dd {
+        margin-bottom: 4px;
+    }
+
+    .tutorial-coach {
+        top: 40px;
+        padding: 4px 7px 6px;
+    }
+
+    .coach-title {
+        font-size: 16px;
+    }
+
+    .coach-text {
+        font-size: 13px;
+    }
+
+    .tip-card {
+        top: 40px;
+        font-size: 13px;
+    }
+}

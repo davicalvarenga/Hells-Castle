@@ -1959,6 +1959,76 @@
         ]
     };
 
+    // ---------- TUTORIAL GUIADO: mini-praia roteirizada (fora da campanha e do save) ----------
+    // '1' = Passo 2 (combo contra alvo parado), '2' = Passo 3 (defesa: 2 na frente + 1 na retaguarda),
+    // 'C' = baú do Passo 4. Slots aceitam hp/atk/shield/xp/name para ajustar o inimigo de treino.
+    const TUTORIAL_DECK = ['golpe_furtivo', 'mordida_ferro', 'grito_guerra', 'vislumbre', 'escudo_burocratico', 'lanca_geada', 'chicote_dados'];
+    const TUTORIAL_FLOOR = {
+        floor: 1,
+        biome: 'beach',
+        name: 'Praia de Treinamento',
+        bossName: 'nenhum (treino)',
+        restName: null,
+        restDesc: '',
+        bumpMsg: 'A maré de treino não deixa passar.',
+        exitHint: '',
+        conclusion: 'Treino é treino.',
+        isTutorial: true,
+        trigger: { time: '08:17', title: 'Treinamento', lines: [] },
+        layout: [
+            '#########',
+            '#.......#',
+            '#.2...C.#',
+            '#.......#',
+            '#...1...#',
+            '#.......#',
+            '#.......#',
+            '#...S...#',
+            '#########'
+        ],
+        encounters: {
+            '1': {
+                zone: 'Treino: Combo',
+                intro: 'TUTORIAL: um Boneco de Treino parado. Monte a escada de combo 0 → 1!',
+                tutorialStep: 2,
+                tutorialHand: ['golpe_furtivo', 'mordida_ferro', 'grito_guerra', 'vislumbre'],
+                tutorialDraw: ['golpe_furtivo', 'mordida_ferro', 'grito_guerra', 'vislumbre'],
+                enemies: ['crab'],
+                formation: [{ kind: 'crab', col: 2, row: 0, hp: 26, atk: 0, shield: 0, xp: 7, name: 'Boneco de Treino' }]
+            },
+            '2': {
+                zone: 'Treino: Defesa',
+                intro: 'TUTORIAL: dois na frente com ATK e um na retaguarda. Defenda-se!',
+                tutorialStep: 3,
+                tutorialMana: 4,
+                tutorialHand: ['escudo_burocratico', 'lanca_geada', 'chicote_dados', 'mordida_ferro'],
+                tutorialDraw: ['mordida_ferro', 'golpe_furtivo', 'chicote_dados', 'escudo_burocratico'],
+                enemies: ['crab', 'gull', 'specter'],
+                formation: [
+                    { kind: 'crab', col: 1, row: 0, hp: 8, atk: 3, shield: 0, xp: 4, name: 'Caranguejo de Treino' },
+                    { kind: 'gull', col: 3, row: 0, hp: 14, atk: 3, shield: 0, xp: 4, name: 'Gaivota de Treino' },
+                    { kind: 'specter', col: 1, row: 1, hp: 10, atk: 2, shield: 0, xp: 4, name: 'Espectro de Treino' }
+                ]
+            }
+        }
+    };
+
+    // ---------- DICAS DE 1ª VEZ (cada uma aparece uma única vez, sem bloquear a fila de modais) ----------
+    const FIRST_TIME_TIPS = {
+        burn: { title: 'Burn por coluna', text: 'O Burn fica na COLUNA, não no inimigo: no fim do turno queima quem estiver na frente dela e cai 1.' },
+        wild: { title: 'Carta Wild', text: 'Wild sempre comba, qualquer que seja o custo, e reinicia a escada de combo no custo 0.' },
+        xcost: { title: 'Custo X', text: 'Gasta TODA a sua Cafeína: o efeito é multiplicado por X, e X conta como o custo na escada.' },
+        ret: { title: 'Return', text: 'Cartas com Return voltam para a mão depois de jogadas: dá para jogá-las de novo no mesmo turno.' },
+        retain: { title: 'Retain', text: 'Cartas com Retain não são descartadas no fim do turno: ficam na mão esperando a hora certa.' },
+        destroy: { title: 'Destroy', text: 'Destroy sai da luta ao ser jogada. Bônus permanentes (HP, Growth, Revival) saem do baralho da run.' },
+        junk: { title: 'Carta-lixo', text: 'Inimigos e chefes enfiam lixo no seu baralho (Folha Presa, Confusão, Bomba de Mana). Ele some no fim do combate.' },
+        crack: { title: 'Carta Rachada', text: 'Usada demais no mesmo combate, a carta racha e pode estilhaçar. Inquebrável, À Prova de Fogo ou a fogueira resolvem.' },
+        rest: { title: 'Ponto de Pausa', text: 'Na fogueira, gaste VR para curar, remover cartas, comprar gema, Fôlego Extra, Relíquia ou reparar rachaduras.' },
+        silver: { title: 'Baú de Prata', text: 'Pede 1 carta de cada um de dois tipos. Em troca: Gema Épica/Lendária ou uma Arcana extra.' },
+        well: { title: 'Poço dos Desejos', text: 'Uso único e grátis: sorteia uma Gema rara (ou melhor) ou uma Arcana extra.' },
+        overkill: { title: 'Overkill no chefe', text: 'Chefe derrotado fica em OVERKILL até o fim do turno: cada dano a mais vira VR. Continue jogando cartas!' }
+    };
+
     // ---------- VALIDAÇÃO ESTRITA DOS MAPAS ----------
     function isWalkableTile(layout, x, y) {
         return y >= 0 && y < layout.length && x >= 0 && x < layout[y].length && layout[y][x] !== '#';
@@ -2063,6 +2133,9 @@
     window.GameData = {
         PROTAGONIST: PROTAGONIST,
         CHARACTERS: CHARACTERS,
+        TUTORIAL_DECK: TUTORIAL_DECK,
+        TUTORIAL_FLOOR: TUTORIAL_FLOOR,
+        FIRST_TIME_TIPS: FIRST_TIME_TIPS,
         getCharacter: getCharacter,
         FLOOR_CLOCKS: FLOOR_CLOCKS,
         REALITY_FLASH_QUIPS: REALITY_FLASH_QUIPS,

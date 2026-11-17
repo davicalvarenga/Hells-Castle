@@ -46,6 +46,14 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 - **Rachadura:** carta comum usada mais de 5 vezes no mesmo combate fica **Rachada**; usada além do limite de novo, tem 25% de chance de estilhaçar e sair do baralho. *Inquebrável*, *À Prova de Fogo* ou **Reparar Rachaduras** na fogueira (20 VR) resolvem.
 - **Eventos de mapa:** **Baú de Prata** (pede 2 cartas de tipos específicos; dá Gema Épica/Lendária ou Arcana extra), **Mesa de Oferenda** (sacrifique 1 carta por +1 Slot de Gema em outra, ou por 20 VR) e **Poço dos Desejos** (Gema rara ou Arcana extra, uso único).
 
+## Primeira Visita: Intro, Tutorial e Manual
+
+- **Cutscene "08h17 — Da Planilha à Praia":** 4 cenas em pixel art (canvas) com texto digitado e som (respeita o Mudo). Abre sozinha na 1ª visita (`introSeen` no `localStorage`), tem **Pular** sempre visível e pode ser revista pelo botão **Rever Intro** da Recepção. No fim, escolha **Tutorial Guiado (Recomendado)** ou **Ir Direto para o Expediente**.
+- **Tutorial guiado:** mini-praia roteirizada em 4 passos (exploração e aggro; 5 colunas e combo 0→1; Escudo, Knockback, Freeze e retaguarda; Level Up, baú, gema e Arcana). O elemento a usar pisca com borda dourada, mas nada fica travado. Sair ou concluir volta à Recepção sem tocar no save da meta.
+- **Dicas de 1ª vez:** Burn, Wild, Custo X, Return, Retain, Destroy, cartas-lixo, rachadura, fogueira, Baú de Prata, Poço e Overkill aparecem uma única vez num cartão que não bloqueia o jogo.
+- **Manual do Expediente (`?`):** 5 abas (História, Combo, Atributos, Inimigos, Progressão) geradas a partir dos dados do jogo. Abre pelo botão `?` do topo ou pela Recepção; `Esc` fecha. Com o Manual aberto, o combate fica pausado.
+- Para testes automatizados, `?skipintro=1` na URL não abre a cutscene (sem marcá-la como vista).
+
 ## Recepção: Meta-Progressão entre Partidas
 
 Tudo é salvo no navegador (`localStorage`, chave `hc_meta_v1`). Se o armazenamento estiver bloqueado ou corrompido, o jogo começa do zero sem erro.

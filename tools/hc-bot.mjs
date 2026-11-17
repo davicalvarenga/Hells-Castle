@@ -66,6 +66,12 @@ function botStep(policy) {
                 gems: Object.keys(s.cardGems || {}).reduce((n, id) => n + s.cardGems[id].length, 0),
                 extraSlots: Object.keys(s.extraGemSlots || {}).length, fused: Object.keys(s.fusedCards || {}).length } };
     }
+    // 1ª visita: a cutscene abre sozinha. O bot pula e vai direto para o expediente (sem tutorial).
+    if (vis('intro-overlay')) {
+        const choice = !el('intro-choice').classList.contains('hidden');
+        (choice ? el('btn-intro-direct') : el('btn-intro-skip')).click();
+        return { act: 'intro' };
+    }
     if (vis('title-modal')) { el('btn-start-daydream').click(); return { act: 'start' }; }
     if (vis('spreadsheet-modal')) { el('btn-close-spreadsheet').click(); return { act: 'closeSheet' }; }
     if (vis('epilogue-overlay')) { el('btn-punch-clock').click(); return { act: 'punch' }; }

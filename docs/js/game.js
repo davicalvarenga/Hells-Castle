@@ -30,6 +30,34 @@
 
     let meta = loadMeta();
 
+    // Preferências de onboarding (introSeen, tutorialDone, dicas já vistas). Chave separada da meta.
+    const UI_KEY = 'hc_ui_v1';
+    function loadUi() {
+        const out = { introSeen: false, tutorialDone: false, tips: [] };
+        try {
+            const st = metaStorage();
+            const raw = st ? JSON.parse(st.getItem(UI_KEY) || 'null') : null;
+            if (raw && typeof raw === 'object') {
+                out.introSeen = raw.introSeen === true;
+                out.tutorialDone = raw.tutorialDone === true;
+                out.tips = Array.isArray(raw.tips) ? raw.tips.filter(id => D.FIRST_TIME_TIPS[id]) : [];
+            }
+        } catch (err) {
+            // JSON corrompido ou armazenamento bloqueado: começa do zero.
+        }
+        return out;
+    }
+
+    let ui = loadUi();
+
+    function saveUi() {
+        try {
+            const st = metaStorage();
+            if (st) st.setItem(UI_KEY, JSON.stringify(ui));
+        } catch (err) {
+            // Sem armazenamento: vale só nesta aba.
+        }
+    }
     function saveMeta() {
         return M.save(metaStorage(), meta);
     }
@@ -108,6 +136,34 @@
         btnReceptionClose: $('btn-reception-close'),
         crawlerPortrait: $('crawler-portrait'),
         endMeta: $('end-meta'),
+        btnCodex: $('btn-codex'),
+        btnTitleCodex: $('btn-title-codex'),
+        btnReplayIntro: $('btn-replay-intro'),
+        btnOpenTutorial: $('btn-open-tutorial'),
+        introOverlay: $('intro-overlay'),
+        introCanvas: $('intro-canvas'),
+        introTag: $('intro-tag'),
+        introStep: $('intro-step'),
+        introTitle: $('intro-title'),
+        introText: $('intro-text'),
+        introActions: $('intro-actions'),
+        introChoice: $('intro-choice'),
+        btnIntroSkip: $('btn-intro-skip'),
+        btnIntroNext: $('btn-intro-next'),
+        btnIntroTutorial: $('btn-intro-tutorial'),
+        btnIntroDirect: $('btn-intro-direct'),
+        codexModal: $('codex-modal'),
+        codexTabs: $('codex-tabs'),
+        codexContent: $('codex-content'),
+        btnCodexClose: $('btn-codex-close'),
+        tutorialCoach: $('tutorial-coach'),
+        coachStep: $('coach-step'),
+        coachTitle: $('coach-title'),
+        coachText: $('coach-text'),
+        btnTutorialExit: $('btn-tutorial-exit'),
+        tipCard: $('tip-card'),
+        tipTitle: $('tip-title'),
+        tipText: $('tip-text'),
         btnStartDaydream: $('btn-start-daydream'),
         spreadsheetModal: $('spreadsheet-modal'),
         btnCloseSpreadsheet: $('btn-close-spreadsheet'),
@@ -154,6 +210,12 @@
 
     let state = null;
     let bossKeyOpen = false;
+    let codexOpen = false;
+    let introOpen = false;
+
+    function isPaused() {
+        return bossKeyOpen || codexOpen || introOpen;
+    }
     let uidCounter = 1;
     let chestIndex = 0;
     let eventIndex = 0;
@@ -1166,6 +1228,10 @@
                 '<div class="reward-desc">' + arcana.desc + '</div>';
             btn.addEventListener('click', guardModalAction(() => {
                 addArcana(id);
+                if (state.tutorial) {
+                    state.tutorial.done = true;
+                    modalQueue.push(tutorialDoneCard());
+                }
                 A.play('card');
                 setLog('Estado de Espírito: ' + arcana.name + '.');
                 closeActiveModal();
@@ -1296,6 +1362,7 @@
     }
 
     function openRestModal(item) {
+        showTip('rest');
         A.play('chest');
         item.view = 'main';
         renderRestModal();
@@ -1779,7 +1846,7 @@
 
     // ---------- EXPLORAÇÃO ----------
     function canExplore() {
-        return !bossKeyOpen && !isTitleOpen() && state.mode === 'explore' && !state.busy && activeModal === null;
+        return !isPaused() && !isTitleOpen() && state.mode === 'explore' && !state.busy && activeModal === null;
     }
 
     function moveRelative(forwardStep, strafeStep) {
@@ -1914,6 +1981,7 @@
     // Encontros (exceto chefes, que guardam suas arenas) dentro do raio avançam 1 casa livre.
     // Retorna o contato gerado (emboscada tem prioridade) ou null.
     function patrolEncounters() {
+        if (state.tutorial) return null; // tutorial: encontros parados, o roteiro fica previsível
         const moved = [];
         state.encounters.forEach(enc => {
             if (!enc.alive || enc.isBoss || enc.isElite) return;
@@ -1980,8 +2048,14 @@
         A.play('chest');
         setLog(loot.title + ': ' + loot.text);
         // A gema do baú espera na fila: abre ao fim do passo (ou depois do combate, se houver aggro).
-        modalQueue.push({ type: 'gem', gemId: randomGemId() });
-        if (Math.random() < B.chestPickupChance) {
+        if (state.tutorial) {
+            // Passo 4: gema certa para encaixar e, em seguida, a Arcana que fecha o treino.
+            state.tutorial.chest = true;
+            modalQueue.push({ type: 'gem', gemId: 'double' }, { type: 'arcana' });
+        } else {
+            modalQueue.push({ type: 'gem', gemId: randomGemId() });
+        }
+        if (!state.tutorial && Math.random() < B.chestPickupChance) {
             const pickup = grantPickup();
             setLog(loot.title + ': ' + loot.text + ' Pickup: ' + D.CARDS[pickup].name + '!');
         }
@@ -2017,6 +2091,7 @@
             return;
         }
         if ((tile === 'P' || tile === 'O' || tile === 'W') && !state.clearedTiles.has(key)) {
+            showTip(tile === 'P' ? 'silver' : tile === 'W' ? 'well' : null);
             if (tile === 'W') useWishingWell(key);
             else enqueueModal({ type: 'event', event: tile === 'P' ? silverChestEvent(key) : offeringEvent(key) });
             return;
@@ -2259,6 +2334,15 @@
         const eliteFallback = !!enc.isElite && !formation.some(slot => slot.elite);
         state.enemies = formation.slice(0, D.MAX_ENEMIES_IN_COMBAT)
             .map((slot, i) => makeEnemy(slot.kind, false, slot.col, slot.row, slot.elite || (eliteFallback && i === 0)));
+        // Ajustes por slot (inimigos de treino do tutorial): valores fixos, sem escala de Curse.
+        formation.slice(0, D.MAX_ENEMIES_IN_COMBAT).forEach((slot, i) => {
+            const e = state.enemies[i];
+            if (typeof slot.hp === 'number') { e.hp = slot.hp; e.maxHp = slot.hp; }
+            if (typeof slot.atk === 'number') e.atk = slot.atk;
+            if (typeof slot.shield === 'number') e.shield = slot.shield;
+            if (typeof slot.xp === 'number') e.xp = slot.xp;
+            if (slot.name) e.name = slot.name;
+        });
 
         refreshFrontIntents(true);
         const fronts = getFrontEnemies(false);
@@ -2280,6 +2364,17 @@
             if (state.hand.length < B.maxHandSize) pushToHand(id, 0);
             else state.drawPile.unshift(id);
         });
+        // Tutorial: mão e compra roteirizadas para cada passo ensinar exatamente uma coisa.
+        if (state.tutorial && enc.tutorialHand) {
+            state.hand = [];
+            state.handReturnCounts = [];
+            state.handCostMods = [];
+            state.handTemp = [];
+            enc.tutorialHand.forEach(id => pushToHand(id, 0));
+            state.drawPile = (enc.tutorialDraw || []).slice().reverse();
+            state.discardPile = [];
+        }
+        if (state.tutorial && enc.tutorialMana) state.mana = enc.tutorialMana;
 
         A.play('encounter');
         R.triggerShake(0.05, 0.22);
@@ -2570,6 +2665,7 @@
                     enemy.disarmed = false;
                     state.bossDefeated = true;
                     state.bossOverkillActive = true;
+                    showTip('overkill');
                     if (enemy.dropRelic) state.pendingDrop = enemy.dropRelic;
                     bonusVr = Math.max(2, Math.ceil(excess / 3));
                     overkill = true;
@@ -2671,6 +2767,7 @@
 
     function applyBurnForCard(card, singleTarget) {
         if (!card || !card.burn) return;
+        showTip('burn');
         const burnAmt = D.withDuration(card.burn, getStat('Duration'));
         if (card.burnAllColumns) {
             for (let c = 0; c < 5; c++) {
@@ -2716,6 +2813,7 @@
         const p = viewportPoint(0.5, 0.52);
         if (roll.cracked && !wasCracked) {
             state.crackedCards[cardId] = true;
+            showTip('crack');
             A.play('immune');
             spawnFloatingText(p.x, p.y, card.name + ' RACHOU!', 'player-hit');
         }
@@ -3270,7 +3368,7 @@
                 state.autoPlaying = false;
                 return;
             }
-            if (bossKeyOpen || state.busy) {
+            if (isPaused() || state.busy) {
                 later(120, stepNext);
                 return;
             }
@@ -3611,7 +3709,7 @@
 
         const nextEnemyAction = () => {
             if (!stillFighting()) return;
-            if (bossKeyOpen) {
+            if (isPaused()) {
                 later(150, nextEnemyAction);
                 return;
             }
@@ -3699,6 +3797,10 @@
     // Fim do combate: espera a animação de morte, volta à exploração e deixa a fila de modais
     // (level ups acumulados, pausa/evento do tile, epílogo) conduzir o que vem depois.
     function finishEncounter() {
+        if (state.tutorial && state.currentEncDef) {
+            if (state.currentEncDef.tutorialStep === 2) state.tutorial.combat1 = true;
+            if (state.currentEncDef.tutorialStep === 3) state.tutorial.combat2 = true;
+        }
         state.busy = true;
         state.autoPlaying = false;
         state.bossOverkillActive = false;
@@ -3802,7 +3904,7 @@
     function scheduleNextWave(delay) {
         later(delay, () => {
             if (!state.infinite || state.mode === 'gameover') return;
-            if (state.mode !== 'explore' || state.busy || activeModal !== null || modalQueue.length > 0 || bossKeyOpen) {
+            if (state.mode !== 'explore' || state.busy || activeModal !== null || modalQueue.length > 0 || isPaused()) {
                 scheduleNextWave(400);
                 return;
             }
@@ -3826,6 +3928,11 @@
     }
 
     function endGame(victory) {
+        // Tutorial nunca grava meta nem histórico: perder o treino só volta para a Recepção.
+        if (state.tutorial) {
+            finishTutorial(false);
+            return;
+        }
         state.mode = 'gameover';
         A.stopAmbience();
         state.busy = false;
@@ -4056,6 +4163,21 @@
             btn.addEventListener('click', () => playCard(idx));
             els.handGrid.appendChild(btn);
         });
+        noteHandTips();
+    }
+
+    // Dica de 1ª vez para as palavras-chave que acabaram de aparecer na mão.
+    function noteHandTips() {
+        state.hand.forEach(id => {
+            const c = cardOf(id);
+            if (c.crawler) return;
+            if (c.type === 'curse') showTip('junk');
+            else if (D.isWildCard(c)) showTip('wild');
+            if (c.xCost) showTip('xcost');
+            if (c.returnTimes) showTip('ret');
+            if (c.retain && !c.consumable) showTip('retain');
+            if (c.destroy && !c.consumable && !c.tempOnly && c.type !== 'curse') showTip('destroy');
+        });
     }
 
     function renderAll(popCombo) {
@@ -4249,6 +4371,8 @@
 
     function openTitleModal() {
         bossKeyOpen = false;
+        stopTutorialCoach();
+        clearTips();
         meta = loadMeta();
         previewChar = null;
         if (els.receptionModal) els.receptionModal.classList.add('hidden');
@@ -4302,6 +4426,384 @@
         enqueueModal({ type: 'arcana' });
     }
 
+    // ---------- CUTSCENE "08h17 — DA PLANILHA À PRAIA" ----------
+    const I = window.GameIntro;
+    const intro = { scene: 0, sceneStart: 0, typed: 0, typer: null, raf: null, first: false };
+    // Política de autoplay: nada de Web Audio antes do 1º gesto (a cutscene abre sozinha na 1ª visita).
+    let userGestured = false;
+    const markGesture = () => {
+        if (userGestured) return;
+        userGestured = true;
+        if (introOpen) {
+            A.unlock();
+            A.setAmbience(I.SCENES[intro.scene].ambience);
+        }
+    };
+    window.addEventListener('pointerdown', markGesture, true);
+    window.addEventListener('keydown', markGesture, true);
+
+    function introSound(name) {
+        if (userGestured) A.play(name);
+    }
+
+    function openIntro(first) {
+        introOpen = true;
+        intro.first = !!first;
+        els.introOverlay.classList.remove('hidden');
+        els.introActions.classList.remove('hidden');
+        els.introChoice.classList.add('hidden');
+        // Na reprise, "Ir Direto" só volta para a Recepção (a run começa pelo botão de lá).
+        els.btnIntroDirect.textContent = intro.first ? 'IR DIRETO PARA O EXPEDIENTE' : 'VOLTAR À RECEPÇÃO';
+        showIntroScene(0);
+        const frame = now => {
+            if (!introOpen) return;
+            I.draw(els.introCanvas, intro.scene, (now - intro.sceneStart) / 1000, S);
+            intro.raf = requestAnimationFrame(frame);
+        };
+        intro.raf = requestAnimationFrame(frame);
+    }
+
+    function showIntroScene(i) {
+        const sc = I.SCENES[i];
+        intro.scene = i;
+        intro.sceneStart = performance.now();
+        intro.typed = 0;
+        els.introTag.textContent = sc.time + ' — DA PLANILHA À PRAIA';
+        els.introStep.textContent = (i + 1) + '/' + I.SCENES.length;
+        els.introTitle.textContent = sc.title;
+        els.introText.textContent = '';
+        els.btnIntroNext.textContent = i === I.SCENES.length - 1 ? 'CONCLUIR ▸' : 'AVANÇAR ▸';
+        if (userGestured) A.setAmbience(sc.ambience);
+        if (sc.sfx) introSound(sc.sfx);
+        I.draw(els.introCanvas, i, 0, S);
+        if (intro.typer) clearInterval(intro.typer);
+        // Digitação suave; um "tec" de teclado a cada 3 letras (silencioso com o Mudo ligado).
+        intro.typer = setInterval(() => {
+            intro.typed += 1;
+            els.introText.textContent = sc.text.slice(0, intro.typed);
+            if (intro.typed % 3 === 0) introSound('type');
+            if (intro.typed >= sc.text.length) {
+                clearInterval(intro.typer);
+                intro.typer = null;
+            }
+        }, 24);
+    }
+
+    function introTypingDone() {
+        return intro.typed >= I.SCENES[intro.scene].text.length;
+    }
+
+    // 1º clique completa o texto; o seguinte passa de cena; depois da última, as opções finais.
+    function introNext() {
+        if (!introOpen) return;
+        introSound('card');
+        if (!introTypingDone()) {
+            if (intro.typer) clearInterval(intro.typer);
+            intro.typer = null;
+            intro.typed = I.SCENES[intro.scene].text.length;
+            els.introText.textContent = I.SCENES[intro.scene].text;
+            return;
+        }
+        if (intro.scene < I.SCENES.length - 1) showIntroScene(intro.scene + 1);
+        else showIntroChoice();
+    }
+
+    function skipIntro() {
+        if (!introOpen) return;
+        introSound('card');
+        if (intro.scene !== I.SCENES.length - 1) showIntroScene(I.SCENES.length - 1);
+        if (intro.typer) clearInterval(intro.typer);
+        intro.typer = null;
+        intro.typed = I.SCENES[intro.scene].text.length;
+        els.introText.textContent = I.SCENES[intro.scene].text;
+        showIntroChoice();
+    }
+
+    function showIntroChoice() {
+        els.introActions.classList.add('hidden');
+        els.introChoice.classList.remove('hidden');
+        ui.introSeen = true;
+        saveUi();
+    }
+
+    function closeIntro() {
+        introOpen = false;
+        if (intro.typer) clearInterval(intro.typer);
+        intro.typer = null;
+        if (intro.raf) cancelAnimationFrame(intro.raf);
+        intro.raf = null;
+        els.introOverlay.classList.add('hidden');
+        if (userGestured) A.stopAmbience();
+        ui.introSeen = true;
+        saveUi();
+    }
+
+    // ---------- MANUAL DO EXPEDIENTE (Códice "?") ----------
+    let codexTabs = null;
+
+    function openCodex(tabIndex) {
+        if (introOpen) return;
+        A.unlock();
+        A.play('card');
+        if (!codexTabs) codexTabs = window.GameCodex.build(D, M);
+        els.codexTabs.innerHTML = '';
+        codexTabs.forEach((tab, i) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'codex-tab';
+            btn.dataset.tab = tab.id;
+            btn.setAttribute('role', 'tab');
+            btn.title = tab.title;
+            btn.textContent = tab.label;
+            btn.addEventListener('click', () => {
+                A.play('card');
+                selectCodexTab(i);
+            });
+            els.codexTabs.appendChild(btn);
+        });
+        codexOpen = true;
+        R.setHoveredCard(null);
+        els.codexModal.classList.remove('hidden');
+        selectCodexTab(tabIndex || 0);
+    }
+
+    function selectCodexTab(i) {
+        const tab = codexTabs[i];
+        Array.from(els.codexTabs.children).forEach((b, j) => {
+            b.classList.toggle('active', j === i);
+            b.setAttribute('aria-selected', j === i ? 'true' : 'false');
+        });
+        els.codexContent.innerHTML = '<h3>' + tab.title + '</h3>' + tab.html;
+        els.codexContent.scrollTop = 0;
+        els.codexContent.dataset.tab = tab.id;
+    }
+
+    function closeCodex() {
+        codexOpen = false;
+        els.codexModal.classList.add('hidden');
+    }
+
+    // ---------- DICAS DE 1ª VEZ (toast que não bloqueia nada nem entra na fila de modais) ----------
+    const tipQueue = [];
+    let tipTimer = null;
+
+    function showTip(id) {
+        if (!id || !state || state.tutorial || !D.FIRST_TIME_TIPS[id] || ui.tips.includes(id)) return;
+        ui.tips.push(id);
+        saveUi();
+        tipQueue.push(id);
+        if (!tipTimer) nextTip();
+    }
+
+    function nextTip() {
+        const id = tipQueue.shift();
+        if (!id) {
+            els.tipCard.classList.add('hidden');
+            tipTimer = null;
+            return;
+        }
+        const tip = D.FIRST_TIME_TIPS[id];
+        els.tipCard.dataset.tip = id;
+        els.tipTitle.textContent = tip.title;
+        els.tipText.textContent = tip.text;
+        els.tipCard.classList.remove('hidden');
+        tipTimer = setTimeout(nextTip, 6500);
+    }
+
+    function clearTips() {
+        tipQueue.length = 0;
+        if (tipTimer) clearTimeout(tipTimer);
+        tipTimer = null;
+        els.tipCard.classList.add('hidden');
+    }
+
+    // ---------- TUTORIAL GUIADO (mini-praia roteirizada, fora do save) ----------
+    let coachTimer = null;
+    let spotted = [];
+
+    function startTutorial() {
+        if (introOpen) closeIntro();
+        closeCodex();
+        els.titleModal.classList.add('hidden');
+        els.receptionModal.classList.add('hidden');
+        resetModalSystem();
+        clearTips();
+        state = createInitialState({ seed: state.runSeed });
+        state.tutorial = { combat1: false, combat2: false, chest: false, done: false };
+        state.deck = D.TUTORIAL_DECK.slice();
+        state.floors[1] = D.TUTORIAL_FLOOR;
+        const fl = currentFloor();
+        const start = findStartPos(fl.layout);
+        state.player = { x: start.x, y: start.y, dir: start.dir || 0 };
+        state.encounters = buildEncounters(fl);
+        state.exploredTiles = new Set();
+        revealAround(state, start.x, start.y, fl.layout);
+        R.buildMap(fl.layout, state);
+        R.syncState(state);
+        R.settleCamera();
+        renderAll();
+        A.unlock();
+        A.setAmbience('beach');
+        els.tutorialCoach.classList.remove('hidden');
+        if (coachTimer) clearInterval(coachTimer);
+        coachTimer = setInterval(updateTutorial, 200);
+        enqueueModal({
+            type: 'narrative',
+            biome: 'beach',
+            tag: 'TUTORIAL GUIADO · 4 PASSOS',
+            title: 'Treinamento na Praia',
+            lines: [
+                'Uma praia de treino, sem chefe e sem risco para o seu progresso.',
+                'Siga o cartão azul no topo: o elemento que você precisa usar fica com a borda dourada pulsando.'
+            ],
+            button: 'COMEÇAR O TREINO'
+        });
+        updateTutorial();
+    }
+
+    function tutorialDoneCard() {
+        return {
+            type: 'narrative',
+            biome: 'beach',
+            tag: 'TUTORIAL CONCLUÍDO',
+            title: 'Pronto para bater o ponto',
+            lines: [
+                'Exploração, combo, defesa, Level Up, gemas e Arcanas: está tudo no Manual (botão ?) para consultar quando quiser.',
+                'Agora é o expediente de verdade. Boa sorte, Valter.'
+            ],
+            button: 'VOLTAR À RECEPÇÃO',
+            onClose: () => finishTutorial(true)
+        };
+    }
+
+    function stopTutorialCoach() {
+        if (coachTimer) clearInterval(coachTimer);
+        coachTimer = null;
+        setSpots([]);
+        if (els.tutorialCoach) els.tutorialCoach.classList.add('hidden');
+    }
+
+    function finishTutorial(completed) {
+        stopTutorialCoach();
+        if (completed) {
+            ui.tutorialDone = true;
+            saveUi();
+        }
+        openTitleModal();
+    }
+
+    function setSpots(list) {
+        const next = list.filter(Boolean);
+        spotted.forEach(el => { if (!next.includes(el)) el.classList.remove('tut-spot'); });
+        next.forEach(el => el.classList.add('tut-spot'));
+        spotted = next;
+    }
+
+    function tutorialStage() {
+        const t = state.tutorial;
+        const m = activeModal && activeModal.type;
+        if (m === 'narrative') return 'narrative';
+        if (m === 'levelup' || m === 'gem' || m === 'arcana') return m;
+        if (m) return 'wait';
+        if (state.mode === 'combat') return state.currentEncDef && state.currentEncDef.tutorialStep === 2 ? 'combo' : 'defense';
+        if (!t.combat1) return 'explore1';
+        if (!t.combat2) return 'explore2';
+        if (state.pendingLevelUps > 0 || modalQueue.length > 0) return 'wait';
+        if (!t.chest) return 'chest';
+        return 'wait';
+    }
+
+    // Passo atual: texto do cartão + elementos com spotlight. Nunca trava o jogador: tudo continua clicável.
+    function tutorialGuide(stage) {
+        const handBtn = pred => {
+            const idx = state.hand.findIndex((id, i) => pred(cardOf(id), i));
+            return idx >= 0 ? els.handGrid.children[idx] : null;
+        };
+        const plain = (c, i) => c.type !== 'curse' && !D.isWildCard(c);
+        const move = [els.btnMoveFwd, els.miniCanvas];
+        if (stage === 'narrative') return { step: 0, title: 'Leia e continue', text: 'Toque no botão destacado para seguir.', spots: [els.btnNarrativeContinue] };
+        if (stage === 'explore1') {
+            return { step: 1, title: 'Exploração & Aggro', spots: move,
+                text: 'Ande com ↑/W ou o botão destacado (Q/E andam de lado, A/D giram). O minimapa mostra o que você já viu. ' +
+                    'Um inimigo a até 2 casas na sua linha de visão inicia o combate: avance até o Boneco de Treino.' };
+        }
+        if (stage === 'combo') {
+            const zero = handBtn((c, i) => plain(c) && getHandCost(i) === 0);
+            const one = handBtn((c, i) => plain(c) && getHandCost(i) === 1);
+            if (state.lastComboCost === null && zero) {
+                return { step: 2, title: '5 Colunas & Combo +1', spots: [zero],
+                    text: 'Os inimigos ocupam 5 colunas; só a linha de frente ataca e apanha. Comece pela carta de custo 0 destacada: ela abre a escada de combo.' };
+            }
+            if (state.lastComboCost === 0 && one) {
+                return { step: 2, title: 'Escada 0 → 1', spots: [one],
+                    text: 'Agora a carta de custo 1: 0 → 1 continua a escada e o Combo sobe para x2 (o número na chama).' };
+            }
+            const playAll = !els.btnPlayAll.disabled;
+            return { step: 2, title: 'Mini-pilha & Jogar Tudo', spots: [els.comboChain, playAll ? els.btnPlayAll : els.btnEndTurn],
+                text: 'A mini-pilha à direita guarda a cadeia do turno e mostra o próximo custo (▸). ' +
+                    (playAll ? 'JOGAR TUDO joga o resto na melhor ordem de combo.' : 'Sem cartas úteis: toque em FIM DO TURNO.') };
+        }
+        if (stage === 'defense') {
+            const has = id => handBtn(c => c.id === id);
+            const advanced = state.enemies.some(e => e.kind === 'specter' && e.row === 0 && e.hp > 0);
+            if (has('escudo_burocratico')) {
+                return { step: 3, title: 'Escudo & Knockback', spots: [has('escudo_burocratico')],
+                    text: 'Os dois da frente mostram ATK: vão atacar no fim do turno. A Égide dá Escudo (absorve dano) e 65% de KNOCKBACK: o inimigo DESARMADO perde o ataque.' };
+            }
+            if (has('lanca_geada')) {
+                return { step: 3, title: 'Freeze (Gelo)', spots: [has('lanca_geada')],
+                    text: 'A Lança de Geada aplica GELO: congelado não ataca, e o próximo golpe nele causa 1.5x.' };
+            }
+            if (has('chicote_dados') && state.mana >= 2 && !advanced) {
+                return { step: 3, title: 'Frente & Retaguarda', spots: [has('chicote_dados')],
+                    text: 'O Chicote acerta toda a linha de frente. Derrube o Caranguejo e veja a RETAGUARDA avançar para a frente na mesma coluna.' };
+            }
+            const playAll = !els.btnPlayAll.disabled;
+            return { step: 3, title: advanced ? 'A retaguarda avançou!' : 'Termine a luta', spots: [playAll ? els.btnPlayAll : els.btnEndTurn],
+                text: (advanced ? 'Morto o da frente, quem estava atrás assumiu a coluna e agora pode atacar. ' : '') +
+                    (playAll ? 'Use JOGAR TUDO para gastar o resto da mão.' : 'Toque em FIM DO TURNO: os inimigos agem e você compra uma mão nova.') };
+        }
+        if (stage === 'explore2') {
+            return { step: 3, title: 'Próximo grupo', spots: move,
+                text: 'Vá até o grupo no canto de cima, à esquerda (siga o minimapa). Ao chegar a 2 casas na linha de visão, o combate começa.' };
+        }
+        if (stage === 'levelup') {
+            return { step: 4, title: 'Level Up', spots: [els.btnLvlReroll, els.btnLvlSkip, els.btnLvlBanish],
+                text: 'Escolha 1 melhoria. RE-ROLAR troca as opções, PULAR dá +20% do XP do nível e BANIR tira uma opção desta run.' };
+        }
+        if (stage === 'chest') {
+            return { step: 4, title: 'Baú & Gemas', spots: move, text: 'Abra o baú dourado no canto de cima, à direita: baús dão Sanidade, VR, XP e uma gema.' };
+        }
+        if (stage === 'gem') {
+            return { step: 4, title: 'Encaixe a gema', spots: [els.gemTargets.querySelector('.gem-target-card:not([disabled])')],
+                text: 'Cada carta tem slots (losangos). Toque numa carta destacada para encaixar a gema: o bônus vale até o fim da run.' };
+        }
+        if (stage === 'arcana') {
+            return { step: 4, title: 'Arcana', spots: [els.arcanaChoices],
+                text: 'Arcanas (Estados de Espírito) mudam as regras da run inteira. Escolha uma para fechar o treino.' };
+        }
+        return null;
+    }
+
+    function updateTutorial() {
+        if (!state || !state.tutorial) {
+            stopTutorialCoach();
+            return;
+        }
+        // Com o Manual aberto, o cartão do tutorial sai da frente (o Manual tem prioridade na tela).
+        els.tutorialCoach.classList.toggle('hidden', codexOpen);
+        const guide = tutorialGuide(tutorialStage());
+        if (!guide) {
+            setSpots([]);
+            return;
+        }
+        els.coachStep.textContent = guide.step > 0 ? 'PASSO ' + guide.step + '/4' : 'TUTORIAL';
+        els.coachTitle.textContent = guide.title;
+        els.coachText.textContent = guide.text;
+        els.tutorialCoach.dataset.stage = tutorialStage();
+        setSpots(guide.spots);
+    }
+
     function toggleBossKey() {
         bossKeyOpen = !bossKeyOpen;
         els.spreadsheetModal.classList.toggle('hidden', !bossKeyOpen);
@@ -4320,6 +4822,20 @@
     els.btnBossKey.addEventListener('click', toggleBossKey);
     els.btnCloseSpreadsheet.addEventListener('click', toggleBossKey);
     els.btnStartDaydream.addEventListener('click', confirmStartDaydream);
+    els.btnCodex.addEventListener('click', () => openCodex(0));
+    els.btnTitleCodex.addEventListener('click', () => openCodex(0));
+    els.btnCodexClose.addEventListener('click', closeCodex);
+    els.btnReplayIntro.addEventListener('click', () => { A.unlock(); openIntro(false); });
+    els.btnOpenTutorial.addEventListener('click', () => { A.unlock(); A.play('levelup'); startTutorial(); });
+    els.btnTutorialExit.addEventListener('click', () => { A.play('card'); finishTutorial(false); });
+    els.btnIntroNext.addEventListener('click', introNext);
+    els.btnIntroSkip.addEventListener('click', skipIntro);
+    els.btnIntroTutorial.addEventListener('click', () => { closeIntro(); A.play('levelup'); startTutorial(); });
+    els.btnIntroDirect.addEventListener('click', () => {
+        const first = intro.first;
+        closeIntro();
+        if (first) confirmStartDaydream();
+    });
     els.btnOpenAlmox.addEventListener('click', () => openReception('almox'));
     els.btnOpenForge.addEventListener('click', () => openReception('forge'));
     els.btnOpenCuration.addEventListener('click', () => openReception('curation'));
@@ -4433,6 +4949,23 @@
     els.btnPlayAgain.addEventListener('click', openTitleModal);
 
     window.addEventListener('keydown', ev => {
+        if (introOpen) {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                skipIntro();
+            } else if ((ev.key === 'Enter' || ev.key === ' ' || ev.key === 'ArrowRight') && !els.introActions.classList.contains('hidden')) {
+                ev.preventDefault();
+                introNext();
+            }
+            return;
+        }
+        if (codexOpen) {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                closeCodex();
+            }
+            return;
+        }
         if (ev.key === 'p' || ev.key === 'P') {
             ev.preventDefault();
             toggleBossKey();
@@ -4543,6 +5076,13 @@
         randomGemId: randomGemId,
         gainXp: gainXp,
         get meta() { return meta; },
+        get ui() { return ui; },
+        get intro() { return { open: introOpen, scene: intro.scene, typed: intro.typed }; },
+        get codexOpen() { return codexOpen; },
+        openIntro: openIntro,
+        startTutorial: startTutorial,
+        render: () => renderAll(),
+        showTip: showTip,
         reloadMeta: () => { meta = loadMeta(); renderBadge(); return meta; },
         openReception: openReception,
         endGame: endGame,
@@ -4557,4 +5097,5 @@
     };
 
     openTitleModal();
+    if (!ui.introSeen && !new URLSearchParams(window.location.search).has('skipintro')) openIntro(true);
 })();

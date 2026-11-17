@@ -21,6 +21,8 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const errors = [];
     page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('pageerror', e => errors.push('PAGEERROR ' + e.message));
+    // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
+    await page.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
     await page.goto(srv.url);
     const openModals = () => page.evaluate(() => Array.from(document.querySelectorAll('.modal-overlay'))
         .filter(m => !m.classList.contains('hidden')).map(m => m.id));
@@ -710,6 +712,8 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     const merr = [];
     mp.on('console', m => { if (m.type() === 'error') merr.push(m.text()); });
     mp.on('pageerror', e => merr.push('PAGEERROR ' + e.message));
+    // Testes fora do onboarding: a cutscene de 1ª visita já conta como vista.
+    await mp.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
     await mp.goto(srv.url);
     await mp.waitForTimeout(400);
     const mq = (fn, arg) => mp.evaluate(fn, arg);
@@ -895,6 +899,335 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'meta: localStorage corrompido volta ao padrão sem erro', (await metaNow()).credits === 0);
     check(vp, 'meta: console sem erros', merr.length === 0, merr.slice(0, 4));
     await mp.close();
+
+    // ================= ONBOARDING: CUTSCENE, TUTORIAL GUIADO, MANUAL "?" E DICAS =================
+    // Página nova sem nenhuma flag: é a 1ª visita de verdade.
+    const op = await browser.newPage({ viewport: size });
+    const oerr = [];
+    op.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') oerr.push(m.type() + ': ' + m.text()); });
+    op.on('pageerror', e => oerr.push('PAGEERROR ' + e.message));
+    await op.goto(srv.url);
+    await op.waitForTimeout(500);
+    const oq = (fn, arg) => op.evaluate(fn, arg);
+    const ow = ms => op.waitForTimeout(ms);
+    const noOverflow = () => oq(() => {
+        const d = document.documentElement;
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth;
+    });
+    const introNow = () => oq(() => window.__hcDebug.intro);
+    const stage = () => oq(() => document.getElementById('tutorial-coach').dataset.stage);
+    const spotIds = () => oq(() => Array.from(document.querySelectorAll('.tut-spot')).map(el => el.id ||
+        (el.dataset.card || (el.closest('#hand-grid') ? 'hand:' + window.__hcDebug.state.hand[Array.from(el.parentNode.children).indexOf(el)] : el.className))));
+
+    // --- Cutscene: abre sozinha, digita, avança e desenha pixel art no canvas ---
+    const i0 = await introNow();
+    const canvasDrawn = await oq(() => {
+        const c = document.getElementById('intro-canvas');
+        const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        const colors = new Set();
+        for (let i = 0; i < px.length; i += 4 * 97) colors.add(px[i] + ',' + px[i + 1] + ',' + px[i + 2]);
+        return colors.size;
+    });
+    check(vp, 'intro: abre sozinha na 1ª visita com a cena 1 desenhada', i0.open && i0.scene === 0 && canvasDrawn > 8 &&
+        await oq(() => document.getElementById('intro-title').textContent === 'Só mais uma planilha'), { i0, canvasDrawn });
+    await ow(300);
+    const typing = await oq(() => document.getElementById('intro-text').textContent.length);
+    await op.click('#btn-intro-next');
+    const full = await oq(() => document.getElementById('intro-text').textContent);
+    check(vp, 'intro: texto digitado aos poucos e completado no 1º clique', typing > 0 && typing < full.length &&
+        full.indexOf('Só mais um dia') > 0, { typing });
+    await op.click('#btn-intro-next');
+    await ow(200);
+    const i1 = await introNow();
+    await op.click('#btn-intro-next');
+    await op.click('#btn-intro-next');
+    await ow(200);
+    const i2 = await introNow();
+    check(vp, 'intro: Avançar passa de cena (1 → 2 → 3) sem overflow', i1.scene === 1 && i2.scene === 2 &&
+        await oq(() => document.getElementById('intro-step').textContent === '3/4') && await noOverflow(), { i1, i2 });
+    await op.screenshot({ path: 'e2e-' + vp + '-intro.png' });
+    check(vp, 'intro: Pular sempre visível', await oq(() => {
+        const b = document.getElementById('btn-intro-skip').getBoundingClientRect();
+        return b.width > 0 && b.bottom <= innerHeight;
+    }));
+    await op.click('#btn-intro-skip');
+    await ow(200);
+    const choice = await oq(() => ({
+        visible: !document.getElementById('intro-choice').classList.contains('hidden'),
+        scene: window.__hcDebug.intro.scene,
+        saved: JSON.parse(localStorage.getItem('hc_ui_v1') || '{}').introSeen === true,
+        tut: document.getElementById('btn-intro-tutorial').textContent
+    }));
+    check(vp, 'intro: Pular leva à cena 4 e oferece Tutorial (Recomendado) ou Ir Direto; introSeen salvo',
+        choice.visible && choice.scene === 3 && choice.saved && /RECOMENDADO/.test(choice.tut), choice);
+
+    // --- Tutorial guiado: Passo 1 ao 4 ---
+    await op.click('#btn-intro-tutorial');
+    await ow(600);
+    check(vp, 'tutorial: começa com card e cartão-guia, intro fechada', await oq(() => {
+        const s = window.__hcDebug.state;
+        return !!s.tutorial && !window.__hcDebug.intro.open && !document.getElementById('tutorial-coach').classList.contains('hidden') &&
+            document.getElementById('narrative-tag').textContent.indexOf('TUTORIAL') === 0;
+    }));
+    await ow(300);
+    check(vp, 'tutorial: spotlight no botão de continuar', (await spotIds()).includes('btn-narrative-continue'));
+    await op.click('#btn-narrative-continue');
+    await ow(600);
+    const p1 = { stage: await stage(), spots: await spotIds() };
+    check(vp, 'Passo 1: movimento e minimapa destacados', p1.stage === 'explore1' && p1.spots.includes('btn-move-fwd') &&
+        p1.spots.includes('minimap-canvas') && await noOverflow(), p1);
+    await op.screenshot({ path: 'e2e-' + vp + '-tutorial-1.png' });
+    await op.keyboard.press('ArrowUp');
+    await op.waitForFunction(() => window.__hcDebug.state.mode === 'combat', null, { timeout: 10000 });
+    await ow(600);
+    const p2a = { stage: await stage(), spots: await spotIds(), aggro: await oq(() => window.__hcDebug.state.currentEncDef.tutorialStep) };
+    check(vp, 'Passo 1: um passo à frente e o aggro por linha de visão inicia o combate', p2a.aggro === 2, p2a);
+    check(vp, 'Passo 2: destaca a carta de custo 0', p2a.stage === 'combo' && JSON.stringify(p2a.spots) === '["hand:golpe_furtivo"]', p2a);
+    await op.click('#hand-grid .card-btn.tut-spot');
+    await op.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(400);
+    const p2b = await spotIds();
+    check(vp, 'Passo 2: depois destaca a de custo 1', JSON.stringify(p2b) === '["hand:mordida_ferro"]', p2b);
+    await op.click('#hand-grid .card-btn.tut-spot');
+    await op.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(400);
+    const p2c = { combo: await oq(() => window.__hcDebug.state.comboCount), spots: await spotIds() };
+    check(vp, 'Passo 2: escada 0 → 1 vira x2 e destaca mini-pilha + Jogar Tudo', p2c.combo === 1 &&
+        p2c.spots.includes('combo-chain') && (p2c.spots.includes('btn-play-all') || p2c.spots.includes('btn-end-turn')), p2c);
+    await op.screenshot({ path: 'e2e-' + vp + '-tutorial-2.png' });
+    const finishCombat = async () => {
+        for (let i = 0; i < 80; i++) {
+            const c = await oq(() => {
+                const s = window.__hcDebug.state;
+                return { mode: s.mode, busy: s.busy || s.autoPlaying, pa: !document.getElementById('btn-play-all').disabled };
+            });
+            if (c.mode !== 'combat') return true;
+            if (c.busy) { await ow(200); continue; }
+            await op.click(c.pa ? '#btn-play-all' : '#btn-end-turn');
+            await ow(400);
+        }
+        return false;
+    };
+    check(vp, 'Passo 2: Jogar Tudo / Fim do Turno encerram a luta', await finishCombat());
+    await op.waitForFunction(() => window.__hcDebug.state.mode === 'explore' && !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(500);
+    check(vp, 'Passo 3: guia até o próximo grupo', await stage() === 'explore2');
+    const walkTo = async (tx, ty) => {
+        for (let i = 0; i < 120; i++) {
+            const r = await op.evaluate(([x0, y0]) => {
+                const h = window.__hcDebug;
+                const s = h.state;
+                const D = window.GameData;
+                if (s.mode !== 'explore' || h.activeModal) return s.mode;
+                if (s.busy) return 'busy';
+                const L = h.getFloor().layout;
+                const DX = [0, 1, 0, -1];
+                const DY = [-1, 0, 1, 0];
+                const start = s.player.x + ',' + s.player.y;
+                if (start === x0 + ',' + y0) return 'arrived';
+                const prev = new Map([[start, null]]);
+                const q = [[s.player.x, s.player.y]];
+                let found = null;
+                while (q.length && !found) {
+                    const [cx, cy] = q.shift();
+                    for (let d = 0; d < 4; d++) {
+                        const x = cx + DX[d];
+                        const y = cy + DY[d];
+                        const k = x + ',' + y;
+                        if (prev.has(k) || !D.isWalkableTile(L, x, y)) continue;
+                        prev.set(k, cx + ',' + cy);
+                        if (x === x0 && y === y0) { found = k; break; }
+                        q.push([x, y]);
+                    }
+                }
+                if (!found) return 'nopath';
+                let node = found;
+                while (prev.get(node) !== start) node = prev.get(node);
+                const [nx, ny] = node.split(',').map(Number);
+                const want = DX.findIndex((dx, d) => s.player.x + dx === nx && s.player.y + DY[d] === ny);
+                if (want !== s.player.dir) {
+                    const delta = (want - s.player.dir + 4) % 4;
+                    h.turnPlayer(delta === 3 ? -1 : 1);
+                    return 'turn';
+                }
+                h.moveRelative(1, 0);
+                return 'move';
+            }, [tx, ty]);
+            if (r === 'combat' || r === 'modal' || r === 'arrived' || r === 'nopath') return r;
+            await ow(r === 'busy' ? 200 : 90);
+        }
+        return 'timeout';
+    };
+    const enc2 = await oq(() => { const e = window.__hcDebug.state.encounters.find(x => x.alive); return [e.x, e.y]; });
+    const walked = await walkTo(enc2[0], enc2[1]);
+    await op.waitForFunction(() => window.__hcDebug.state.mode === 'combat' && !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(500);
+    const p3a = { walked, stage: await stage(), spots: await spotIds(), enemies: await oq(() => window.__hcDebug.state.enemies.map(e => [e.kind, e.col, e.row, e.hasIntent])) };
+    check(vp, 'Passo 3: 2 na frente com ATK + 1 na retaguarda; destaca a Égide (Escudo + Knockback)',
+        p3a.walked === 'combat' && p3a.stage === 'defense' && JSON.stringify(p3a.spots) === '["hand:escudo_burocratico"]' &&
+        p3a.enemies.filter(e => e[2] === 0 && e[3]).length === 2 && p3a.enemies.some(e => e[2] === 1), p3a);
+    await op.click('#hand-grid .card-btn.tut-spot');
+    await op.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(400);
+    const p3b = { shield: await oq(() => window.__hcDebug.state.shield), spots: await spotIds() };
+    check(vp, 'Passo 3: Escudo ganho e destaque passa para a Lança de Geada (Freeze)', p3b.shield > 0 &&
+        JSON.stringify(p3b.spots) === '["hand:lanca_geada"]', p3b);
+    await op.click('#hand-grid .card-btn.tut-spot');
+    await op.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(400);
+    const p3c = { frozen: await oq(() => window.__hcDebug.state.enemies.some(e => e.frost > 0)), spots: await spotIds() };
+    check(vp, 'Passo 3: Gelo aplicado e destaque no Chicote (frente)', p3c.frozen && JSON.stringify(p3c.spots) === '["hand:chicote_dados"]', p3c);
+    await op.click('#hand-grid .card-btn.tut-spot');
+    await op.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 10000 });
+    await ow(500);
+    const p3d = await oq(() => {
+        const s = window.__hcDebug.state;
+        return { specter: s.enemies.filter(e => e.kind === 'specter').map(e => [e.row, e.hp > 0]), title: document.getElementById('coach-title').textContent };
+    });
+    check(vp, 'Passo 3: morto o da frente, a retaguarda avança', JSON.stringify(p3d.specter) === '[[0,true]]' &&
+        p3d.title === 'A retaguarda avançou!', p3d);
+    await op.screenshot({ path: 'e2e-' + vp + '-tutorial-3.png' });
+    check(vp, 'Passo 3: luta encerrada', await finishCombat());
+
+    // --- Passo 4: Level Up, baú, gema e Arcana ---
+    await op.waitForFunction(() => !document.getElementById('levelup-modal').classList.contains('hidden'), null, { timeout: 15000 });
+    await ow(500);
+    const p4a = { stage: await stage(), spots: await spotIds() };
+    check(vp, 'Passo 4: Level Up destaca Re-rolar, Pular e Banir', p4a.stage === 'levelup' &&
+        ['btn-lvl-reroll', 'btn-lvl-skip', 'btn-lvl-banish'].every(id => p4a.spots.includes(id)) && await noOverflow(), p4a);
+    await op.screenshot({ path: 'e2e-' + vp + '-tutorial-4.png' });
+    const rr = await oq(() => window.__hcDebug.state.rerollsLeft);
+    await op.click('#btn-lvl-reroll');
+    await ow(200);
+    check(vp, 'Passo 4: Re-rolar gasta 1 uso', await oq(r => window.__hcDebug.state.rerollsLeft === r - 1, rr));
+    await op.click('#reward-grid .reward-card');
+    await ow(600);
+    for (let i = 0; i < 10 && (await oq(() => window.__hcDebug.activeModal && window.__hcDebug.activeModal.type)); i++) {
+        await oq(() => { const b = document.querySelector('#gem-modal:not(.hidden) .gem-target-card, #levelup-modal:not(.hidden) .reward-card'); if (b) b.click(); });
+        await ow(500);
+    }
+    check(vp, 'Passo 4: guia até o baú', await stage() === 'chest');
+    const chest = await oq(() => {
+        const L = window.__hcDebug.getFloor().layout;
+        for (let y = 0; y < L.length; y++) { const x = L[y].indexOf('C'); if (x >= 0) return [x, y]; }
+        return null;
+    });
+    await walkTo(chest[0], chest[1]);
+    await op.waitForFunction(() => !document.getElementById('gem-modal').classList.contains('hidden'), null, { timeout: 10000 });
+    await ow(500);
+    const p4b = { stage: await stage(), spot: await oq(() => !!document.querySelector('#gem-targets .gem-target-card.tut-spot')) };
+    check(vp, 'Passo 4: baú abre a gema com destaque na carta-alvo', p4b.stage === 'gem' && p4b.spot, p4b);
+    await op.click('#gem-targets .gem-target-card.tut-spot');
+    await op.waitForFunction(() => !document.getElementById('arcana-modal').classList.contains('hidden'), null, { timeout: 10000 });
+    await ow(500);
+    check(vp, 'Passo 4: gema encaixada e Arcana destacada', await oq(() => Object.keys(window.__hcDebug.state.cardGems).length > 0) &&
+        await stage() === 'arcana' && (await spotIds()).includes('arcana-choices'));
+    await op.click('#arcana-modal .arcana-choice');
+    await op.waitForFunction(() => document.getElementById('narrative-tag').textContent === 'TUTORIAL CONCLUÍDO' &&
+        !document.getElementById('narrative-modal').classList.contains('hidden'), null, { timeout: 10000 });
+    await op.click('#btn-narrative-continue');
+    await ow(600);
+    const done = await oq(() => ({
+        title: !document.getElementById('title-modal').classList.contains('hidden'),
+        tut: !!window.__hcDebug.state.tutorial,
+        coach: document.getElementById('tutorial-coach').classList.contains('hidden'),
+        spots: document.querySelectorAll('.tut-spot').length,
+        ui: JSON.parse(localStorage.getItem('hc_ui_v1') || '{}'),
+        meta: localStorage.getItem('hc_meta_v1'),
+        deck: window.__hcDebug.state.deck.length,
+        level: window.__hcDebug.state.level
+    }));
+    check(vp, 'tutorial: concluído volta limpo à Recepção sem gravar nada no save da meta', done.title && !done.tut && done.coach &&
+        done.spots === 0 && done.ui.tutorialDone === true && done.meta === null && done.level === 1 && done.deck > 7, done);
+
+    // --- Rever Intro (reprise) e Sair do Tutorial ---
+    await op.reload();
+    await ow(600);
+    check(vp, 'intro: não reabre depois de vista', !(await introNow()).open);
+    await op.click('#btn-replay-intro');
+    await ow(300);
+    const replay = await oq(() => ({ open: window.__hcDebug.intro.open, direct: document.getElementById('btn-intro-direct').textContent }));
+    await op.keyboard.press('Escape');
+    await ow(200);
+    await op.click('#btn-intro-direct');
+    await ow(300);
+    check(vp, 'intro: Rever Intro abre; Esc pula; "Voltar à Recepção" não inicia a run', replay.open && replay.direct === 'VOLTAR À RECEPÇÃO' &&
+        await oq(() => !window.__hcDebug.intro.open && !document.getElementById('title-modal').classList.contains('hidden')), replay);
+    await op.click('#btn-open-tutorial');
+    await ow(500);
+    const inTut = await oq(() => !!window.__hcDebug.state.tutorial);
+    await op.click('#btn-tutorial-exit');
+    await ow(400);
+    check(vp, 'tutorial: Sair do Tutorial volta à Recepção', inTut && await oq(() => !window.__hcDebug.state.tutorial &&
+        !document.getElementById('title-modal').classList.contains('hidden') && document.getElementById('tutorial-coach').classList.contains('hidden')));
+
+    // --- Manual do Expediente: 5 abas, rolagem só dentro do conteúdo ---
+    await op.click('#btn-title-codex');
+    await ow(300);
+    const tabs = await oq(() => Array.from(document.querySelectorAll('#codex-tabs .codex-tab')).map(b => b.dataset.tab));
+    const tabInfo = [];
+    for (const id of tabs) {
+        await op.click('.codex-tab[data-tab="' + id + '"]');
+        await ow(120);
+        tabInfo.push(await oq(t => {
+            const c = document.getElementById('codex-content');
+            const box = document.querySelector('.codex-box').getBoundingClientRect();
+            return { tab: c.dataset.tab === t, active: document.querySelector('.codex-tab.active').dataset.tab === t, chars: c.textContent.length,
+                scrolls: c.scrollHeight > c.clientHeight, inView: box.top >= 0 && box.bottom <= innerHeight };
+        }, id));
+    }
+    check(vp, 'Manual: 5 abas navegáveis, todas com conteúdo, dentro da tela', tabs.length === 5 &&
+        tabInfo.every(t => t.tab && t.active && t.chars > 400 && t.inView) && await noOverflow(), tabInfo);
+    check(vp, 'Manual: rolagem interna no conteúdo quando o texto é longo', tabInfo.some(t => t.scrolls));
+    const codexText = await oq(() => {
+        const D = window.GameData;
+        return ['Might', 'Amount', 'Area', 'Luck', 'Growth', 'Recovery', 'Revival', 'Curse', 'Knockback', 'Freeze', 'Burn', 'Return', 'Retain', 'Destroy', 'Custo X',
+            'Overkill', 'Retaguarda', 'Almoxarifado', 'Grafia', 'Curadoria', 'Hora Extra', D.FLOORS[4].bossName]
+            .filter(term => !window.GameCodex.build(D, window.GameMeta).some(t => t.html.toLowerCase().includes(term.toLowerCase())));
+    });
+    check(vp, 'Manual: cobre atributos, keywords, inimigos, chefes e Recepção', codexText.length === 0, codexText);
+    await op.screenshot({ path: 'e2e-' + vp + '-manual.png' });
+    await op.keyboard.press('Escape');
+    await ow(200);
+    check(vp, 'Manual: Esc fecha', await oq(() => !window.__hcDebug.codexOpen && document.getElementById('codex-modal').classList.contains('hidden')));
+
+    // --- Dicas de 1ª vez: aparecem 1x, não bloqueiam e ficam salvas ---
+    await op.click('#btn-start-daydream');
+    await ow(300);
+    await op.click('#btn-narrative-continue');
+    await ow(400);
+    await op.locator('#arcana-modal .arcana-choice').first().click();
+    await ow(400);
+    await op.click('#btn-codex');
+    await ow(200);
+    check(vp, 'Manual: botão ? do topo abre durante a run e pausa a exploração', await oq(() => window.__hcDebug.codexOpen));
+    await op.keyboard.press('Escape');
+    await oq(() => {
+        const h = window.__hcDebug;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        h.state.hand = ['moeda_destino', 'mordida_ferro'];
+        h.state.handTemp = [false, false];
+        h.state.handReturnCounts = [0, 0];
+        h.state.handCostMods = [0, 0];
+        h.render();
+    });
+    await ow(300);
+    const tip = await oq(() => {
+        const card = document.getElementById('tip-card');
+        return { visible: !card.classList.contains('hidden'), id: card.dataset.tip, pe: getComputedStyle(card).pointerEvents,
+            saved: JSON.parse(localStorage.getItem('hc_ui_v1')).tips, modals: Array.from(document.querySelectorAll('.modal-overlay')).filter(m => !m.classList.contains('hidden')).length };
+    });
+    // A mão inicial real do encontro já pode ter trazido outra palavra-chave: as dicas saem uma por vez, em fila.
+    check(vp, 'dica: Wild entra na fila de dicas (1 cartão por vez, sem bloquear nem abrir modal)', tip.visible && tip.id === tip.saved[0] &&
+        tip.pe === 'none' && tip.saved.includes('wild') && tip.modals === 0, tip);
+    const again = await oq(() => {
+        window.__hcDebug.showTip('wild');
+        window.__hcDebug.showTip('burn');
+        return JSON.parse(localStorage.getItem('hc_ui_v1')).tips;
+    });
+    check(vp, 'dica: a mesma dica não repete', again.filter(t => t === 'wild').length === 1 && again.includes('burn'), again);
+    check(vp, 'onboarding: 0 overflow e 0 erros/avisos no console', await noOverflow() && oerr.length === 0, oerr.slice(0, 4));
+    await op.close();
 }
 await browser.close();
 srv.close();
