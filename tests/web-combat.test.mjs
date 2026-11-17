@@ -12,7 +12,7 @@ test('mapas continuam válidos', () => {
     assert.deepEqual([...D.validateFloors()], []);
 });
 
-test('combo: sequência estrita +1 e Wild reinicia a escada em 0', () => {
+test('combo: sequência estrita +1; depois de um Wild a próxima pode custar 0 ou 1', () => {
     const cost = n => ({ cost: n, type: 'atk' });
     const wild = { cost: 0, type: 'wild', isWild: true };
     assert.equal(D.canCardCombo(cost(1), null), false, '1ª carta só define a cadeia');
@@ -22,6 +22,12 @@ test('combo: sequência estrita +1 e Wild reinicia a escada em 0', () => {
     assert.equal(D.canCardCombo(wild, 2), true);
     assert.equal(D.getComboCostAfter(wild), -1);
     assert.equal(D.canCardCombo(cost(0), D.getComboCostAfter(wild)), true);
+    assert.equal(D.canCardCombo(cost(1), D.getComboCostAfter(wild)), true, 'Wild -> 1');
+    assert.equal(D.canCardCombo(cost(2), D.getComboCostAfter(wild)), false, 'Wild -> 2 pula degrau');
+    assert.equal(D.canCardCombo(cost(2), 1), true, 'Wild -> 1 -> 2 segue a escada');
+    assert.deepEqual([...D.nextComboCosts(D.WILD_STEP, false)], [0, 1]);
+    assert.deepEqual([...D.nextComboCosts(2, true)], [3, 1]);
+    assert.deepEqual([...D.nextComboCosts(null, false)], []);
     assert.equal(D.canCardCombo(cost(1), 0, 1), false, 'Confusão +1 vira custo 2');
     assert.equal(D.canCardCombo({ cost: 1, type: 'curse' }, 0), false);
     assert.equal(D.getComboMult(2), 3);
@@ -64,6 +70,14 @@ test('chefes: 3 fases de HP e dados consistentes', () => {
             if (ph.junk) assert.ok(D.CARDS[ph.junk], ph.junk);
         });
     });
+});
+
+test('ilustrações: fases 2 a 5 e epílogo apontam para PNGs existentes', async () => {
+    const { existsSync } = await import('node:fs');
+    const arts = D.FLOORS.filter(fl => fl.floor >= 2).map(fl => fl.art).concat(D.EPILOGUE.art);
+    assert.equal(arts.length, 5);
+    arts.forEach(a => assert.ok(a && existsSync(new URL('../docs/' + a, import.meta.url)), String(a)));
+    assert.equal(D.FLOORS[0].art, undefined, 'a Fase 1 já é apresentada pela cutscene');
 });
 
 test('baralho inicial e recompensas só referenciam cartas existentes', () => {

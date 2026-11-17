@@ -3864,3 +3864,171 @@ body.daydream-transition .viewport-frame {
         font-size: 13px;
     }
 }
+
+/* ===== ILUSTRAÇÕES DAS TRANSIÇÕES DE FASE E DO EPÍLOGO (18:00) ===== */
+.narrative-box.has-art,
+#end-box.has-art {
+    width: min(760px, 100%);
+}
+
+.art-stage {
+    position: relative;
+    width: min(100%, calc(36dvh * 16 / 9));
+    aspect-ratio: 16 / 9;
+    margin: 0 auto 8px;
+    overflow: hidden;
+    border: 2px solid #090510;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.55);
+    background: linear-gradient(180deg, #1c1630 0%, #05040a 100%);
+    flex-shrink: 0;
+}
+
+/* Reserva por bioma, caso a ilustração não carregue. */
+.art-stage.biome-city { background: linear-gradient(180deg, #0b1220 0%, #27324a 100%); }
+.art-stage.biome-snow { background: linear-gradient(180deg, #0f1f40 0%, #9fc3e8 100%); }
+.art-stage.biome-dungeon { background: linear-gradient(180deg, #120d08 0%, #4a3220 100%); }
+.art-stage.biome-abyss { background: radial-gradient(circle at 60% 40%, #4b2c8a 0%, #05030c 75%); }
+.art-stage.biome-epilogue { background: linear-gradient(180deg, #4a2c6e 0%, #f08f3c 70%, #3a2c40 100%); }
+
+.art-stage img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    image-rendering: pixelated;
+    transform-origin: 55% 50%;
+    animation: art-kenburns 14s ease-in-out infinite alternate;
+    will-change: transform;
+}
+
+.art-stage.img-failed img {
+    visibility: hidden;
+}
+
+.art-particles {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    pointer-events: none;
+}
+
+@keyframes art-kenburns {
+    from { transform: scale(1) translate(0, 0); }
+    to { transform: scale(1.07) translate(-1.2%, -0.8%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .art-stage img {
+        animation: none;
+    }
+}
+
+@media (max-width: 680px) {
+    .art-stage {
+        width: min(100%, calc(30dvh * 16 / 9));
+        margin-bottom: 6px;
+    }
+
+    .narrative-box.has-art h2 {
+        font-size: 22px;
+    }
+
+    .narrative-box.has-art .narrative-lines p {
+        font-size: 14px;
+        margin-bottom: 5px;
+    }
+}
+
+/* ===== COMBO E EVOLUÇÃO CLAROS NA MÃO ===== */
+/* Toda carta que continua a cadeia: borda dourada pulsante + selo COMBO xN! no canto. */
+.card-btn.combo-next:not(:disabled) {
+    animation: combo-next-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes combo-next-pulse {
+    0%, 100% { box-shadow: inset 0 0 0 3px #ffd147, 0 0 10px rgba(255, 209, 71, 0.55), 0 7px 0 var(--ink); }
+    50% { box-shadow: inset 0 0 0 3px #fff3b0, 0 0 22px rgba(255, 209, 71, 0.95), 0 7px 0 var(--ink); }
+}
+
+.combo-seal {
+    position: absolute;
+    top: -9px;
+    left: 50%;
+    transform: translateX(-50%) rotate(-3deg);
+    z-index: 3;
+    padding: 1px 6px;
+    background: linear-gradient(180deg, #ffe066 0%, #f59e0b 100%);
+    color: #1c1002;
+    border: 2px solid #08060d;
+    font-size: 13px;
+    line-height: 1.05;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.combo-seal.start {
+    background: linear-gradient(180deg, #e2e8f0 0%, #94a3b8 100%);
+    color: #0f172a;
+}
+
+.card-btn:disabled .combo-seal {
+    filter: grayscale(0.7);
+    opacity: 0.7;
+}
+
+/* Números que crescem com o combo, na descrição da carta. */
+.combo-val {
+    color: #ffd147;
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba(255, 209, 71, 0.6);
+}
+
+/* Evolução (estilo Vampire Survivors): o que falta ou "PRONTA P/ EVOLUIR!". */
+.evo-badge {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    z-index: 2;
+    padding: 0 3px;
+    background: rgba(12, 10, 20, 0.88);
+    border: 1px solid #6b7280;
+    color: #cbd5e1;
+    font-size: 10px;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+.evo-badge.ready {
+    border-color: #4ade80;
+    color: #062b12;
+    background: linear-gradient(90deg, #86efac 0%, #fde68a 100%);
+    animation: evo-ready 1.1s ease-in-out infinite;
+}
+
+@keyframes evo-ready {
+    0%, 100% { box-shadow: 0 0 4px rgba(74, 222, 128, 0.6); }
+    50% { box-shadow: 0 0 12px rgba(253, 230, 138, 0.95); }
+}
+
+.card-btn.evo-ready {
+    outline: 2px solid #4ade80;
+    outline-offset: -5px;
+}
+
+@media (max-width: 680px) {
+    .combo-seal {
+        font-size: 10px;
+        padding: 0 3px;
+        top: -7px;
+    }
+
+    .evo-badge {
+        font-size: 8px;
+    }
+}

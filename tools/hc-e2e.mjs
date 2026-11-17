@@ -143,6 +143,66 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await play('grito_guerra');
     check(vp, 'combo: pular custo quebra a cadeia', await play('chicote_dados') === 1);
 
+    // --- HUD do combo: selo dourado em TODA carta que continua a cadeia, ganho do combo em dourado ---
+    const seals = () => st(() => (window.__hcDebug.render(), window.__hcDebug.state.hand).map((id, i) => {
+        const b = document.querySelectorAll('#hand-grid .card-btn')[i];
+        const seal = b.querySelector('.combo-seal');
+        return { id, seal: seal ? seal.textContent : '', start: !!(seal && seal.classList.contains('start')), next: b.classList.contains('combo-next'),
+            gold: Array.from(b.querySelectorAll('.card-desc .combo-val')).map(x => x.textContent) };
+    }));
+    await arena(['moeda_destino', 'golpe_furtivo', 'mordida_ferro', 'chicote_dados']);
+    const sStart = await seals();
+    check(vp, 'combo HUD: no início da cadeia, Wild e custo 0 mostram "▶ INICIA" (sem x2)',
+        sStart.filter(c => c.start).map(c => c.id).join() === 'moeda_destino,golpe_furtivo' && sStart.every(c => !c.next), sStart);
+    await play('moeda_destino');
+    const sWild = await seals();
+    const byId = (list, id) => list.find(c => c.id === id);
+    check(vp, 'combo HUD: depois do Wild, custo 0 E custo 1 ganham borda pulsante e "COMBO x2!"; custo 2 não',
+        byId(sWild, 'golpe_furtivo').seal === 'COMBO x2!' && byId(sWild, 'golpe_furtivo').next &&
+        byId(sWild, 'mordida_ferro').seal === 'COMBO x2!' && byId(sWild, 'mordida_ferro').next &&
+        byId(sWild, 'chicote_dados').seal === '' && !byId(sWild, 'chicote_dados').next, sWild);
+    check(vp, 'combo HUD: o ganho do combo aparece em dourado na descrição (2 adagas, não 1)',
+        JSON.stringify(byId(sWild, 'golpe_furtivo').gold) === '["2"]' && byId(sWild, 'mordida_ferro').gold.includes('2'), sWild);
+    check(vp, 'combo: Wild -> 1 continua a cadeia (x2)', await play('mordida_ferro') === 2);
+    const sAfter = await seals();
+    check(vp, 'combo HUD: Wild -> 1 -> 2 destaca o Chicote com "COMBO x3!"', byId(sAfter, 'chicote_dados').seal === 'COMBO x3!' &&
+        await st(() => document.getElementById('combo-bonus').textContent === 'PRÓX: C2 ou WILD'), sAfter);
+    check(vp, 'combo: Wild -> 1 -> 2 chega a x3', await play('chicote_dados') === 3);
+    await arena(['moeda_destino', 'chicote_dados']);
+    await play('moeda_destino');
+    check(vp, 'combo: Wild -> 2 ainda quebra (pula degrau)', await play('chicote_dados') === 1);
+    check(vp, 'combo HUD: rótulo do próximo custo depois de um Wild', await st(() => {
+        const h = window.__hcDebug;
+        h.state.lastComboCost = window.GameData.WILD_STEP;
+        h.render();
+        return document.getElementById('combo-bonus').textContent === 'PRÓX: C0/C1 ou WILD';
+    }));
+
+    // --- Evolução estilo Vampire Survivors: o que falta, e "PRONTA P/ EVOLUIR!" ---
+    const evoBadge = () => st(() => {
+        const s = window.__hcDebug.state;
+        const b = document.querySelectorAll('#hand-grid .card-btn')[s.hand.indexOf('mordida_ferro')];
+        const e = b.querySelector('.evo-badge');
+        return { text: e ? e.textContent : '', ready: !!(e && e.classList.contains('ready')), glow: b.classList.contains('evo-ready'), title: e ? e.title : '' };
+    });
+    const evoSave = await st(() => JSON.stringify({ r: window.__hcDebug.state.relics, l: window.__hcDebug.state.cardLevels }));
+    await st(() => { const s = window.__hcDebug.state; s.relics = []; s.cardLevels = {}; });
+    await arena(['mordida_ferro', 'golpe_furtivo']);
+    await st(() => window.__hcDebug.render());
+    const evo0 = await evoBadge();
+    await st(() => { const s = window.__hcDebug.state; s.relics = ['rel_grampos']; window.__hcDebug.render(); });
+    const evo1 = await evoBadge();
+    await st(() => { const s = window.__hcDebug.state; s.cardLevels.mordida_ferro = 2; window.__hcDebug.render(); });
+    const evo2 = await evoBadge();
+    check(vp, 'evolução: selo mostra Relíquia e Nível faltando, depois só o Nível, e brilha PRONTA P/ EVOLUIR!',
+        evo0.text === 'EVO: falta Pedra de Amolar + Nv.MÁX' && !evo0.ready && /Dança das Lâminas/.test(evo0.title) &&
+        evo1.text === 'EVO: falta Nv.MÁX' && evo2.text === 'PRONTA P/ EVOLUIR!' && evo2.ready && evo2.glow, { evo0, evo1, evo2 });
+    check(vp, 'evolução: carta sem evolução não tem selo', await st(() => {
+        const s = window.__hcDebug.state;
+        return !document.querySelectorAll('#hand-grid .card-btn')[s.hand.indexOf('golpe_furtivo')].querySelector('.evo-badge');
+    }));
+    await page.evaluate(v => { const o = JSON.parse(v); window.__hcDebug.state.relics = o.r; window.__hcDebug.state.cardLevels = o.l; }, evoSave);
+
     // --- Gemas em combate ---
     await st(() => { const h = window.__hcDebug; h.state.cardGems = {}; h.socketGem('chicote_dados', 'mana_minus'); });
     await arena(['grito_guerra', 'chicote_dados']);
@@ -1277,11 +1337,90 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'onboarding: 0 overflow e 0 erros/avisos no console', await noOverflow() && oerr.length === 0, oerr.slice(0, 4));
     await op.close();
 
+    // --- Ilustrações 16:9 nas transições das Fases 2 a 5 e no epílogo das 18:00 ---
+    const ap = await browser.newPage({ viewport: size });
+    const aerr = [];
+    ap.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') aerr.push(m.type() + ': ' + m.text()); });
+    ap.on('pageerror', e => aerr.push('PAGEERROR ' + e.message));
+    await ap.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await ap.goto(srv.url);
+    await ap.waitForTimeout(400);
+    const aq = (fn, arg) => ap.evaluate(fn, arg);
+    const artInfo = id => aq(stageId => {
+        const stage = document.getElementById(stageId);
+        const img = stage.querySelector('img');
+        const c = stage.querySelector('canvas');
+        const copy = document.createElement('canvas');
+        copy.width = c.width;
+        copy.height = c.height;
+        const cg = copy.getContext('2d', { willReadFrequently: true });
+        cg.drawImage(c, 0, 0);
+        const px = cg.getImageData(0, 0, copy.width, copy.height).data;
+        let lit = 0;
+        for (let i = 3; i < px.length; i += 4 * 13) if (px[i] > 0) lit++;
+        const r = stage.getBoundingClientRect();
+        const box = stage.closest('.modal-box');
+        const d = document.documentElement;
+        return {
+            visible: !stage.closest('.hidden'), src: img.getAttribute('src'), loaded: img.complete && img.naturalWidth > 0,
+            failed: stage.classList.contains('img-failed'), pixelated: getComputedStyle(img).imageRendering === 'pixelated',
+            anim: getComputedStyle(img).animationName, ratio: Math.round(r.width / r.height * 100) / 100, particles: lit,
+            fits: d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && box.scrollHeight <= box.clientHeight + 1 && r.bottom <= innerHeight
+        };
+    }, id);
+    await ap.click('#btn-start-daydream');
+    await ap.waitForTimeout(300);
+    check(vp, 'arte: a Fase 1 (já apresentada pela cutscene) não repete ilustração', (await artInfo('narrative-art')).visible === false);
+    await ap.click('#btn-narrative-continue');
+    await ap.waitForTimeout(400);
+    await ap.locator('#arcana-modal .arcana-choice').first().click();
+    await ap.waitForTimeout(400);
+    const ARTS = { 2: 'transicao_cidade', 3: 'transicao_neve', 4: 'transicao_dungeon', 5: 'transicao_abismo' };
+    for (const n of [2, 3, 4, 5]) {
+        await aq(f => window.__hcDebug.showFloorTrigger(f), n);
+        await ap.waitForFunction(() => {
+            const img = document.querySelector('#narrative-art img');
+            return !document.getElementById('narrative-modal').classList.contains('hidden') && img.complete && img.naturalWidth > 0;
+        }, null, { timeout: 15000 }).catch(() => {});
+        await ap.waitForTimeout(600);
+        const info = await artInfo('narrative-art');
+        check(vp, 'arte: Fase ' + n + ' entra com a ilustração 16:9 (Ken Burns + partículas, pixelada, sem scroll)',
+            info.visible && info.src === 'assets/intro/' + ARTS[n] + '.png' && info.loaded && !info.failed && info.pixelated &&
+            info.anim === 'art-kenburns' && Math.abs(info.ratio - 1.78) <= 0.02 && info.particles > 0 && info.fits, info);
+        if (n === 2) await ap.screenshot({ path: 'e2e-' + vp + '-arte-fase2.png' });
+        await ap.click('#btn-narrative-continue');
+        await ap.waitForTimeout(400);
+    }
+    await aq(() => window.__hcDebug.endGame(true));
+    await ap.waitForFunction(() => {
+        const img = document.querySelector('#end-art img');
+        return img.complete && img.naturalWidth > 0;
+    }, null, { timeout: 15000 }).catch(() => {});
+    await ap.waitForTimeout(600);
+    const fin = await artInfo('end-art');
+    check(vp, 'arte: vitória das 18:00 mostra o epílogo ilustrado sem scroll', fin.visible && fin.src === 'assets/intro/epilogo_18h.png' &&
+        fin.loaded && fin.pixelated && fin.particles > 0 && fin.fits, fin);
+    await ap.screenshot({ path: 'e2e-' + vp + '-arte-18h.png' });
+    await ap.click('#btn-play-again');
+    await ap.waitForTimeout(400);
+    await ap.click('#btn-start-daydream');
+    await ap.waitForTimeout(300);
+    await ap.click('#btn-narrative-continue');
+    await ap.waitForTimeout(400);
+    await ap.locator('#arcana-modal .arcana-choice').first().click();
+    await ap.waitForTimeout(300);
+    await aq(() => window.__hcDebug.endGame(false));
+    await ap.waitForTimeout(300);
+    check(vp, 'arte: derrota (Burnout) não usa a ilustração das 18:00', (await artInfo('end-art')).visible === false);
+    check(vp, 'arte: 0 erros/avisos no console', aerr.length === 0, aerr.slice(0, 4));
+    await ap.close();
+
     // --- Cutscene com uma ilustração que falha: degradê de reserva, sem travar e sem erro de script ---
     const fp = await browser.newPage({ viewport: size });
     const ferr = [];
     fp.on('pageerror', e => ferr.push('PAGEERROR ' + e.message));
     await fp.route('**/assets/intro/cena3.png', route => route.abort());
+    await fp.route('**/assets/intro/transicao_dungeon.png', route => route.abort());
     await fp.goto(srv.url);
     await fp.waitForTimeout(500);
     for (let k = 0; k < 8 && await fp.evaluate(() => window.__hcDebug.intro.scene !== 2); k++) await fp.click('#btn-intro-next');
@@ -1299,6 +1438,23 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'intro: imagem que falha usa o fundo de reserva; Pular segue para a cena 5 normalmente',
         broken.scene === 2 && broken.failed && /gradient/.test(broken.bg) && broken.status[2] === 'failed' &&
         skipped.scene === 4 && !skipped.failed && skipped.choice && ferr.length === 0, { broken, skipped, ferr });
+    // Ilustração de transição que falha: card abre com o degradê do bioma e o jogo segue.
+    await fp.click('#btn-intro-direct');
+    await fp.waitForTimeout(400);
+    await fp.click('#btn-narrative-continue');
+    await fp.waitForTimeout(400);
+    await fp.locator('#arcana-modal .arcana-choice').first().click();
+    await fp.waitForTimeout(300);
+    await fp.evaluate(() => window.__hcDebug.showFloorTrigger(4));
+    await fp.waitForTimeout(1200);
+    const brokenArt = await fp.evaluate(() => {
+        const stage = document.getElementById('narrative-art');
+        return { visible: !stage.closest('.hidden'), failed: stage.classList.contains('img-failed'), bg: getComputedStyle(stage).backgroundImage };
+    });
+    await fp.click('#btn-narrative-continue');
+    await fp.waitForTimeout(400);
+    check(vp, 'arte: transição sem imagem usa o degradê do bioma e o card fecha normalmente', brokenArt.visible && brokenArt.failed &&
+        /gradient/.test(brokenArt.bg) && await fp.evaluate(() => window.__hcDebug.state.mode === 'explore') && ferr.length === 0, { brokenArt, ferr });
     await fp.close();
 }
 await browser.close();

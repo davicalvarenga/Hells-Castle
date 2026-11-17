@@ -35,6 +35,13 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 - **Celular:** layout dedicado em retrato (`100dvh`, sem scroll), com cartas e botões dimensionados para toque.
 - **Modo Planilha:** tecla `P` ou o botão no canto superior direito.
 
+## Combo e Evolução na HUD
+
+- **Escada de combo:** cada carta encadeada custa exatamente 1 a mais que a anterior (0 → 1 → 2 → 3). **Wild** sempre comba e, depois dela, a próxima pode custar **0 ou 1** (Wild → 1 → 2 funciona).
+- **Destaque na mão:** toda carta que continua a cadeia ganha borda dourada pulsante e o selo **COMBO xN!** antes do clique; no início da cadeia, Wild e custo 0 mostram **▶ INICIA**. Os números que crescem com o combo (projéteis, dano, escudo...) aparecem em dourado na descrição.
+- **Evolução (estilo Vampire Survivors):** cartas que evoluem mostram o selo **EVO** com o que falta (Relíquia e/ou Nível MÁX); com tudo pronto, brilham **PRONTA P/ EVOLUIR!** (ou **PRONTA P/ FUSÃO!**).
+- **Ilustrações:** as Fases 2 a 5 abrem com uma ilustração 16:9 animada (Ken Burns + partículas) e a vitória das 18:00 mostra a volta para casa (`docs/assets/intro/transicao_*.png` e `epilogo_18h.png`), com fundo de reserva se alguma imagem faltar.
+
 ## Arsenal, Gemas e Eventos de Mapa
 
 - **Custo X:** *Explosão Total* gasta toda a Cafeína e multiplica o dano por X (X também é o degrau dela na escada de combo).

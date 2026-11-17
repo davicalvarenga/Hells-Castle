@@ -196,6 +196,8 @@
         if (lastComboCost === null || lastComboCost === undefined) return false;
         if (isWildCard(card)) return true;
         const cost = getEffectiveCost(card, costMod);
+        // Depois de um Wild (registra WILD_STEP) a escada reabre: custo 0 OU 1 continuam (Wild -> 1 -> 2).
+        if (lastComboCost === WILD_STEP) return cost === 0 || cost === 1;
         return cost - 1 === lastComboCost || (!!reverse && cost + 1 === lastComboCost);
     }
 
@@ -204,9 +206,19 @@
         return card && card.xCost ? Math.max(0, mana || 0) - (card.cost || 0) : 0;
     }
 
-    // Custo que a carta jogada registra na cadeia. Wild registra -1: a escada recomeça no custo 0.
+    // Custo que a carta jogada registra na cadeia. Wild registra WILD_STEP (-1): a próxima pode custar 0 ou 1.
+    const WILD_STEP = -1;
     function getComboCostAfter(card, costMod) {
-        return isWildCard(card) ? -1 : getEffectiveCost(card, costMod);
+        return isWildCard(card) ? WILD_STEP : getEffectiveCost(card, costMod);
+    }
+
+    // Custos que continuam a cadeia depois de `lastComboCost` (sem contar Wild, que sempre comba).
+    function nextComboCosts(lastComboCost, reverse) {
+        if (lastComboCost === null || lastComboCost === undefined) return [];
+        if (lastComboCost === WILD_STEP) return [0, 1];
+        const out = [lastComboCost + 1];
+        if (reverse && lastComboCost >= 1) out.push(lastComboCost - 1);
+        return out;
     }
 
     function getComboMult(comboCount) {
@@ -438,7 +450,7 @@
             damage: 5, baseAmount: 1, amountScalesWithCombo: true,
             shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_wild', sfx: 'card',
-            desc: 'Wild: sempre comba e reinicia a escada no custo 0. {HITS} runa(s) de {DMG} em coluna aleatória; 35% de quicar.'
+            desc: 'Wild: sempre comba; a próxima pode custar 0 ou 1. {HITS} runa(s) de {DMG} em coluna aleatória; 35% de quicar.'
         },
         atestado_arcano: {
             id: 'atestado_arcano',
@@ -448,7 +460,7 @@
             damage: 0, shield: 5, heal: 6, manaGain: 1, scalesWithCombo: true,
             knockback: false,
             icon: 'c_bless', sfx: 'shield',
-            desc: 'Wild: sempre comba e reinicia a escada no custo 0. Cura {HEAL} HP, +{SHIELD} Escudo (xCombo) e +1 Cafeína.'
+            desc: 'Wild: sempre comba; a próxima pode custar 0 ou 1. Cura {HEAL} HP, +{SHIELD} Escudo (xCombo) e +1 Cafeína.'
         },
         mordida_ferro: {
             id: 'mordida_ferro',
@@ -626,7 +638,7 @@
             icon: 'c_xburst', sfx: 'coffee',
             desc: 'Custo X: gasta TODA a Cafeína (X = {X}). Onda de {DMG} na frente (7 x X x Combo).'
         },
-        // ---------- WILD PURAS (w_*): sempre combam e reiniciam a escada no custo 0 ----------
+        // ---------- WILD PURAS (w_*): sempre combam; depois delas a próxima pode custar 0 ou 1 ----------
         w_asas: {
             id: 'w_asas',
             name: 'Asas do Devaneio',
@@ -796,7 +808,7 @@
         },
         // ---------- CARTAS DE CRAWLER (retrato do colega) ----------
         // Custo 0 (não rouba Cafeína do turno). Jogada, ativa o retrato por crawlerTurns turnos; enquanto ativo, cada carta jogada de um dos tipos
-        // em crawlerTrigger dispara crawlerFx. Wild: comba e reinicia a escada no custo 0.
+        // em crawlerTrigger dispara crawlerFx. Wild: comba; depois dela a próxima pode custar 0 ou 1.
         crawler_valter: {
             id: 'crawler_valter', name: 'Crachá: Valter', origin: 'Relatório Impecável',
             cost: 0, type: 'crawler', isWild: true, target: 'self', crawler: 'valter',
@@ -1655,6 +1667,7 @@
         },
         {
             floor: 2,
+            art: 'assets/intro/transicao_cidade.png',
             biome: 'city',
             name: 'Cidade Gótica Amaldiçoada',
             bossName: 'Mensageiro do Sino Veloz',
@@ -1732,6 +1745,7 @@
         },
         {
             floor: 3,
+            art: 'assets/intro/transicao_neve.png',
             biome: 'snow',
             name: 'Pico Nevado',
             bossName: 'Estrategista do Véu Branco',
@@ -1810,6 +1824,7 @@
         },
         {
             floor: 4,
+            art: 'assets/intro/transicao_dungeon.png',
             biome: 'dungeon',
             name: 'Dungeon do Arquivo',
             bossName: 'Guardiã das Catacumbas',
@@ -1888,6 +1903,7 @@
         },
         {
             floor: 5,
+            art: 'assets/intro/transicao_abismo.png',
             biome: 'abyss',
             name: 'O Abismo Estrelado',
             bossName: 'O Senhor das Horas',
@@ -1944,6 +1960,7 @@
     ];
 
     const EPILOGUE = {
+        art: 'assets/intro/epilogo_18h.png',
         calmTitle: 'O ponteiro parou.',
         calmLines: [
             'O colosso se desfaz em engrenagens que caem devagar, como folhas.',
@@ -2016,7 +2033,7 @@
     // ---------- DICAS DE 1ª VEZ (cada uma aparece uma única vez, sem bloquear a fila de modais) ----------
     const FIRST_TIME_TIPS = {
         burn: { title: 'Burn por coluna', text: 'O Burn fica na COLUNA, não no inimigo: no fim do turno queima quem estiver na frente dela e cai 1.' },
-        wild: { title: 'Carta Wild', text: 'Wild sempre comba, qualquer que seja o custo, e reinicia a escada de combo no custo 0.' },
+        wild: { title: 'Carta Wild', text: 'Wild sempre comba, qualquer que seja o custo. Depois dela, a próxima carta continua o combo custando 0 ou 1.' },
         xcost: { title: 'Custo X', text: 'Gasta TODA a sua Cafeína: o efeito é multiplicado por X, e X conta como o custo na escada.' },
         ret: { title: 'Return', text: 'Cartas com Return voltam para a mão depois de jogadas: dá para jogá-las de novo no mesmo turno.' },
         retain: { title: 'Retain', text: 'Cartas com Retain não são descartadas no fim do turno: ficam na mão esperando a hora certa.' },
@@ -2164,6 +2181,8 @@
         isWildCard: isWildCard,
         canCardCombo: canCardCombo,
         getComboCostAfter: getComboCostAfter,
+        nextComboCosts: nextComboCosts,
+        WILD_STEP: WILD_STEP,
         nextTargetColumn: nextTargetColumn,
         drawColumnFromBag: drawColumnFromBag,
         rollKnockback: rollKnockback,

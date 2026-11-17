@@ -198,6 +198,8 @@
         narrativeTag: $('narrative-tag'),
         narrativeTitle: $('narrative-title'),
         narrativeLines: $('narrative-lines'),
+        narrativeArt: $('narrative-art'),
+        endArt: $('end-art'),
         btnNarrativeContinue: $('btn-narrative-continue'),
         epilogueOverlay: $('epilogue-overlay'),
         epilogueTitle: $('epilogue-title'),
@@ -680,19 +682,23 @@
         };
     }
 
-    function formatCardDesc(card, preview) {
+    // base (opcional): prévia sem o combo. Todo número que o combo aumentou sai em dourado (<b class="combo-val">).
+    function formatCardDesc(card, preview, base) {
         const pv = preview || getCardPreviewValues(card, 1);
+        const val = key => (base && base[key] !== pv[key]
+            ? '<b class="combo-val">' + pv[key] + '</b>'
+            : String(pv[key]));
         return (card.desc || '')
-            .replace(/\{HITS\}/g, String(pv.hits))
+            .replace(/\{HITS\}/g, val('hits'))
             .replace(/\{X\}/g, String(pv.x || 0))
             .replace(/\{TURNS\}/g, String(state ? crawlerTurns() : B.crawlerTurns))
-            .replace(/\{DMG\}/g, String(pv.damage))
-            .replace(/\{SHIELD\}/g, String(pv.shield))
-            .replace(/\{HEAL\}/g, String(pv.heal))
+            .replace(/\{DMG\}/g, val('damage'))
+            .replace(/\{SHIELD\}/g, val('shield'))
+            .replace(/\{HEAL\}/g, val('heal'))
             .replace(/\{BURN\}/g, String(pv.burn))
-            .replace(/\{MIGHT\}/g, String(pv.might))
-            .replace(/\{AREA\}/g, String(pv.area))
-            .replace(/\{DRAW\}/g, String(pv.draw))
+            .replace(/\{MIGHT\}/g, val('might'))
+            .replace(/\{AREA\}/g, val('area'))
+            .replace(/\{DRAW\}/g, val('draw'))
             .replace(/\{BOMB\}/g, String(getManaBombDamage()));
     }
 
@@ -1776,7 +1782,41 @@
     }
 
     // ---------- MODAL: CARD NARRATIVO ----------
+    // ---------- ILUSTRAÇÃO 16:9 DOS CARDS (transição de fase e epílogo das 18:00) ----------
+    // Imagem que falha não trava nada: o palco fica com o degradê de reserva do bioma.
+    let artRaf = null;
+
+    function showArt(stage, src, biome) {
+        if (!stage) return false;
+        stage.parentElement.classList.toggle('has-art', !!src);
+        if (!src) {
+            stage.classList.add('hidden');
+            return false;
+        }
+        const img = stage.querySelector('img');
+        stage.className = 'art-stage biome-' + biome;
+        stage.dataset.kind = (window.GameIntro && window.GameIntro.BIOME_PARTICLES[biome]) || 'dust';
+        stage.dataset.start = String(performance.now());
+        img.onerror = () => stage.classList.add('img-failed');
+        img.onload = () => stage.classList.remove('img-failed');
+        if (img.getAttribute('src') !== src) img.src = src;
+        else if (img.complete && img.naturalWidth === 0) stage.classList.add('img-failed');
+        if (!artRaf) artRaf = requestAnimationFrame(artFrame);
+        return true;
+    }
+
+    function artFrame(now) {
+        let any = false;
+        [els.narrativeArt, els.endArt].forEach(stage => {
+            if (!stage || stage.closest('.hidden')) return;
+            any = true;
+            window.GameIntro.drawParticlesKind(stage.querySelector('canvas'), stage.dataset.kind, (now - Number(stage.dataset.start)) / 1000);
+        });
+        artRaf = any ? requestAnimationFrame(artFrame) : null;
+    }
+
     function openNarrativeModal(item) {
+        showArt(els.narrativeArt, item.art, item.biome);
         els.narrativeTag.textContent = item.tag;
         els.narrativeTitle.textContent = item.title;
         els.narrativeLines.innerHTML = '';
@@ -1793,6 +1833,7 @@
         return {
             type: 'narrative',
             biome: fl.biome,
+            art: fl.art || null,
             tag: 'FASE ' + fl.floor + ' · ' + fl.trigger.time + ' — ' + fl.name.toUpperCase(),
             title: fl.trigger.title,
             lines: fl.trigger.lines,
@@ -2585,8 +2626,7 @@
     function comboBonusLabel() {
         if (state.comboCarry) return 'PRÓX: QUALQUER';
         if (state.lastComboCost === null || state.lastComboCost === undefined) return 'INICIE A CADEIA';
-        const down = state.comboReverse && state.lastComboCost >= 1 ? '/C' + (state.lastComboCost - 1) : '';
-        return 'PRÓX: C' + (state.lastComboCost + 1) + down + ' ou WILD';
+        return 'PRÓX: C' + D.nextComboCosts(state.lastComboCost, state.comboReverse).join('/C') + ' ou WILD';
     }
 
     function applyDamageToEnemy(enemy, rawDmg, card, usedMult, opts) {
@@ -3172,7 +3212,7 @@
         const returnCount = removeFromHand(handIndex).returnCount;
 
         // Regra estrita v1.6.1a: effectiveCost - 1 === lastComboCost OU Wild. Quebrar a sequência
-        // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a escada recomeça no custo 0.
+        // reinicia a cadeia em 1x com a carta jogada; depois de um Wild a próxima pode custar 0 ou 1.
         const chained = card.type !== 'curse' &&
             (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
         state.comboCarry = false;
@@ -3334,6 +3374,8 @@
             let chosenIdx = fits(targetCost);
             // Combo Reverso na carta anterior: descer 1 também mantém a cadeia.
             if (chosenIdx === undefined && simReverse && targetCost >= 2) chosenIdx = fits(targetCost - 2);
+            // Depois de um Wild a escada também segue pelo custo 1 (Wild -> 1 -> 2).
+            if (chosenIdx === undefined && simLastCost === D.WILD_STEP) chosenIdx = fits(1);
             if (chosenIdx === undefined) chosenIdx = pool.find(idx => D.isWildCard(cardAt(idx)));
             if (chosenIdx === undefined) {
                 chosenIdx = pool.slice().sort((a, b) => costOf(a) - costOf(b))[0];
@@ -3948,6 +3990,8 @@
         els.epilogueOverlay.classList.add('hidden');
 
         els.endBox.classList.toggle('defeat', !victory);
+        // Vitória da campanha (18:00): a volta para casa ao pôr do sol.
+        showArt(els.endArt, victory && !state.infinite ? D.EPILOGUE.art : null, 'epilogue');
         els.endBox.classList.toggle('sunset', !!victory);
         els.endDesc.innerHTML = '';
         const wavesSurvived = state.infinite ? state.infinite.wave - 1 : 0;
@@ -4073,6 +4117,27 @@
             '</span><span class="cp-turns">' + cr.turns + 't</span>';
     }
 
+    // Evolução estilo Vampire Survivors: o que falta (Relíquia e/ou Nível MÁX) ou "PRONTA P/ EVOLUIR!".
+    // Fusão entra quando a evolução não está pronta e as duas cartas da fusão já estão no MÁX.
+    function evolutionStatus(card) {
+        if (!card || card.evolved || !card.evolvesTo) return null;
+        const ev = D.EVOLUTIONS.find(e => e.fromCard === card.id);
+        if (!ev || state.evolvedCards[ev.toCard]) return null;
+        const into = D.CARDS[ev.toCard].name;
+        if (isEvolutionReady(ev)) {
+            return { ready: true, label: 'PRONTA P/ EVOLUIR!', title: 'Evolui em ' + into + ' no próximo baú ou Level Up.' };
+        }
+        const fus = D.FUSIONS.find(f => f.cards.includes(card.id) && !state.fusedCards[f.toCard]);
+        if (fus && isFusionReady(fus)) {
+            return { ready: true, label: 'PRONTA P/ FUSÃO!', title: 'Funde em ' + D.CARDS[fus.toCard].name + ' no próximo Level Up.' };
+        }
+        const missing = [];
+        if (!state.relics.includes(ev.passiveId)) missing.push(ev.title);
+        if (getCardLevel(ev.fromCard) < B.maxCardLevel) missing.push('Nv.MÁX');
+        return { ready: false, label: 'EVO: falta ' + missing.join(' + '),
+            title: 'Evolui em ' + into + '. Falta: ' + missing.join(' e ') + ' (Relíquia "' + ev.title + '").' };
+    }
+
     function renderCombatControls(popCombo) {
         const inCombat = state.mode === 'combat';
         renderCrawlerPortrait(inCombat);
@@ -4094,7 +4159,7 @@
             '<img src="' + S.getIconUrl(cardOf(id).icon) + '" alt="" /><b>' +
             (D.isWildCard(cardOf(id)) ? 'W' : cardOf(id).xCost ? 'X' : cardOf(id).cost) + '</b></span>').join('') +
             '<span class="chain-next" title="Próximo custo que mantém o combo">' +
-            (state.comboCarry ? '▸*' : hasChain ? '▸' + (state.lastComboCost + 1) : '▸?') + '</span>';
+            (state.comboCarry ? '▸*' : hasChain ? '▸' + D.nextComboCosts(state.lastComboCost, state.comboReverse).join('/') : '▸?') + '</span>';
         els.pileCounts.textContent = 'COMPRA ' + state.drawPile.length + ' · DESC ' +
             (state.discardPile.length + state.comboPile.length);
 
@@ -4125,8 +4190,14 @@
                 (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
             const nextMult = willCombo ? (state.comboCount + 2) : 1;
             const pv = getCardPreviewValues(card, nextMult, true);
-            const desc = formatCardDesc(card, pv);
+            const desc = formatCardDesc(card, pv, willCombo ? getCardPreviewValues(card, 1, true) : null);
             const lvl = getCardLevel(card.id);
+            // Início de cadeia (nenhuma carta jogada no turno): custo 0 e Wild abrem a escada.
+            const starter = !willCombo && card.type !== 'curse' && !state.comboCarry &&
+                (state.lastComboCost === null || state.lastComboCost === undefined) && (isWild || effCost === 0);
+            const seal = willCombo ? '<span class="combo-seal">COMBO x' + nextMult + '!</span>'
+                : starter ? '<span class="combo-seal start">▶ INICIA</span>' : '';
+            const evo = evolutionStatus(card);
 
             let powerTag = '';
             if (pv.damage > 0) powerTag = pv.hits > 1 ? pv.damage + 'x' + pv.hits : String(pv.damage);
@@ -4140,7 +4211,8 @@
                 (card.evolved ? ' evolved' : '') +
                 (state.crackedCards[cardId] ? ' cracked' : '') +
                 (isTempInHand(idx) ? ' temp' : '') +
-                (willCombo ? ' combo-ready' : '');
+                (willCombo ? ' combo-ready combo-next' : '') +
+                (evo && evo.ready ? ' evo-ready' : '');
             btn.disabled = locked || state.mana < effCost || (card.xCost && effCost < 1);
             btn.innerHTML =
                 '<span class="card-cost' + (costShift > 0 ? ' cost-up' : costShift < 0 ? ' cost-down' : '') + '">' +
@@ -4149,7 +4221,10 @@
                 '<div class="card-banner"><span class="card-name">' + card.name +
                 (lvl >= B.maxCardLevel && card.evolvesTo && !card.evolved ? ' ★MÁX' : '') +
                 '</span></div>' +
-                '<div class="card-art"><img src="' + S.getIconUrl(card.icon) + '" alt="" /></div>' +
+                seal +
+                '<div class="card-art"><img src="' + S.getIconUrl(card.icon) + '" alt="" />' +
+                (evo ? '<span class="evo-badge' + (evo.ready ? ' ready' : '') + '" title="' + evo.title + '">' + evo.label + '</span>' : '') +
+                '</div>' +
                 '<div class="card-textbox"><div class="card-origin">' + card.origin + '</div>' +
                 buildCardKeywordsHtml(card, idx) +
                 '<div class="card-desc">' + desc + '</div></div>' +
@@ -5127,6 +5202,7 @@
         openIntro: openIntro,
         startTutorial: startTutorial,
         render: () => renderAll(),
+        showFloorTrigger: n => enqueueModal(triggerCard(runFloor(state, n))),
         showTip: showTip,
         reloadMeta: () => { meta = loadMeta(); renderBadge(); return meta; },
         openReception: openReception,

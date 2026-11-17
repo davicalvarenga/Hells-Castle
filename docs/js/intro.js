@@ -182,8 +182,63 @@
 
     const PARTICLES = [dust, sparks, motes, paperAndSand, goldenBreeze];
 
+    // ---------- Partículas leves das ilustrações de transição de fase e do epílogo ----------
+    function fog(g, w, h, t, u) {
+        for (let i = 0; i < 18; i++) {
+            const p = wrap(t * (0.015 + hash(i, 23) * 0.02) + hash(i, 24), 1);
+            const x = w * (p * 1.3 - 0.15);
+            const y = h * (0.45 + hash(i, 25) * 0.5);
+            const r = (18 + hash(i, 26) * 30) * u;
+            g.fillStyle = 'rgba(160, 190, 220, 0.05)';
+            g.fillRect(Math.round(x - r), Math.round(y - r * 0.3), Math.round(r * 2), Math.round(r * 0.6));
+        }
+        g.fillStyle = 'rgba(120, 220, 255, 0.5)';
+        for (let i = 0; i < 10; i++) {
+            const life = wrap(t * 0.2 + hash(i, 27), 1);
+            const s = Math.max(1, Math.round(u));
+            g.fillRect(Math.round(w * hash(i, 28)), Math.round(h * (0.9 - life * 0.6)), s, s);
+        }
+    }
+
+    function snow(g, w, h, t, u) {
+        g.fillStyle = 'rgba(235, 245, 255, 0.85)';
+        for (let i = 0; i < 60; i++) {
+            const speed = 0.12 + hash(i, 29) * 0.18;
+            const p = wrap(t * speed + hash(i, 30), 1);
+            const x = wrap(w * hash(i, 31) - p * w * 0.35 + Math.sin(t + i) * 6 * u, w);
+            const y = h * (p * 1.1 - 0.05);
+            const s = Math.max(1, Math.round(u * (1 + hash(i, 32) * 1.5)));
+            g.fillRect(Math.round(x), Math.round(y), s, s);
+        }
+    }
+
+    function embers(g, w, h, t, u) {
+        for (let i = 0; i < 26; i++) {
+            const life = wrap(t * (0.18 + hash(i, 33) * 0.2) + hash(i, 34), 1);
+            const x = w * hash(i, 35) + Math.sin(life * 8 + i) * 8 * u;
+            const y = h * (1 - life * 0.9);
+            const a = Math.sin(life * Math.PI) * 0.9;
+            const s = Math.max(1, Math.round(u * (1 + hash(i, 36))));
+            g.fillStyle = 'rgba(255, ' + Math.round(150 + hash(i, 37) * 80) + ', 60,' + a + ')';
+            g.fillRect(Math.round(x), Math.round(y), s, s);
+        }
+    }
+
+    const PARTICLE_KINDS = { dust: dust, sparks: sparks, motes: motes, paper: paperAndSand, golden: goldenBreeze, fog: fog, snow: snow, embers: embers };
+    // Bioma da fase -> partículas da ilustração de entrada.
+    const BIOME_PARTICLES = { beach: 'golden', city: 'fog', snow: 'snow', dungeon: 'embers', abyss: 'golden', epilogue: 'golden' };
+
+    // Versão por nome (cards de transição e epílogo). Mesmo canvas transparente e mesmo "pixel" proporcional.
+    function drawParticlesKind(canvas, kind, t) {
+        return drawWith(canvas, PARTICLE_KINDS[kind] || dust, t);
+    }
+
     // Desenha as partículas da cena `index` no instante `t` (s). O canvas acompanha o tamanho do palco.
     function drawParticles(canvas, index, t) {
+        return drawWith(canvas, PARTICLES[Math.max(0, Math.min(PARTICLES.length - 1, index))], t);
+    }
+
+    function drawWith(canvas, fn, t) {
         if (!canvas || !canvas.getContext) return false;
         const rect = canvas.getBoundingClientRect();
         const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -196,7 +251,6 @@
         const g = canvas.getContext('2d');
         if (!g) return false;
         g.clearRect(0, 0, w, h);
-        const fn = PARTICLES[Math.max(0, Math.min(PARTICLES.length - 1, index))];
         // u: "pixel" das partículas proporcional ao palco (mantém o visual pixel art em qualquer tela)
         fn(g, w, h, Math.max(0, t || 0), Math.max(1, w / 480));
         return true;
@@ -207,6 +261,8 @@
         preload: preload,
         getStatus: getStatus,
         get images() { return images; },
-        drawParticles: drawParticles
+        drawParticles: drawParticles,
+        drawParticlesKind: drawParticlesKind,
+        BIOME_PARTICLES: BIOME_PARTICLES
     };
 })();

@@ -45,8 +45,10 @@
             p('A carta seguinte só <b>comba</b> se custar exatamente <b>1 a mais</b> que a anterior: 0 → 1 → 2 → 3. ' +
                 'Cada carta encadeada sobe o multiplicador (x2, x3, x4...). Quebrar a sequência reinicia em x1 a partir da carta jogada.') +
             dl([
-                ['Wild', 'Sempre comba, seja qual for o custo, e reinicia a escada no custo 0 (depois de um Wild, a próxima ideal custa 0).'],
+                ['Wild', 'Sempre comba, seja qual for o custo. Depois de um Wild a escada reabre: a próxima continua o combo custando 0 ou 1 (Wild → 1 → 2 funciona).'],
                 ['Combo Reverso', 'Gema: depois dela, descer 1 no custo também comba.'],
+                ['Destaque na mão', 'Cartas que continuam a cadeia ganham borda dourada pulsante e o selo COMBO xN; os números que crescem com o combo aparecem em dourado na descrição.'],
+                ['Evolução', 'Carta que evolui mostra o selo EVO com o que falta (Relíquia e/ou Nível MÁX); com tudo pronto, brilha "PRONTA P/ EVOLUIR!" e evolui no próximo baú ou Level Up.'],
                 ['Tomos', 'Custam N e devolvem N+1 de Cafeína: ganho líquido +1 e ponte perfeita na escada.'],
                 ['Custo X', 'Gasta TODA a Cafeína; X vale como o custo dela na escada.']
             ]) +
