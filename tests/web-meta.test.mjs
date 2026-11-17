@@ -207,3 +207,67 @@ test('dados: 4 colegas com baralho, passiva e Carta de Crawler válidos', () => 
     const inf = D.BALANCE.infinite;
     assert.ok(inf.waveHp > 0 && inf.waveAtk > 0 && inf.cursePerTurn > 0 && inf.curseCap > D.BALANCE.curseCap);
 });
+
+// ---------- Etapa 6: Pressão, segredos e falas ----------
+test('Pressão: bônus de crédito igual nos dados e na meta, preços da fogueira e crédito por nível', () => {
+    assert.deepEqual(plain(M.PRESSURE_BONUS), plain(D.PRESSURE_LEVELS.map(l => l.creditBonus)));
+    assert.equal(D.PRESSURE_LEVELS.length, 6);
+    assert.equal(D.pressureCredits(100, 0), 100);
+    assert.equal(D.pressureCredits(100, 1), 120);
+    assert.equal(D.pressureCredits(101, 5), 202);
+    assert.deepEqual(plain(D.restConfig(3)), plain(D.BALANCE.rest), 'até a Pressão 3 a fogueira não muda');
+    const r4 = D.restConfig(4);
+    assert.equal(r4.healPrice, Math.ceil(D.BALANCE.rest.healPrice * 1.25));
+    assert.equal(r4.healAmount, Math.round(D.BALANCE.rest.healAmount * 0.75));
+    assert.deepEqual(plain(r4.removePrices), plain(D.BALANCE.rest.removePrices.map(v => Math.ceil(v * 1.25))));
+    assert.deepEqual(plain(D.restConfig(5)), plain(r4), 'Véspera de Feriado acumula a Auditoria');
+});
+
+test('Pressão: vencer no nível N libera o N+1; escolha limitada ao liberado; crédito multiplicado', () => {
+    const m = M.defaults();
+    assert.equal(m.pressureUnlocked, 0);
+    assert.ok(!M.setPressure(m, 1), 'bloqueado antes da 1ª vitória');
+    let r = M.recordRun(m, { vrEarned: 100, victory: true, pressure: 0 });
+    assert.equal(r.unlockedPressure, 1);
+    assert.equal(r.credits, 100);
+    assert.ok(M.setPressure(m, 1));
+    r = M.recordRun(m, { vrEarned: 100, victory: false, pressure: 1 });
+    assert.equal(r.credits, 120, '+20% na Pressão 1');
+    assert.equal(m.pressureUnlocked, 1, 'derrota não libera nível');
+    for (let lv = 1; lv <= 5; lv++) {
+        M.setPressure(m, lv);
+        M.recordRun(m, { vrEarned: 0, victory: true, pressure: lv });
+    }
+    assert.equal(m.pressureUnlocked, 5, 'teto 5');
+    r = M.recordRun(m, { vrEarned: 50, victory: false, pressure: 5 });
+    assert.equal(r.credits, 100, '+100% na Véspera de Feriado');
+    assert.ok(!M.recordRun(m, { vrEarned: 0, infinite: true, wave: 3, pressure: 5 }).unlockedPressure, 'Hora Extra não libera nível');
+    const bad = M.sanitize({ pressureUnlocked: 9, pressure: 7 });
+    assert.equal(bad.pressureUnlocked, 5);
+    assert.equal(bad.pressure, 5);
+    assert.equal(M.sanitize({ pressureUnlocked: 2, pressure: 4 }).pressure, 2, 'nível escolhido nunca passa do liberado');
+});
+
+test('conquistas: Final Secreto só em vitória; Trapaceiro em qualquer run; registradas 1x', () => {
+    const m = M.defaults();
+    assert.deepEqual(plain(m.achievements), { secretEnding: false, trickster: false });
+    assert.ok(!M.recordRun(m, { vrEarned: 0, victory: false, secretEnding: true }).newSecretEnding);
+    assert.ok(M.recordRun(m, { vrEarned: 0, victory: true, secretEnding: true }).newSecretEnding);
+    assert.ok(!M.recordRun(m, { vrEarned: 0, victory: true, secretEnding: true }).newSecretEnding);
+    assert.ok(M.recordRun(m, { vrEarned: 0, victory: false, trickster: true }).newTrickster);
+    assert.deepEqual(plain(m.achievements), { secretEnding: true, trickster: true });
+    assert.deepEqual(plain(M.sanitize({ achievements: { secretEnding: 'sim', trickster: true } }).achievements), { secretEnding: false, trickster: true });
+});
+
+test('segredos e falas: Trapaceiro existe com sprite; todo chefe tem fala nas fases 2 e 3; final secreto', () => {
+    const t = D.ENEMIES.trickster;
+    assert.ok(t && t.secret && t.name && t.hp > 0 && t.atk > 0 && t.floor, 'Trapaceiro');
+    assert.ok(!Object.values(D.BIOME_ENEMIES || {}).some(p => (p.common || []).includes('trickster')), 'nunca aparece por sorteio');
+    Object.values(D.ENEMIES).filter(e => e.isBoss).forEach(boss => {
+        [2, 3].forEach(n => assert.ok(boss.phases[n].quote && boss.phases[n].quote.length <= 70, boss.kind + ' fase ' + n));
+    });
+    assert.equal(D.EPILOGUE.secretRelic, 'foto_parque');
+    assert.ok(D.SPECIAL_RELICS.foto_parque);
+    assert.ok(D.EPILOGUE.secretEndLines.some(l => l.includes('O mundo lá fora ainda está esperando.')));
+    assert.ok(D.EPILOGUE.secretEndLines.some(l => /férias/.test(l)));
+});

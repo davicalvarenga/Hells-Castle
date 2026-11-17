@@ -42,6 +42,14 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 - **Evolução (estilo Vampire Survivors):** cartas que evoluem mostram o selo **EVO** com o que falta (Relíquia e/ou Nível MÁX); com tudo pronto, brilham **PRONTA P/ EVOLUIR!** (ou **PRONTA P/ FUSÃO!**).
 - **Ilustrações:** as Fases 2 a 5 abrem com uma ilustração 16:9 animada (Ken Burns + partículas) e a vitória das 18:00 mostra a volta para casa (`docs/assets/intro/transicao_*.png` e `epilogo_18h.png`), com fundo de reserva se alguma imagem faltar.
 
+## Polimento e Rejogabilidade
+
+- **Prévia de mira:** passe o mouse (ou segure o toque) numa carta de ataque: as colunas atingidas acendem no chão em perspectiva, a barra de vida mostra o dano previsto e **LETAL!** pulsa sobre quem morre com o dano garantido (sem críticos). Mira aleatória mostra só os alvos possíveis.
+- **Música procedural:** a exploração fica só com o ambiente; o combate ganha uma batida chiptune discreta e os chefes um tema mais rápido. Respeita o Mudo, o abafamento da cutscene e o 1º clique.
+- **Falas dos chefes:** ao cruzar 66% e 33% de vida, cada chefe solta uma linha que mistura o devaneio com o escritório.
+- **Segredos:** estilhaçar 3 cartas numa mesma run atrai **O Trapaceiro do Subconsciente** (Gema Lendária + 50 VR); vencer o Senhor das Horas carregando a Foto no Parque revela o final **18:00 — A Decisão**, salvo como conquista.
+- **Níveis de Pressão:** depois da 1ª vitória, a Recepção libera os níveis 1 a 5 (cada vitória libera o próximo), cumulativos: +15% de HP inimigo; 1 carta-lixo no baralho; chefes com +15% de ATK e +4 de Escudo; fogueira 25% mais cara e cura 25% menor. Em troca, +20% a +100% de crédito persistente.
+
 ## Arsenal, Gemas e Eventos de Mapa
 
 - **Custo X:** *Explosão Total* gasta toda a Cafeína e multiplica o dano por X (X também é o degrau dela na escada de combo).
@@ -97,6 +105,10 @@ node tools/hc-bot.mjs --runs 8 --policy good
 
 ```bash
 node tools/hc-bot.mjs --runs 6 --policy good --char vivi
+```
+
+```bash
+node tools/hc-bot.mjs --runs 8 --policy good --pressure 1
 ```
 
 `node --test` cobre as regras puras e o gerador de mapas; os scripts em `tools/` usam o Chrome instalado (via `playwright-core`) para os testes de ponta a ponta em desktop e mobile e para o bot que joga runs completas.

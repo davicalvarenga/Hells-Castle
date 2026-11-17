@@ -1077,8 +1077,8 @@
         kraken: enemy('kraken', 'Devorador das Marés', 'A Impressora Faminta — Chefe', 100, 8, 25, 16,
             { isBoss: true, kbResist: 100, curseCard: 'folha_presa', curseEvery: 2, attackStyle: 'paper',
               phases: {
-                  2: { label: 'Bandeja Travada', armor: 8, junk: 'folha_presa' },
-                  3: { label: 'Atolamento Total', atk: 2, set: { curseEvery: 1 } }
+                  2: { label: 'Bandeja Travada', quote: 'BANDEJA 2 TRAVADA! As marés não param de imprimir!', armor: 8, junk: 'folha_presa' },
+                  3: { label: 'Atolamento Total', quote: 'Toner do abismo, ATOLAMENTO TOTAL! Cancele a impressão!', atk: 2, set: { curseEvery: 1 } }
               },
               quip: '"PAPEL. PRESO. NA. BANDEJA. DOIS."' }),
 
@@ -1094,8 +1094,8 @@
         mensageiro: enemy('mensageiro', 'Mensageiro do Sino Veloz', 'O Corredor Sem Fim — Chefe', 135, 6, 35, 20,
             { isBoss: true, kbResist: 40, attacksPerTurn: 2, attackStyle: 'lunge',
               phases: {
-                  2: { label: 'Sino Dobrado', armor: 10, junk: 'confusao', set: { curseCard: 'confusao', curseEvery: 3 } },
-                  3: { label: 'Urgência Máxima', atk: 2, set: { kbResist: 70 } }
+                  2: { label: 'Sino Dobrado', quote: 'Plim! Plim! O sino dobra: tem reunião em 5 minutos!', armor: 10, junk: 'confusao', set: { curseCard: 'confusao', curseEvery: 3 } },
+                  3: { label: 'Urgência Máxima', quote: 'URGENTE! Responde AGORA, cavaleiro do Teams!', atk: 2, set: { kbResist: 70 } }
               },
               quip: '"Uma coisa de cada vez? Nesta cidade, nunca."' }),
 
@@ -1111,8 +1111,8 @@
         estrategista: enemy('estrategista', 'Estrategista do Véu Branco', 'A Reunião Gelada — Chefe', 149, 10, 45, 24,
             { isBoss: true, hexEvery: 4, kbResist: 100, shieldPerTurn: 12, attackStyle: 'orb',
               phases: {
-                  2: { label: 'Pauta Extra', junk: 'confusao', set: { shieldPerTurn: 16 } },
-                  3: { label: 'Prioridade Máxima', atk: 3, junk: 'bomba_mana' }
+                  2: { label: 'Pauta Extra', quote: 'Tudo é urgente! Escudo máximo, pauta extra!', junk: 'confusao', set: { shieldPerTurn: 16 } },
+                  3: { label: 'Prioridade Máxima', quote: 'Prioridade máxima: congelem o orçamento e o herói!', atk: 3, junk: 'bomba_mana' }
               },
               quip: '"Tudo é prioridade máxima. Tudo."' }),
 
@@ -1128,8 +1128,8 @@
         guardia: enemy('guardia', 'Guardiã das Catacumbas', 'O Arquivo Sem Fim — Chefe', 188, 12, 60, 28,
             { isBoss: true, hexEvery: 4, kbResist: 100, summonKind: 'skeleton', summonEvery: 3, attackStyle: 'orb',
               phases: {
-                  2: { label: 'Gavetas Abertas', armor: 15, set: { summonEvery: 2 } },
-                  3: { label: 'Arquivo Morto', atk: 3, junk: 'bomba_mana' }
+                  2: { label: 'Gavetas Abertas', quote: 'Abram as gavetas! Tudo em três vias, mortos-vivos!', armor: 15, set: { summonEvery: 2 } },
+                  3: { label: 'Arquivo Morto', quote: 'Para o arquivo morto você vai, junto com o Relatório #25!', atk: 3, junk: 'bomba_mana' }
               },
               dropRelic: 'foto_parque', quip: '"Você guardou tudo... menos o que importava."' }),
 
@@ -1139,11 +1139,52 @@
         horas: enemy('horas', 'O Senhor das Horas', 'O Relógio de Ponto — Chefe Final', 250, 14, 0, 0,
             { isBoss: true, hexEvery: 4, kbResist: 100, drainMana: 1, attackStyle: 'orb',
               phases: {
-                  2: { label: 'Hora Extra', armor: 20, junk: 'bomba_mana', set: { curseCard: 'bomba_mana', curseEvery: 3 } },
-                  3: { label: 'Última Badalada', atk: 4, junk: 'confusao', set: { armorEvery: 3, armorGain: 18 } }
+                  2: { label: 'Hora Extra', quote: 'Hora extra não remunerada! O ponteiro é meu!', armor: 20, junk: 'bomba_mana', set: { curseCard: 'bomba_mana', curseEvery: 3 } },
+                  3: { label: 'Última Badalada', quote: 'Última badalada: são 17:59 para SEMPRE!', atk: 4, junk: 'confusao', set: { armorEvery: 3, armorGain: 18 } }
               },
-              quip: '"Tic. Tac. O seu tempo é meu."' })
+              quip: '"Tic. Tac. O seu tempo é meu."' }),
+
+        // ---- Segredo: invade o encontro seguinte depois de 3 cartas estilhaçadas na mesma run ----
+        trickster: enemy('trickster', 'O Trapaceiro do Subconsciente', 'Autossabotagem — Segredo', 70, 8, 40, 0,
+            { secret: true, kbResist: 40, curseCard: 'confusao', curseEvery: 2, attackStyle: 'orb', floor: 'segredo',
+              quip: '"Quebrou de novo? Que pena... deixa que eu embaralho o resto."' })
     };
+
+    // ---------- NÍVEIS DE PRESSÃO (ascensão pós-vitória; cada nível acumula os anteriores) ----------
+    const PRESSURE_LEVELS = [
+        { level: 0, name: 'Expediente Normal', desc: 'Sem modificadores.', creditBonus: 0 },
+        { level: 1, name: 'Segunda-feira Braba', desc: '+15% de HP nos inimigos.', creditBonus: 0.2 },
+        { level: 2, name: 'Semana de Fechamento', desc: 'Começa com 1 carta-lixo (Folha Presa) no baralho.', creditBonus: 0.4 },
+        { level: 3, name: 'Reunião Sem Pauta', desc: 'Chefes com +15% de ATK e +4 de Escudo inicial.', creditBonus: 0.6 },
+        { level: 4, name: 'Auditoria Externa', desc: 'Fogueira 25% mais cara e cura 25% menor.', creditBonus: 0.8 },
+        { level: 5, name: 'Véspera de Feriado', desc: 'Todos os modificadores acumulados.', creditBonus: 1.0 }
+    ];
+    const PRESSURE_MODS = {
+        enemyHp: 0.15,        // >= 1
+        junkCard: 'folha_presa', // >= 2
+        bossAtk: 0.15,        // >= 3
+        bossShield: 4,        // >= 3
+        restPrice: 0.25,      // >= 4
+        restHeal: 0.25        // >= 4
+    };
+
+    // Crédito persistente da run multiplicado pelo bônus do nível de Pressão.
+    function pressureCredits(vr, level) {
+        const lv = PRESSURE_LEVELS[Math.max(0, Math.min(PRESSURE_LEVELS.length - 1, level || 0))];
+        return Math.floor(Math.max(0, vr || 0) * (1 + lv.creditBonus));
+    }
+
+    // Preços e cura da fogueira com a Pressão 4+ (Auditoria Externa).
+    function restConfig(level) {
+        const base = BALANCE.rest;
+        if (!(level >= 4)) return base;
+        const up = v => Math.ceil(v * (1 + PRESSURE_MODS.restPrice));
+        return Object.assign({}, base, {
+            healPrice: up(base.healPrice), relicPrice: up(base.relicPrice), breathPrice: up(base.breathPrice),
+            gemPrice: up(base.gemPrice), repairPrice: up(base.repairPrice), removePrices: base.removePrices.map(up),
+            healAmount: Math.round(base.healAmount * (1 - PRESSURE_MODS.restHeal))
+        });
+    }
 
     // Máximo de inimigos vivos simultâneos (5 colunas x Frente + Retaguarda).
     const MAX_ENEMIES_IN_COMBAT = 10;
@@ -1973,6 +2014,19 @@
             'O sol do fim de tarde entra de lado pela janela do escritório.',
             'Valter desliga o monitor, pega a mochila e desce pela escada.',
             '"Amanhã eu volto. Mas hoje, o dia é meu."'
+        ],
+        // Final secreto: vencer o Senhor das Horas carregando a Foto no Parque (Fase 4).
+        secretRelic: 'foto_parque',
+        secretCalmLines: [
+            'O colosso se desfaz em engrenagens que caem devagar, como folhas.',
+            'No bolso do paletó, algo pesa mais que o relógio: a Foto no Parque.',
+            'No fim dos ladrilhos de luz, há um relógio de ponto. E uma escolha.'
+        ],
+        secretEndTitle: '18:00 — A DECISÃO',
+        secretEndLines: [
+            'Valter tira a Foto no Parque do bolso. O sol daquela tarde ainda está ali, intacto.',
+            'Ele sorri, abre um e-mail novo e escreve: "Pedido de férias. E de mudança."',
+            '"O mundo lá fora ainda está esperando."'
         ]
     };
 
@@ -2150,6 +2204,10 @@
     window.GameData = {
         PROTAGONIST: PROTAGONIST,
         CHARACTERS: CHARACTERS,
+        PRESSURE_LEVELS: PRESSURE_LEVELS,
+        PRESSURE_MODS: PRESSURE_MODS,
+        pressureCredits: pressureCredits,
+        restConfig: restConfig,
         TUTORIAL_DECK: TUTORIAL_DECK,
         TUTORIAL_FLOOR: TUTORIAL_FLOOR,
         FIRST_TIME_TIPS: FIRST_TIME_TIPS,

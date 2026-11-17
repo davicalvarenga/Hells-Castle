@@ -127,6 +127,9 @@
         btnOpenForge: $('btn-open-forge'),
         btnOpenCuration: $('btn-open-curation'),
         btnInfiniteToggle: $('btn-infinite-toggle'),
+        pressureRow: $('pressure-row'),
+        pressureButtons: $('pressure-buttons'),
+        pressureDesc: $('pressure-desc'),
         receptionModal: $('reception-modal'),
         receptionTitle: $('reception-title'),
         receptionDesc: $('reception-desc'),
@@ -485,6 +488,18 @@
         s.extraGemSlots = Object.assign({}, meta.forge);
         const bought = M.POWERUPS.filter(p => rank(p.id) > 0).map(p => p.name + ' ' + rank(p.id));
         if (bought.length > 0) s.passives.push({ label: 'Almoxarifado: ' + bought.join(', '), icon: 'vr_boost' });
+        // Nível de Pressão (ascensão): cada nível acumula os modificadores dos anteriores.
+        s.pressure = Math.min(meta.pressure || 0, meta.pressureUnlocked || 0);
+        if (s.pressure >= 2) s.deck.push(D.PRESSURE_MODS.junkCard);
+        if (s.pressure > 0) {
+            const lv = D.PRESSURE_LEVELS[s.pressure];
+            s.passives.push({ label: 'Pressão ' + s.pressure + ': ' + lv.name + ' (+' + Math.round(lv.creditBonus * 100) + '% CR)', icon: 'vr_boost' });
+        }
+        // Segredos da run: Trapaceiro (3 cartas estilhaçadas) e final secreto (Foto no Parque).
+        s.shatters = 0;
+        s.tricksterPending = false;
+        s.tricksterSeen = false;
+        s.tricksterDefeated = false;
     }
 
     function revealAround(s, px, py, layout) {
@@ -1403,7 +1418,7 @@
 
     function renderRestModal() {
         const fl = currentFloor();
-        const rest = B.rest;
+        const rest = D.restConfig(state.pressure);
         const flags = restFlags();
         const removePrice = rest.removePrices[flags.removed];
         els.restTitle.textContent = fl.restName.toUpperCase();
@@ -1856,6 +1871,11 @@
     }
 
     // ---------- EPÍLOGO ----------
+    // Final secreto: derrotar o Senhor das Horas carregando a Foto no Parque (relíquia da Fase 4).
+    function hasSecretEnding() {
+        return !!state && !state.infinite && state.specialRelics.includes(D.EPILOGUE.secretRelic);
+    }
+
     function openEpilogue() {
         const ep = D.EPILOGUE;
         state.player.x = 4;
@@ -1878,7 +1898,7 @@
         });
         els.epilogueTitle.textContent = ep.calmTitle;
         els.epilogueLines.innerHTML = '';
-        ep.calmLines.forEach(line => {
+        (hasSecretEnding() ? ep.secretCalmLines : ep.calmLines).forEach(line => {
             const p = document.createElement('p');
             p.textContent = line;
             els.epilogueLines.appendChild(p);
@@ -2209,6 +2229,12 @@
             e.hp = Math.round(e.hp * (1 + B.infinite.waveHp * w));
             e.atk = Math.round(e.atk * (1 + B.infinite.waveAtk * w));
         }
+        // Pressão 1+: +15% de HP; Pressão 3+: chefes com +15% de ATK e +4 de Escudo inicial.
+        if (state.pressure >= 1) e.hp = Math.round(e.hp * (1 + D.PRESSURE_MODS.enemyHp));
+        if (state.pressure >= 3 && e.isBoss) {
+            e.atk = Math.round(e.atk * (1 + D.PRESSURE_MODS.bossAtk));
+            e.shield += D.PRESSURE_MODS.bossShield;
+        }
         // Curse da run: quem nasce agora já vem com HP e dano escalados.
         e.hp = D.scaleByCurse(e.hp, state.curse);
         e.maxHp = e.hp;
@@ -2315,8 +2341,33 @@
             R.triggerShake(0.08, 0.3);
             A.play('buff');
             spawnFloatingText(pos.x, pos.y - 48, 'FASE ' + enemy.phase + ': ' + ph.label + '!', 'buff');
+            if (ph.quote) showBossBubble(enemy, ph.quote);
             setLog(enemy.name + ' entra na FASE ' + enemy.phase + ': ' + ph.label + '!');
         }
+    }
+
+    // Balão rápido de 1 linha sobre o chefe na virada de fase (persona dark fantasy + eco do escritório).
+    // Recompensa do segredo: Gema Lendária (pela fila única) + 50 VR fixos.
+    function rewardTrickster(pos) {
+        state.tricksterDefeated = true;
+        state.vr += 50;
+        modalQueue.push({ type: 'gem', gemId: randomGemId(['lendaria']) });
+        triggerGoldBanner('SEGREDO: TRAPACEIRO DERROTADO!');
+        spawnFloatingText(pos.x, pos.y - 40, '+50 VR + GEMA LENDÁRIA', 'combo big-hit');
+        spawnVrParticles(pos.x, pos.y, 50);
+    }
+
+    function showBossBubble(enemy, text) {
+        const pos = getEnemyTargetPos(enemy);
+        const vp = els.viewport.getBoundingClientRect();
+        const b = document.createElement('div');
+        b.className = 'boss-bubble';
+        b.dataset.boss = enemy.kind;
+        b.textContent = text;
+        b.style.left = Math.round(Math.max(90, Math.min(vp.width - 90, pos.x - vp.left))) + 'px';
+        b.style.top = Math.round(Math.max(64, pos.y - vp.top - 90)) + 'px';
+        els.viewport.appendChild(b);
+        setTimeout(() => b.remove(), 2800);
     }
 
     function getEnemyTargetPos(enemy) {
@@ -2387,6 +2438,7 @@
             if (typeof slot.xp === 'number') e.xp = slot.xp;
             if (slot.name) e.name = slot.name;
         });
+        const invader = state.tricksterPending && !state.tutorial ? injectTrickster() : null;
 
         refreshFrontIntents(true);
         const fronts = getFrontEnemies(false);
@@ -2421,6 +2473,9 @@
         if (state.tutorial && enc.tutorialMana) state.mana = enc.tutorialMana;
 
         A.play('encounter');
+        if (invader) enc = Object.assign({}, enc, { intro: 'INVASÃO SECRETA: ' + invader.name + ' entrou no devaneio!' });
+        // Trilha: tema de chefe se houver chefe na luta; senão, a batida de combate.
+        A.setMusic(state.enemies.some(e => e.isBoss) ? 'boss' : 'combat');
         R.triggerShake(0.05, 0.22);
         setLog(enc.intro);
 
@@ -2730,6 +2785,7 @@
                 }
 
                 state.kills += 1;
+                if (enemy.kind === 'trickster') rewardTrickster(pos);
                 const gainedVr = gainVr(enemy.vr + bonusVr);
                 A.play('death');
                 R.spawnBurst(pos.x, pos.y, ['#3cc8ff', '#b8f4ff', '#ffd147', '#fff2a8'], 16, { speed: 170, life: 0.55, size: 6 });
@@ -2865,7 +2921,42 @@
         A.play('death');
         R.triggerShake(0.06, 0.22);
         spawnFloatingText(p.x, p.y, card.name + ' ESTILHAÇOU!', 'player-hit');
+        noteShatter();
         return true;
+    }
+
+    // Segredo: a 3ª carta estilhaçada na run atrai o Trapaceiro para o encontro seguinte (1x por run).
+    function noteShatter() {
+        state.shatters = (state.shatters || 0) + 1;
+        if (state.shatters >= 3 && !state.tricksterSeen && !state.tutorial) {
+            state.tricksterSeen = true;
+            state.tricksterPending = true;
+            const p = viewportPoint(0.5, 0.4);
+            spawnFloatingText(p.x, p.y, 'Algo ri no fundo da sua mente...', 'buff');
+            setLog('Três cartas em pedaços... alguém achou graça. O próximo encontro não será como os outros.');
+        }
+    }
+
+    // Invasão secreta: o Trapaceiro entra numa coluna livre da frente (ou atrás do centro) e escala com a fase.
+    function injectTrickster() {
+        state.tricksterPending = false;
+        const usedFront = state.enemies.filter(e => e.row === 0).map(e => e.col);
+        let col = [2, 1, 3, 0, 4].find(c => !usedFront.includes(c));
+        let row = 0;
+        if (col === undefined) {
+            col = 2;
+            row = 1 + Math.max(0, ...state.enemies.filter(e => e.col === 2).map(e => e.row));
+        }
+        if (state.enemies.length >= D.MAX_ENEMIES_IN_COMBAT) state.enemies.pop();
+        const t = makeEnemy('trickster', false, col, row, false);
+        const f = Math.max(0, (Number(state.floor) || 1) - 1);
+        t.hp = Math.round(t.hp * (1 + 0.35 * f));
+        t.maxHp = t.hp;
+        t.atk = Math.round(t.atk * (1 + 0.2 * f));
+        state.enemies.push(t);
+        showBanner(els.ambushBanner, 'INVASÃO SECRETA!');
+        A.play('alert');
+        return t;
     }
 
     // Tira 1 cópia real da carta das pilhas do combate (quando a cópia jogada era temporária).
@@ -3842,6 +3933,7 @@
     // Fim do combate: espera a animação de morte, volta à exploração e deixa a fila de modais
     // (level ups acumulados, pausa/evento do tile, epílogo) conduzir o que vem depois.
     function finishEncounter() {
+        A.setMusic(null);
         if (state.tutorial && state.currentEncDef) {
             if (state.currentEncDef.tutorialStep === 2) state.tutorial.combat1 = true;
             if (state.currentEncDef.tutorialStep === 3) state.tutorial.combat2 = true;
@@ -3973,6 +4065,7 @@
     }
 
     function endGame(victory) {
+        A.setMusic(null);
         // Tutorial nunca grava meta nem histórico: perder o treino só volta para a Recepção.
         if (state.tutorial) {
             finishTutorial(false);
@@ -3998,7 +4091,7 @@
         const lines = state.infinite
             ? [state.heroName + ' aguentou ' + wavesSurvived + ' onda(s) de Hora Extra.', 'Ninguém viu. Mas o Fundo de Reserva viu.']
             : victory
-                ? D.EPILOGUE.endLines
+                ? (hasSecretEnding() ? D.EPILOGUE.secretEndLines : D.EPILOGUE.endLines)
                 : ['A Sanidade de ' + state.heroName + ' zerou em ' + currentFloor().name + '.', 'O devaneio venceu desta vez. O expediente recomeça.'];
         lines.forEach(line => {
             const p = document.createElement('p');
@@ -4007,7 +4100,7 @@
         });
         if (victory) {
             A.play('victory');
-            els.endTitle.textContent = D.EPILOGUE.endTitle + ' — PONTO BATIDO';
+            els.endTitle.textContent = hasSecretEnding() ? D.EPILOGUE.secretEndTitle : D.EPILOGUE.endTitle + ' — PONTO BATIDO';
         } else {
             A.play('defeat');
             els.endTitle.textContent = state.infinite ? 'HORA EXTRA ENCERRADA' : 'BURNOUT...';
@@ -4017,12 +4110,19 @@
             '  |  LV ' + state.level + '  |  VR: ' + state.vr + '  |  Abates: ' + state.kills + '  |  Overkills: ' + state.overkills;
         // Todo VR ganho na run (Overkill de chefe incluso, mesmo o já gasto) vira crédito persistente.
         const earned = vrEarnedThisRun();
-        const result = M.recordRun(meta, { vrEarned: earned, victory: !!victory, infinite: !!state.infinite, wave: wavesSurvived });
+        const result = M.recordRun(meta, {
+            vrEarned: earned, victory: !!victory, infinite: !!state.infinite, wave: wavesSurvived, pressure: state.pressure || 0,
+            secretEnding: !!victory && hasSecretEnding(), trickster: !!state.tricksterDefeated
+        });
         const saved = saveMeta();
         const notes = ['+' + result.credits + ' CR no Fundo de Reserva (total ' + meta.credits + ')'];
         if (result.unlockedInfinite) notes.push('HORA EXTRA INFINITA desbloqueada!');
         if (result.unlockedChar) notes.push('Novo colega: ' + D.getCharacter(result.unlockedChar).name + '!');
         if (result.newBestWave) notes.push('Recorde: ' + wavesSurvived + ' ondas!');
+        if (result.pressureBonus > 0) notes.push('Pressão ' + state.pressure + ': +' + Math.round(result.pressureBonus * 100) + '% de crédito');
+        if (result.unlockedPressure) notes.push('Nível de Pressão ' + result.unlockedPressure + ' liberado!');
+        if (result.newSecretEnding) notes.push('FINAL SECRETO registrado!');
+        if (result.newTrickster) notes.push('Segredo: o Trapaceiro foi derrotado!');
         if (!saved) notes.push('(sem armazenamento: o progresso vale só nesta aba)');
         if (els.endMeta) els.endMeta.textContent = notes.join('  ·  ');
         els.btnPlayAgain.textContent = victory ? 'VIVER OUTRO DIA' : 'TENTAR DE NOVO';
@@ -4115,6 +4215,59 @@
         el.title = D.CARDS[cr.cardId].desc.replace('{TURNS}', String(cr.turns));
         el.innerHTML = '<img src="' + S.getIconUrl(hero.icon) + '" alt="" /><span class="cp-name">' + hero.name.split(' ')[0] +
             '</span><span class="cp-turns">' + cr.turns + 't</span>';
+    }
+
+    // Prévia de mira: quem os acertos da carta atingem (padrão LeftRight/RightLeft/FrontRow/Target, com
+    // prioridade em Atacantes) e o dano GARANTIDO (sem crítico, splash ou quique). Random só lista os
+    // alvos possíveis; LETAL! só quando o dano garantido mata.
+    function buildTargetPreview(card, handIndex) {
+        if (!card || state.hand[handIndex] === undefined) return { uids: [], cols: [], dmg: {}, lethal: {}, random: false, hits: 0 };
+        const costMod = getHandCostMod(handIndex);
+        const willCombo = card.type !== 'curse' &&
+            (state.comboCarry || D.canCardCombo(card, state.lastComboCost, costMod, state.comboReverse));
+        const mult = willCombo ? state.comboCount + 2 : 1;
+        const pv = getCardPreviewValues(card, mult, true, card.xCost ? getHandCost(handIndex) : undefined);
+        const out = { uids: [], cols: [], dmg: {}, lethal: {}, random: card.targeting === 'Random',
+            pattern: card.targeting || 'Target', priority: card.priority === 'Attacking', perHit: pv.damage, hits: Math.max(1, pv.hits) };
+        const add = (e, n) => {
+            if (!out.uids.includes(e.uid)) out.uids.push(e.uid);
+            if (!out.cols.includes(e.col)) out.cols.push(e.col);
+            out.dmg[e.uid] = (out.dmg[e.uid] || 0) + n;
+        };
+        const fronts = getFrontEnemies(false);
+        if (fronts.length === 0) return out;
+        if (out.random) {
+            let pool = fronts;
+            if (out.priority) {
+                const attackers = fronts.filter(e => e.hasIntent);
+                if (attackers.length > 0) pool = attackers;
+            }
+            pool.forEach(e => add(e, pool.length === 1 ? pv.damage * out.hits : 0));
+        } else {
+            const aim = { lastCol: null, bag: [] };
+            for (let h = 0; h < out.hits; h++) {
+                pickTargetsForCard(card, aim).filter(t => t.hp > 0).forEach(t => {
+                    add(t, pv.damage);
+                    if (!(card.pierce > 0)) return;
+                    if (card.pierceType === 'MultiHit') {
+                        out.dmg[t.uid] += pv.damage * card.pierce;
+                        return;
+                    }
+                    state.enemies.filter(e => e.col === t.col && e.hp > 0 && e.row > t.row)
+                        .sort((a, b) => a.row - b.row).slice(0, card.pierce).forEach(e => add(e, pv.damage));
+                });
+            }
+        }
+        out.uids.forEach(uid => {
+            const e = state.enemies.find(x => x.uid === uid);
+            let d = out.dmg[uid];
+            if (!e || !(d > 0)) return;
+            if (e.frost > 0) d += Math.ceil(pv.damage * B.freezeDamageMult) - pv.damage; // 1º golpe no gelo
+            if (!card.ignoreShield) d = Math.max(0, d - e.shield);
+            out.dmg[uid] = d;
+            out.lethal[uid] = e.hp > 0 && !e.overkill && d >= e.hp;
+        });
+        return out;
     }
 
     // Evolução estilo Vampire Survivors: o que falta (Relíquia e/ou Nível MÁX) ou "PRONTA P/ EVOLUIR!".
@@ -4229,16 +4382,33 @@
                 buildCardKeywordsHtml(card, idx) +
                 '<div class="card-desc">' + desc + '</div></div>' +
                 gemSlotsHtml(cardId);
-            btn.addEventListener('mouseenter', () => {
+            // Prévia da mira (colunas no chão, dano previsto e LETAL!): mouse em cima, ou toque segurado no celular.
+            const showPreview = () => {
+                // O botão pode ser de uma mão já trocada (mouse parado antes do redesenho): só vale a carta atual.
+                if (state.mode !== 'combat' || state.hand[idx] !== cardId) return;
                 if (btn.disabled || !(card.damage > 0 || card.knockback || card.burn > 0)) return;
-                // Prévia da mira: o renderer marca os alvos do 1º acerto (saco Random não é previsível).
-                const preview = card.targeting === 'Random'
-                    ? getFrontEnemies(true)
-                    : pickTargetsForCard(card, { lastCol: null, bag: [] });
-                R.setHoveredCard(Object.assign({}, card, { previewUids: preview.map(e => e.uid) }));
-            });
+                const preview = buildTargetPreview(card, idx);
+                R.setHoveredCard(Object.assign({}, card, { previewUids: preview.uids, preview: preview }));
+            };
+            let holdTimer = null;
+            let held = false;
+            btn.addEventListener('mouseenter', showPreview);
             btn.addEventListener('mouseleave', () => R.setHoveredCard(null));
-            btn.addEventListener('click', () => playCard(idx));
+            btn.addEventListener('pointerdown', ev => {
+                if (ev.pointerType !== 'touch') return;
+                held = false;
+                holdTimer = setTimeout(() => { held = true; showPreview(); }, 320);
+            });
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => btn.addEventListener(type, () => clearTimeout(holdTimer)));
+            btn.addEventListener('contextmenu', ev => ev.preventDefault());
+            btn.addEventListener('click', () => {
+                // Toque segurado só mostra a prévia; o toque curto continua jogando a carta.
+                if (held) {
+                    held = false;
+                    return;
+                }
+                playCard(idx);
+            });
             els.handGrid.appendChild(btn);
         });
         noteHandTips();
@@ -4318,10 +4488,40 @@
             });
         }
 
+        renderPressure();
         els.btnInfiniteToggle.classList.toggle('hidden', !meta.infiniteUnlocked);
         els.btnInfiniteToggle.classList.toggle('on', !!meta.infiniteMode);
         els.btnInfiniteToggle.textContent = 'HORA EXTRA INFINITA: ' + (meta.infiniteMode ? 'LIGADA' : 'DESLIGADA');
         els.btnStartDaydream.textContent = meta.infiniteMode ? 'BATER PONTO DA HORA EXTRA' : 'BATER PONTO E COMEÇAR O DIA';
+    }
+
+    // Seletor de Nível de Pressão: aparece depois da 1ª vitória; cada vitória no nível N libera o N+1.
+    function renderPressure() {
+        const row = els.pressureRow;
+        row.classList.toggle('hidden', !(meta.pressureUnlocked > 0));
+        if (!(meta.pressureUnlocked > 0)) return;
+        els.pressureButtons.innerHTML = '';
+        D.PRESSURE_LEVELS.forEach(lv => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'pressure-btn' + (lv.level === meta.pressure ? ' active' : '');
+            b.dataset.level = String(lv.level);
+            b.disabled = lv.level > meta.pressureUnlocked;
+            b.title = lv.name + ': ' + lv.desc;
+            b.textContent = String(lv.level);
+            b.addEventListener('click', () => {
+                if (!M.setPressure(meta, lv.level)) return;
+                A.unlock();
+                A.play('card');
+                saveMeta();
+                renderBadge();
+            });
+            els.pressureButtons.appendChild(b);
+        });
+        const cur = D.PRESSURE_LEVELS[meta.pressure];
+        els.pressureDesc.textContent = cur.level === 0 ? cur.name + ': ' + cur.desc
+            : cur.name + ': ' + (cur.level === 5 ? cur.desc : cur.desc + (cur.level > 1 ? ' (acumula)' : '')) +
+              ' +' + Math.round(cur.creditBonus * 100) + '% CR';
     }
 
     // Os 3 setores usam o mesmo modal; cada um descreve o próprio conteúdo.
@@ -4449,6 +4649,7 @@
 
     function openTitleModal() {
         bossKeyOpen = false;
+        A.setMusic(null);
         stopTutorialCoach();
         clearTips();
         meta = loadMeta();
@@ -4750,6 +4951,7 @@
         clearTips();
         state = createInitialState({ seed: state.runSeed });
         state.tutorial = { combat1: false, combat2: false, chest: false, done: false };
+        state.pressure = 0;
         state.deck = D.TUTORIAL_DECK.slice();
         state.floors[1] = D.TUTORIAL_FLOOR;
         const fl = currentFloor();
@@ -5202,6 +5404,8 @@
         openIntro: openIntro,
         startTutorial: startTutorial,
         render: () => renderAll(),
+        previewFor: idx => buildTargetPreview(cardOf(state.hand[idx]), idx),
+        noteShatter: noteShatter,
         showFloorTrigger: n => enqueueModal(triggerCard(runFloor(state, n))),
         showTip: showTip,
         reloadMeta: () => { meta = loadMeta(); renderBadge(); return meta; },

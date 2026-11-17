@@ -438,9 +438,138 @@
         setAmbience(null);
     }
 
+    // ---- Música procedural (chiptune) ----
+    // Sequenciador em semicolcheias agendado à frente no relógio do Web Audio (sem setTimeout por nota).
+    // Passa pelo mesmo bus do ambiente (filtro de abafamento) e para por completo com o Mudo.
+    // degree: grau da escala por passo (null = pausa). chords: deslocamento da raiz a cada compasso.
+    const SONGS = {
+        combat: {
+            bpm: 108, root: 110, vol: 0.055, wave: 'square',
+            scale: [0, 3, 5, 7, 10, 12, 15],                 // pentatônica menor
+            chords: [0, -4, 3, -2],                            // i - VI - III - VII
+            bass: [0, null, null, null, 0, null, 7, null, 0, null, null, null, 5, null, 3, null],
+            arp: [null, 2, null, 4, null, 2, null, 3, null, 2, null, 4, null, 5, null, 3],
+            hat: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1],
+            kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        },
+        boss: {
+            bpm: 148, root: 98, vol: 0.07, wave: 'sawtooth',
+            scale: [0, 2, 3, 5, 7, 8, 11, 12, 14, 15],         // menor harmônica
+            chords: [0, -4, -2, -5],                           // i - bVI - bVII - V
+            bass: [0, 0, null, 0, 7, null, 0, null, 0, 0, null, 0, 5, null, 6, null],
+            arp: [2, 4, 7, 4, 2, 4, 7, 9, 2, 4, 7, 4, 8, 7, 6, 4],
+            hat: [1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1],
+            kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0]
+        }
+    };
+    let wantedMusic = null;
+    let music = null;      // { mode, song, out, timer, next, step }
+    let noiseBuf = null;
+
+    function semi(root, st) {
+        return root * Math.pow(2, st / 12);
+    }
+
+    function musicNote(m, freq, t, dur, vol, wave) {
+        const osc = actx.createOscillator();
+        const g = actx.createGain();
+        osc.type = wave;
+        osc.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(vol, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(g);
+        g.connect(m.out);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+    }
+
+    function musicNoise(m, t, dur, vol, type, freq) {
+        if (!noiseBuf) {
+            noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * 0.25), actx.sampleRate);
+            const d = noiseBuf.getChannelData(0);
+            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        }
+        const src = actx.createBufferSource();
+        src.buffer = noiseBuf;
+        const f = actx.createBiquadFilter();
+        f.type = type;
+        f.frequency.value = freq;
+        const g = actx.createGain();
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        src.connect(f);
+        f.connect(g);
+        g.connect(m.out);
+        src.start(t);
+        src.stop(t + dur + 0.02);
+    }
+
+    function scheduleMusic() {
+        const m = music;
+        if (!m || !actx) return;
+        const song = m.song;
+        const stepDur = 60 / song.bpm / 4;
+        while (m.next < actx.currentTime + 0.15) {
+            const i = m.step % 16;
+            const root = semi(song.root, song.chords[Math.floor(m.step / 16) % song.chords.length]);
+            const bass = song.bass[i];
+            if (bass !== null) musicNote(m, semi(root, bass), m.next, stepDur * 1.6, song.vol * 1.2, 'triangle');
+            const arp = song.arp[i];
+            if (arp !== null) musicNote(m, semi(root * 2, song.scale[arp % song.scale.length]), m.next, stepDur * 0.9, song.vol * 0.55, song.wave);
+            if (song.hat[i]) musicNoise(m, m.next, 0.03, song.vol * 0.5, 'highpass', 7000);
+            if (song.kick[i]) musicNote(m, 90, m.next, 0.12, song.vol * 1.6, 'sine');
+            m.next += stepDur;
+            m.step += 1;
+        }
+    }
+
+    function stopMusic(fadeS) {
+        const m = music;
+        music = null;
+        if (!m) return;
+        clearInterval(m.timer);
+        if (actx) {
+            const now = actx.currentTime;
+            m.out.gain.cancelScheduledValues(now);
+            m.out.gain.setValueAtTime(m.out.gain.value, now);
+            m.out.gain.linearRampToValueAtTime(0.0001, now + fadeS);
+        }
+        setTimeout(() => { try { m.out.disconnect(); } catch (e) { /* já desconectado */ } }, (fadeS + 0.3) * 1000);
+    }
+
+    // Nunca cria o contexto de áudio: só toca se ele já existe (1º gesto) e o Mudo está desligado.
+    function syncMusic() {
+        const target = actx && !muted ? wantedMusic : null;
+        if (music && music.mode === target) return;
+        stopMusic(muted ? 0.05 : 0.6);
+        if (!target || !SONGS[target]) return;
+        const a = ensureAudio();
+        if (!a) return;
+        const out = a.createGain();
+        out.gain.setValueAtTime(0.0001, a.currentTime);
+        out.gain.linearRampToValueAtTime(1, a.currentTime + 0.8);
+        out.connect(ambienceBus(a));
+        music = { mode: target, song: SONGS[target], out: out, next: a.currentTime + 0.08, step: 0, timer: null };
+        music.timer = setInterval(scheduleMusic, 30);
+        scheduleMusic();
+    }
+
+    // mode: null (exploração: só o ambiente) | 'combat' | 'boss'
+    function setMusic(mode) {
+        wantedMusic = SONGS[mode] ? mode : null;
+        syncMusic();
+        return wantedMusic;
+    }
+
+    function getMusic() {
+        return { wanted: wantedMusic, playing: music ? music.mode : null };
+    }
+
     function unlock() {
         const a = ensureAudio();
         syncAmbience();
+        syncMusic();
         return a;
     }
 
@@ -450,6 +579,7 @@
             master.gain.value = muted ? 0 : 0.42;
         }
         syncAmbience();
+        syncMusic();
         return muted;
     }
 
@@ -462,6 +592,8 @@
         toggleMute: toggleMute,
         isMuted: isMuted,
         setMuffle: setMuffle,
+        setMusic: setMusic,
+        getMusic: getMusic,
         isMuffled: isMuffled,
         unlock: unlock,
         setAmbience: setAmbience,

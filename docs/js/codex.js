@@ -47,6 +47,7 @@
             dl([
                 ['Wild', 'Sempre comba, seja qual for o custo. Depois de um Wild a escada reabre: a próxima continua o combo custando 0 ou 1 (Wild → 1 → 2 funciona).'],
                 ['Combo Reverso', 'Gema: depois dela, descer 1 no custo também comba.'],
+                ['Prévia de mira', 'Passe o mouse (ou segure o toque) numa carta de ataque: as colunas atingidas acendem no chão, a barra de vida mostra o dano previsto e LETAL! marca quem morre com o dano garantido (sem críticos). Mira aleatória mostra só os alvos possíveis.'],
                 ['Destaque na mão', 'Cartas que continuam a cadeia ganham borda dourada pulsante e o selo COMBO xN; os números que crescem com o combo aparecem em dourado na descrição.'],
                 ['Evolução', 'Carta que evolui mostra o selo EVO com o que falta (Relíquia e/ou Nível MÁX); com tudo pronto, brilha "PRONTA P/ EVOLUIR!" e evolui no próximo baú ou Level Up.'],
                 ['Tomos', 'Custam N e devolvem N+1 de Cafeína: ganho líquido +1 e ponte perfeita na escada.'],
@@ -169,7 +170,10 @@
                 ['Almoxarifado', 'PowerUps permanentes com reembolso grátis: ' + powerups + '.'],
                 ['Grafia (Ferreiro)', 'Slots de gema permanentes em cartas específicas (até 3).'],
                 ['Curadoria (Joalheiro)', 'Gemas favoritas (aparecem mais) ou seladas (nunca aparecem).'],
-                ['Hora Extra Infinita', 'Depois da 1ª vitória: ondas contínuas cada vez mais fortes. Recorde salvo.']
+                ['Hora Extra Infinita', 'Depois da 1ª vitória: ondas contínuas cada vez mais fortes. Recorde salvo.'],
+                ['Nível de Pressão', 'Depois da 1ª vitória: níveis 1 a 5 (cada vitória libera o próximo), acumulando dificuldades em troca de +20% a +100% de crédito: ' +
+                    D.PRESSURE_LEVELS.filter(l => l.level > 0).map(l => l.level + ' ' + esc(l.name) + ' (' + esc(l.desc) + ')').join('; ') + '.'],
+                ['Segredos', 'Há quem apareça quando cartas demais se estilhaçam numa mesma run... e um final diferente para quem não esquece o que guardou na Fase 4.']
             ]) +
             h('Colegas e Carta de Crawler') +
             p('Cada colega começa com o próprio crachá no baralho: jogado, fica ativo como retrato por alguns turnos e dispara a passiva ' +

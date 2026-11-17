@@ -575,6 +575,121 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         seal1.destroyed.includes('selo_eclipse') && seal1.deck.includes('selo_eclipse'), { survivors, kills: seal1.kills - seal0.kills });
     await st(() => { window.__hcDebug.state.stats.Luck = 0; });
 
+    // ================= ETAPA 6: PRÉVIA DE MIRA, LETAL!, MÚSICA, FALAS E O TRAPACEIRO =================
+    // Formação do encontro 1 da Fase 1: frente nas colunas 1 e 3, retaguarda na coluna 1.
+    const prev = (hand, setup) => page.evaluate(([cards, fn]) => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        if (fn) new Function('s', fn)(s);
+        h.render();
+        return cards.map(id => {
+            const p = h.previewFor(s.hand.indexOf(id));
+            const byUid = uid => s.enemies.find(e => e.uid === uid);
+            return { id, cols: p.cols.slice().sort(), who: p.uids.map(u => byUid(u).col + ':' + byUid(u).row), random: p.random,
+                dmg: p.uids.map(u => p.dmg[u]), lethal: p.uids.filter(u => p.lethal[u]).map(u => byUid(u).col + ':' + byUid(u).row) };
+        });
+    }, [hand, setup || '']);
+    await st(() => { window.__hcDebug.state.stats.Luck = -100; window.__hcDebug.state.cardGems = {}; });
+    await arena(['golpe_furtivo', 'demissao_silenciosa', 'chicote_dados', 'moeda_destino', 'mordida_ferro']);
+    const [pLR, pRL, pFR, pRnd, pPierce] = await prev(['golpe_furtivo', 'demissao_silenciosa', 'chicote_dados', 'moeda_destino', 'mordida_ferro'],
+        "s.enemies.forEach(e => { e.hasIntent = e.row === 0; }); s.targetUid = s.enemies.find(e => e.col === 1 && e.row === 0).uid;");
+    check(vp, 'mira: LeftRight (Atacantes) visa a coluna mais à esquerda', JSON.stringify(pLR.who) === '["1:0"]' && pLR.dmg[0] === 5, pLR);
+    check(vp, 'mira: RightLeft visa a coluna mais à direita', JSON.stringify(pRL.who) === '["3:0"]', pRL);
+    check(vp, 'mira: FrontRow atinge toda a linha de frente', JSON.stringify(pFR.cols) === '[1,3]' && pFR.who.length === 2 && pFR.dmg.every(d => d === 8), pFR);
+    check(vp, 'mira: Random só lista alvos possíveis (sem dano garantido nem LETAL!)', pRnd.random && pRnd.who.length === 2 &&
+        pRnd.dmg.every(d => d === 0) && pRnd.lethal.length === 0, pRnd);
+    check(vp, 'mira: Pierce inclui o inimigo atrás na mesma coluna', JSON.stringify(pPierce.who.slice().sort()) === '["1:0","1:1"]', pPierce);
+    const [pPrio] = await prev(['golpe_furtivo'], "s.enemies.forEach(e => { e.hasIntent = e.row === 0 && e.col === 3; });");
+    check(vp, 'mira: Priority Attacking pula quem não ataca', JSON.stringify(pPrio.who) === '["3:0"]', pPrio);
+    const [pLethal, pShield] = await prev(['chicote_dados', 'golpe_furtivo'],
+        "s.enemies.forEach(e => { e.hasIntent = e.row === 0; }); const c1 = s.enemies.find(e => e.col === 1 && e.row === 0); c1.hp = 8; " +
+        "const c3 = s.enemies.find(e => e.col === 3); c3.hp = 9; c3.shield = 2;");
+    check(vp, 'LETAL!: dano garantido >= HP marca o inimigo; escudo entra na conta', JSON.stringify(pLethal.lethal) === '["1:0"]' &&
+        pLethal.dmg.includes(6), pLethal);
+    // Hover real: o renderer desenha as colunas no chão e o selo LETAL!
+    await page.hover('#hand-grid .card-btn:nth-child(3)');
+    await wait(250);
+    const drawn = await st(() => window.GameRenderer.getPreviewDraw());
+    check(vp, 'mira: ao passar o mouse, colunas no chão + dano previsto + LETAL! desenhados', drawn && JSON.stringify(drawn.cols) === '[1,3]' &&
+        drawn.lethal.length === 1 && Object.values(drawn.dmg).length === 2, drawn);
+    await page.screenshot({ path: 'e2e-' + vp + '-mira-letal.png' });
+    await page.mouse.move(5, 5);
+    await wait(150);
+    check(vp, 'mira: tirar o mouse limpa a prévia', await st(() => window.GameRenderer.getPreviewDraw() === null));
+    // Celular: toque segurado mostra a prévia sem jogar; toque curto joga.
+    const touch = await st(async () => {
+        const h = window.__hcDebug;
+        const btn = document.querySelectorAll('#hand-grid .card-btn')[2];
+        const handBefore = h.state.hand.length;
+        btn.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+        await new Promise(r => setTimeout(r, 450));
+        btn.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
+        btn.click();
+        await new Promise(r => setTimeout(r, 120));
+        return { kept: h.state.hand.length === handBefore, preview: !!window.GameRenderer.getPreviewDraw() };
+    });
+    check(vp, 'mira (toque): segurar mostra a prévia e não joga a carta', touch.kept && touch.preview, touch);
+    await st(() => { window.__hcDebug.state.stats.Luck = 0; });
+
+    // --- Música dinâmica: combate x chefe; respeita o Mudo ---
+    const music = () => st(() => window.GameAudio.getMusic());
+    const mCombat = await music();
+    await st(() => window.__hcDebug.startEncounter(null, window.GameData.getFloorConfig(1).encounters['B']));
+    const mBoss = await music();
+    await page.click('#btn-mute');
+    const mMuted = await music();
+    await page.click('#btn-mute');
+    const mBack = await music();
+    check(vp, 'música: batida de combate, tema de chefe, e o Mudo para tudo (e volta)', mCombat.wanted === 'combat' && mCombat.playing === 'combat' &&
+        mBoss.playing === 'boss' && mMuted.playing === null && mMuted.wanted === 'boss' && mBack.playing === 'boss', { mCombat, mBoss, mMuted, mBack });
+
+    // --- Fala do chefe na virada de fase (66%) ---
+    await arena(['julgamento_final'], { keepHp: true });
+    await st(() => {
+        const boss = window.__hcDebug.state.enemies.find(e => e.isBoss);
+        boss.hp = Math.round(boss.maxHp * 0.67);
+        boss.phase = 1;
+        boss.shield = 0;
+    });
+    await play('julgamento_final');
+    await wait(200);
+    const bubble = await st(() => {
+        const b = document.querySelector('.boss-bubble');
+        return b ? { text: b.textContent, boss: b.dataset.boss, phase: window.__hcDebug.state.enemies.find(e => e.isBoss).phase,
+            expected: window.GameData.ENEMIES.kraken.phases[2].quote } : null;
+    });
+    check(vp, 'chefe: balão de 1 linha na virada para a fase 2', bubble && bubble.boss === 'kraken' && bubble.phase === 2 &&
+        bubble.text === bubble.expected, bubble);
+
+    // --- Segredo: 3 cartas estilhaçadas atraem o Trapaceiro; derrotá-lo dá Gema Lendária + 50 VR ---
+    const tr0 = await st(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        s.shatters = 2;
+        s.tricksterSeen = false;
+        h.noteShatter();
+        return { pending: s.tricksterPending, sprite: window.GameSprites.hasSheet('trickster') };
+    });
+    await st(() => window.__hcDebug.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']));
+    const trick = await st(() => {
+        const s = window.__hcDebug.state;
+        const t = s.enemies.find(e => e.kind === 'trickster');
+        return t ? { name: t.name, row: t.row, col: t.col, pending: s.tricksterPending } : null;
+    });
+    check(vp, 'Trapaceiro: a 3ª carta estilhaçada dispara a invasão no encontro seguinte (sprite 32x32 próprio)',
+        tr0.pending && tr0.sprite && trick && trick.name === 'O Trapaceiro do Subconsciente' && trick.row === 0 && !trick.pending, { tr0, trick });
+    await page.screenshot({ path: 'e2e-' + vp + '-trapaceiro.png' });
+    const vrT = await st(() => window.__hcDebug.state.vr);
+    await arena(['chicote_dados'], { keepHp: true });
+    await st(() => window.__hcDebug.state.enemies.forEach(e => { if (e.kind === 'trickster') e.hp = 1; else { e.hp = 9999; e.maxHp = 9999; } }));
+    await play('chicote_dados');
+    const trDone = await page.evaluate(v => ({ defeated: window.__hcDebug.state.tricksterDefeated, vr: window.__hcDebug.state.vr - v }), vrT);
+    await st(() => { const h = window.__hcDebug; h.state.enemies.forEach(e => { e.hp = 0; }); h.state.hand = []; h.endTurn(); });
+    await page.waitForFunction(() => window.__hcDebug.activeModal && window.__hcDebug.activeModal.type === 'gem', null, { timeout: 20000 }).catch(() => {});
+    const trGem = await st(() => { const m = window.__hcDebug.activeModal; return m && m.type === 'gem' ? window.GameData.GEMS[m.gemId].rarity : null; });
+    check(vp, 'Trapaceiro: derrotado dá +50 VR e Gema Lendária', trDone.defeated && trDone.vr >= 50 && trGem === 'lendaria', { trDone, trGem });
+    await drainModals('pós-trapaceiro');
+
     // --- Overkill em chefe, fim de combate e fila sem travar ---
     await st(() => {
         const h = window.__hcDebug;
@@ -959,6 +1074,120 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'meta: localStorage corrompido volta ao padrão sem erro', (await metaNow()).credits === 0);
     check(vp, 'meta: console sem erros', merr.length === 0, merr.slice(0, 4));
     await mp.close();
+
+    // ================= ETAPA 6: NÍVEIS DE PRESSÃO E FINAL SECRETO =================
+    const pp = await browser.newPage({ viewport: size });
+    const perr = [];
+    pp.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') perr.push(m.type() + ': ' + m.text()); });
+    pp.on('pageerror', e => perr.push('PAGEERROR ' + e.message));
+    await pp.addInitScript(() => localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })));
+    await pp.goto(srv.url);
+    await pp.waitForTimeout(400);
+    const pq = (fn, arg) => pp.evaluate(fn, arg);
+    const pStored = () => pq(() => JSON.parse(localStorage.getItem('hc_meta_v1') || 'null'));
+    const pFits = () => pq(() => {
+        const d = document.documentElement;
+        const box = document.querySelector('#title-modal .modal-box');
+        const start = document.getElementById('btn-start-daydream').getBoundingClientRect();
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && box.scrollHeight <= box.clientHeight + 1 && start.bottom <= innerHeight;
+    });
+    const pRun = async () => {
+        await pp.click('#btn-start-daydream');
+        await pp.waitForTimeout(300);
+        await pp.click('#btn-narrative-continue');
+        await pp.waitForTimeout(400);
+        await pp.locator('#arcana-modal .arcana-choice').first().click();
+        await pp.waitForTimeout(400);
+    };
+    check(vp, 'Pressão: seletor escondido antes da 1ª vitória', await pq(() => document.getElementById('pressure-row').classList.contains('hidden')));
+    await pRun();
+    await pq(() => window.__hcDebug.endGame(true));
+    await pp.waitForTimeout(300);
+    check(vp, 'Pressão: a 1ª vitória libera o Nível 1', (await pStored()).pressureUnlocked === 1);
+    await pp.click('#btn-play-again');
+    await pp.waitForTimeout(400);
+    const pressRow = await pq(() => Array.from(document.querySelectorAll('#pressure-buttons .pressure-btn')).map(b => b.disabled ? 'x' : b.classList.contains('active') ? 'A' : 'o').join(''));
+    check(vp, 'Pressão: Recepção mostra 0..5 (só 0 e 1 liberados) sem overflow', pressRow === 'Aoxxxx' && await pFits(), pressRow);
+    await pp.click('.pressure-btn[data-level="1"]');
+    await pp.waitForTimeout(200);
+    check(vp, 'Pressão: escolher o Nível 1 salva no localStorage', (await pStored()).pressure === 1 &&
+        await pq(() => /Segunda-feira Braba/.test(document.getElementById('pressure-desc').textContent)));
+    await pRun();
+    const press1 = await pq(() => {
+        const h = window.__hcDebug;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        const crab = h.state.enemies.find(e => e.kind === 'crab');
+        return { hp: crab.maxHp, base: window.GameData.ENEMIES.crab.hp, junk: h.state.deck.includes('folha_presa'), pressure: h.state.pressure };
+    });
+    check(vp, 'Pressão 1: inimigos +15% de HP, sem carta-lixo', press1.pressure === 1 && press1.hp === Math.round(press1.base * 1.15) && !press1.junk, press1);
+    const credits0 = (await pStored()).credits;
+    await pq(() => { const s = window.__hcDebug.state; s.vr = 100; s.vrSpent = 0; s.startVr = 0; window.__hcDebug.endGame(false); });
+    await pp.waitForTimeout(300);
+    check(vp, 'Pressão 1: crédito persistente +20% (100 VR -> 120 CR)', (await pStored()).credits === credits0 + 120 &&
+        await pq(() => /Pressão 1: \+20% de crédito/.test(document.getElementById('end-meta').textContent)));
+    await pp.click('#btn-play-again');
+    await pp.waitForTimeout(300);
+    await pq(() => {
+        const h = window.__hcDebug;
+        h.meta.pressureUnlocked = 5;
+        h.meta.pressure = 5;
+        window.GameMeta.save(localStorage, h.meta);
+        h.reloadMeta();
+    });
+    check(vp, 'Pressão 5: seletor completo cabe na tela', await pFits());
+    await pp.screenshot({ path: 'e2e-' + vp + '-pressao.png' });
+    await pRun();
+    const press5 = await pq(() => {
+        const h = window.__hcDebug;
+        const D = window.GameData;
+        h.startEncounter(null, D.getFloorConfig(1).encounters['B']);
+        const boss = h.state.enemies.find(e => e.isBoss);
+        return { junk: h.state.deck.filter(id => id === 'folha_presa').length, atk: boss.atk, baseAtk: D.ENEMIES.kraken.atk,
+            shield: boss.shield, baseShield: D.ENEMIES.kraken.enemyShield || 0, hp: boss.maxHp, baseHp: D.ENEMIES.kraken.hp };
+    });
+    check(vp, 'Pressão 5: carta-lixo no baralho; chefe com +15% HP e ATK e +4 de Escudo', press5.junk === 1 &&
+        press5.atk === Math.round(press5.baseAtk * 1.15) && press5.shield === press5.baseShield + 4 && press5.hp === Math.round(press5.baseHp * 1.15), press5);
+    await pq(() => {
+        const h = window.__hcDebug;
+        h.state.enemies.forEach(e => { e.hp = 0; });
+        h.state.hand = [];
+        h.endTurn();
+    });
+    await pp.waitForFunction(() => window.__hcDebug.state.mode !== 'combat', null, { timeout: 20000 });
+    for (let i = 0; i < 20 && await pq(() => !!window.__hcDebug.activeModal); i++) {
+        await pq(() => { const b = document.querySelector('#levelup-modal:not(.hidden) .reward-card, #gem-modal:not(.hidden) #btn-gem-discard, #narrative-modal:not(.hidden) #btn-narrative-continue'); if (b) b.click(); });
+        await pp.waitForTimeout(350);
+    }
+    await pq(() => { window.__hcDebug.state.vr = 500; window.__hcDebug.state.hp = 10; window.__hcDebug.openRest(); });
+    await pp.waitForTimeout(400);
+    const restP = await pq(() => {
+        const card = Array.from(document.querySelectorAll('#rest-items-grid .shop-item-card')).find(b => b.querySelector('.shop-item-title').textContent === 'Descansar');
+        return { price: card.querySelector('.shop-item-price').textContent, desc: card.querySelector('.shop-item-desc').textContent };
+    });
+    check(vp, 'Pressão 4+: fogueira 25% mais cara e cura 25% menor', restP.price === Math.ceil(25 * 1.25) + ' VR' && /\+15 de Sanidade/.test(restP.desc), restP);
+    await pp.click('#btn-rest-close');
+    await pp.waitForTimeout(300);
+
+    // Final secreto: vencer o Senhor das Horas carregando a Foto no Parque.
+    await pq(() => {
+        const s = window.__hcDebug.state;
+        s.specialRelics.push('foto_parque');
+        s.vr = 100; s.vrSpent = 0; s.startVr = 0;
+        window.__hcDebug.endGame(true);
+    });
+    await pp.waitForTimeout(400);
+    const secretP = await pq(() => ({
+        title: document.getElementById('end-title').textContent,
+        text: document.getElementById('end-desc').textContent,
+        meta: document.getElementById('end-meta').textContent,
+        saved: JSON.parse(localStorage.getItem('hc_meta_v1')).achievements
+    }));
+    check(vp, 'Final Secreto: "18:00 — A DECISÃO" com o pedido de férias, registrado no save', secretP.title === '18:00 — A DECISÃO' &&
+        secretP.text.includes('O mundo lá fora ainda está esperando.') && /férias/.test(secretP.text) && secretP.saved.secretEnding === true &&
+        /FINAL SECRETO/.test(secretP.meta) && /Pressão 5: \+100% de crédito/.test(secretP.meta), secretP);
+    await pp.screenshot({ path: 'e2e-' + vp + '-final-secreto.png' });
+    check(vp, 'Pressão/segredos: 0 overflow e 0 erros', await pq(() => document.documentElement.scrollHeight <= innerHeight) && perr.length === 0, perr.slice(0, 4));
+    await pp.close();
 
     // ================= ONBOARDING: CUTSCENE, TUTORIAL GUIADO, MANUAL "?" E DICAS =================
     // Página nova sem nenhuma flag: é a 1ª visita de verdade.

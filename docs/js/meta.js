@@ -44,6 +44,12 @@
     const CHARACTER_PRICES = { valter: 0, vivi: 400, jorge: 600, claudia: 800 };
     const CHARACTER_ORDER = ['valter', 'vivi', 'jorge', 'claudia'];
 
+    // ---------- NÍVEIS DE PRESSÃO ----------
+    // Bônus de crédito por nível (igual a GameData.PRESSURE_LEVELS; os testes garantem a paridade).
+    // Vencer às 18:00 no nível N libera o N+1 (a 1ª vitória libera o 1).
+    const PRESSURE_BONUS = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
+    const PRESSURE_MAX = PRESSURE_BONUS.length - 1;
+
     function defaults() {
         return {
             version: VERSION,
@@ -58,6 +64,9 @@
             selectedChar: 'valter',
             infiniteUnlocked: false,
             infiniteMode: false,
+            pressureUnlocked: 0,
+            pressure: 0,
+            achievements: { secretEnding: false, trickster: false },
             stats: { runs: 0, wins: 0, bestWave: 0, totalCredits: 0 }
         };
     }
@@ -100,6 +109,10 @@
         out.selectedChar = out.unlockedChars.includes(raw.selectedChar) ? raw.selectedChar : 'valter';
         out.infiniteUnlocked = raw.infiniteUnlocked === true;
         out.infiniteMode = out.infiniteUnlocked && raw.infiniteMode === true;
+        out.pressureUnlocked = toInt(raw.pressureUnlocked, 0, PRESSURE_MAX);
+        out.pressure = toInt(raw.pressure, 0, out.pressureUnlocked);
+        const ach = raw.achievements && typeof raw.achievements === 'object' ? raw.achievements : {};
+        out.achievements = { secretEnding: ach.secretEnding === true, trickster: ach.trickster === true };
         const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};
         out.stats = {
             runs: toInt(st.runs, 0, BIG),
@@ -265,13 +278,27 @@
         return true;
     }
 
+    function setPressure(meta, level) {
+        const lv = toInt(level, 0, PRESSURE_MAX);
+        if (lv > meta.pressureUnlocked) return false;
+        meta.pressure = lv;
+        return true;
+    }
+
     // ---------- FIM DE RUN ----------
-    // Todo VR ganho na run (inclui Overkill de chefe e o que foi gasto na fogueira) vira crédito.
-    // result: { vrEarned, victory, infinite, wave }. Retorna o que mudou para a tela final.
+    // Todo VR ganho na run (inclui Overkill de chefe e o que foi gasto na fogueira) vira crédito,
+    // multiplicado pelo bônus do nível de Pressão jogado.
+    // result: { vrEarned, victory, infinite, wave, pressure, secretEnding, trickster }.
     function recordRun(meta, result) {
         const r = result || {};
-        const credits = toInt(r.vrEarned, 0, 1e9);
-        const out = { credits: credits, unlockedChar: null, unlockedInfinite: false, newBestWave: false };
+        const pressure = toInt(r.pressure, 0, PRESSURE_MAX);
+        const credits = Math.floor(toInt(r.vrEarned, 0, 1e9) * (1 + PRESSURE_BONUS[pressure]));
+        const out = { credits: credits, pressureBonus: PRESSURE_BONUS[pressure], unlockedChar: null, unlockedInfinite: false,
+            newBestWave: false, unlockedPressure: 0, newSecretEnding: false, newTrickster: false };
+        if (r.trickster && !meta.achievements.trickster) {
+            meta.achievements.trickster = true;
+            out.newTrickster = true;
+        }
         meta.credits += credits;
         meta.stats.totalCredits += credits;
         meta.stats.runs += 1;
@@ -283,14 +310,23 @@
             }
         } else if (r.victory) {
             meta.stats.wins += 1;
+            const next = Math.min(PRESSURE_MAX, pressure + 1);
+            if (next > meta.pressureUnlocked) {
+                meta.pressureUnlocked = next;
+                out.unlockedPressure = next;
+            }
+            if (r.secretEnding && !meta.achievements.secretEnding) {
+                meta.achievements.secretEnding = true;
+                out.newSecretEnding = true;
+            }
             if (!meta.infiniteUnlocked) {
                 meta.infiniteUnlocked = true;
                 out.unlockedInfinite = true;
             }
-            const next = CHARACTER_ORDER.find(id => !isUnlocked(meta, id));
-            if (next) {
-                meta.unlockedChars.push(next);
-                out.unlockedChar = next;
+            const hire = CHARACTER_ORDER.find(id => !isUnlocked(meta, id));
+            if (hire) {
+                meta.unlockedChars.push(hire);
+                out.unlockedChar = hire;
             }
         }
         return out;
@@ -307,6 +343,9 @@
         CURATION_MAX_FAVORED: CURATION_MAX_FAVORED,
         CHARACTER_PRICES: CHARACTER_PRICES,
         CHARACTER_ORDER: CHARACTER_ORDER,
+        PRESSURE_BONUS: PRESSURE_BONUS,
+        PRESSURE_MAX: PRESSURE_MAX,
+        setPressure: setPressure,
         defaults: defaults,
         sanitize: sanitize,
         load: load,

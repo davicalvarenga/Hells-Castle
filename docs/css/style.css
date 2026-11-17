@@ -4032,3 +4032,121 @@ body.daydream-transition .viewport-frame {
         font-size: 8px;
     }
 }
+
+/* ===== ETAPA 6: PRESSÃO, BALÃO DOS CHEFES ===== */
+.pressure-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: center;
+    gap: 4px 8px;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    background: rgba(59, 13, 18, 0.55);
+    border: 1px solid #7f1d1d;
+}
+
+.pressure-lbl {
+    font-size: 14px;
+    color: #fca5a5;
+}
+
+.pressure-buttons {
+    display: flex;
+    gap: 3px;
+}
+
+.pressure-btn {
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    background: #1e1b2e;
+    color: #fecaca;
+    border: 2px solid #090d16;
+    box-shadow: inset 0 0 0 1px #7f1d1d;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.pressure-btn.active {
+    background: linear-gradient(180deg, #ef4444 0%, #991b1b 100%);
+    color: #fff7ed;
+    box-shadow: inset 0 0 0 1px #fecaca, 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.pressure-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.pressure-desc {
+    font-size: 13px;
+    color: #fde68a;
+    line-height: 1.05;
+    text-align: left;
+}
+
+.boss-bubble {
+    position: absolute;
+    z-index: 7;
+    transform: translateX(-50%);
+    max-width: min(320px, 80%);
+    padding: 5px 9px;
+    background: #f8fafc;
+    color: #1c0a0a;
+    border: 3px solid #0d0812;
+    box-shadow: 4px 4px 0 rgba(13, 8, 18, 0.7), inset 0 0 0 2px #e84545;
+    font-size: 16px;
+    line-height: 1.05;
+    text-align: center;
+    pointer-events: none;
+    animation: boss-bubble 2.8s ease-out forwards;
+}
+
+.boss-bubble::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -9px;
+    width: 12px;
+    height: 12px;
+    margin-left: -6px;
+    background: #f8fafc;
+    border-right: 3px solid #0d0812;
+    border-bottom: 3px solid #0d0812;
+    transform: rotate(45deg);
+}
+
+@keyframes boss-bubble {
+    0% { opacity: 0; transform: translate(-50%, 8px) scale(0.85); }
+    10% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    85% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -6px); }
+}
+
+@media (max-width: 680px) {
+    .pressure-row {
+        grid-template-columns: auto 1fr;
+        padding: 3px 5px;
+        margin-bottom: 6px;
+    }
+
+    .pressure-desc {
+        grid-column: 1 / -1;
+        font-size: 11px;
+    }
+
+    .pressure-lbl {
+        font-size: 12px;
+    }
+
+    .pressure-btn {
+        width: 24px;
+        height: 22px;
+        font-size: 13px;
+    }
+
+    .boss-bubble {
+        font-size: 12px;
+        padding: 3px 6px;
+    }
+}

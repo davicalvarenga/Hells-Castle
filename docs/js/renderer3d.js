@@ -108,6 +108,8 @@
 
     let currentState = null;
     let hoveredCard = null;
+    // O que a prévia de mira desenhou no último quadro (colunas, dano e LETAL!): usado pelos testes.
+    let lastPreviewDraw = null;
     let onSelectEnemy = null;
     let rafId = 0;
     let lastTime = 0;
@@ -1110,6 +1112,10 @@
         // Desenha retaguarda primeiro para que a linha de frente fique visualmente acima.
         items.sort((a, b) => (b.isRear ? 1 : 0) - (a.isRear ? 1 : 0));
 
+        const preview = hoveredCard && hoveredCard.preview ? hoveredCard.preview : null;
+        lastPreviewDraw = preview ? { cols: [], dmg: {}, lethal: [], random: !!preview.random } : null;
+        if (preview) drawColumnPreview(preview, now);
+
         items.forEach(it => {
             const enemy = it.enemy;
             const cx = cxOf(it);
@@ -1174,6 +1180,26 @@
                 hctx.fillRect(Math.round(bx + bw * 0.66), safeBy, 2, bh);
                 hctx.fillRect(Math.round(bx + bw * 0.33), safeBy, 2, bh);
             }
+            // Prévia: dano previsto pisca na barra (trecho claro) e LETAL! quando o dano garantido mata.
+            const predicted = preview ? preview.dmg[enemy.uid] || 0 : 0;
+            if (preview && preview.uids.includes(enemy.uid) && !enemy.overkill) {
+                if (predicted > 0) {
+                    const left = clamp((enemy.hp - predicted) / enemy.maxHp, 0, 1);
+                    hctx.globalAlpha = 0.55 + Math.sin(now / 120) * 0.35;
+                    hctx.fillStyle = '#fff2a8';
+                    hctx.fillRect(bx + bw * left, safeBy, Math.max(2, bw * (hpPct - left)), bh);
+                    hctx.globalAlpha = 1;
+                    drawOutlined('-' + predicted, bx + bw + 4, safeBy + bh / 2 + 1, 13, '#ffe066', 'left');
+                    lastPreviewDraw.dmg[enemy.uid] = predicted;
+                } else if (preview.random) {
+                    drawOutlined('?', bx + bw + 4, safeBy + bh / 2 + 1, 14, '#ffe066', 'left');
+                }
+                if (preview.lethal[enemy.uid]) {
+                    const pulse = 1 + Math.sin(now / 90) * 0.12;
+                    drawLethal(cx, safeBy - (it.showName ? 40 : 22), pulse);
+                    lastPreviewDraw.lethal.push(enemy.uid);
+                }
+            }
             const hpText = enemy.overkill
                 ? 'OVERKILL!'
                 : (enemy.shield > 0 ? enemy.hp + ' (+' + enemy.shield + ')' : enemy.hp + '/' + enemy.maxHp);
@@ -1212,6 +1238,63 @@
         });
 
         drawProjectiles();
+    }
+
+    // Selo vermelho "LETAL!" acima da barra do inimigo que morre com o dano garantido da carta.
+    function drawLethal(cx, cy, scale) {
+        const w = Math.round(58 * scale);
+        const h = Math.round(18 * scale);
+        hctx.fillStyle = '#0d0812';
+        hctx.fillRect(Math.round(cx - w / 2) - 2, Math.round(cy - h / 2) - 2, w + 4, h + 4);
+        hctx.fillStyle = '#e8352a';
+        hctx.fillRect(Math.round(cx - w / 2), Math.round(cy - h / 2), w, h);
+        hctx.fillStyle = '#ffd147';
+        hctx.fillRect(Math.round(cx - w / 2), Math.round(cy - h / 2), w, 2);
+        drawOutlined('LETAL!', cx, cy + 1, Math.round(15 * scale), '#fff6c9');
+    }
+
+    // Colunas visadas destacadas no chão, em perspectiva (projeção 3D real); sem WebGL, faixas na base da tela.
+    function drawColumnPreview(preview, now) {
+        const alpha = 0.22 + Math.sin(now / 160) * 0.08;
+        preview.cols.slice().sort().forEach(col => {
+            lastPreviewDraw.cols.push(col);
+            let quad = null;
+            if (webglOk && currentState && camera) {
+                const dir = currentState.player.dir;
+                const fx = DIR_DX[dir];
+                const fz = DIR_DY[dir];
+                const rx = -fz;
+                const rz = fx;
+                const sx = -2.1 + 4.2 * (col / 4);
+                const corner = (lat, depth) => project3D(
+                    currentState.player.x * TILE + fx * depth + rx * (sx + lat), 0.02,
+                    currentState.player.y * TILE + fz * depth + rz * (sx + lat));
+                const pts = [corner(-0.42, 1.45), corner(0.42, 1.45), corner(0.42, 2.9), corner(-0.42, 2.9)];
+                if (pts.every(Boolean)) quad = pts;
+            }
+            if (!quad) {
+                const x = viewW * (0.16 + (col / 4) * 0.68);
+                const half = viewW * 0.07;
+                quad = [{ x: x - half, y: viewH * 0.95 }, { x: x + half, y: viewH * 0.95 }, { x: x + half * 0.7, y: viewH * 0.7 }, { x: x - half * 0.7, y: viewH * 0.7 }];
+            }
+            hctx.save();
+            hctx.beginPath();
+            hctx.moveTo(quad[0].x, quad[0].y);
+            for (let i = 1; i < 4; i++) hctx.lineTo(quad[i].x, quad[i].y);
+            hctx.closePath();
+            hctx.fillStyle = preview.random ? 'rgba(192, 132, 252,' + alpha + ')' : 'rgba(255, 209, 71,' + alpha + ')';
+            hctx.fill();
+            hctx.lineWidth = 3;
+            hctx.strokeStyle = preview.random ? '#c084fc' : '#ffd147';
+            if (preview.random) hctx.setLineDash([8, 6]);
+            hctx.stroke();
+            hctx.restore();
+            if (preview.random) {
+                const mx = (quad[0].x + quad[1].x) / 2;
+                const my = (quad[0].y + quad[3].y) / 2;
+                drawOutlined('?', mx, my, 20, '#f5d0fe');
+            }
+        });
     }
 
     // Projéteis pixelados voando do inimigo até a tela (folha / onda / orbe de energia)
@@ -2272,6 +2355,7 @@
         flashEnemy: flashEnemy,
         fireProjectile: fireProjectile,
         getProjectileKindForCard: getProjectileKindForCard,
+        getPreviewDraw: function () { return lastPreviewDraw ? JSON.parse(JSON.stringify(lastPreviewDraw)) : null; },
         spawnDamageNumber: spawnDamageNumber,
         spawnLootRain: spawnLootRain,
         triggerEnemyAttackAnim: triggerEnemyAttackAnim,

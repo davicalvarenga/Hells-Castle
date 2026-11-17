@@ -1,6 +1,7 @@
 // Bot de calibração do Hell's Castle: joga runs completas no navegador headless via window.__hcDebug.
 // Requer: npm i --no-save playwright-core (usa o Chrome instalado).
 // Uso: node tools/hc-bot.mjs [--runs 8] [--policy good|bad] [--speed 30] [--head] [--source worktree|head] [--char valter|vivi|jorge|claudia]
+//   [--pressure 0..5] (Nível de Pressão já liberado e escolhido no save)
 //   Cada run usa um contexto de navegador próprio: localStorage limpo, sem meta-progressão vazando entre runs.
 //   good = Jogar Tudo (combo ordenado) + usa a fogueira; bad = cartas em ordem ruim, sem fogueira.
 import { chromium } from 'playwright-core';
@@ -19,6 +20,7 @@ const SPEED = Number(arg('speed', 30));
 const SOURCE = String(arg('source', 'worktree'));
 const VERBOSE = !!arg('verbose', false);
 const CHAR = String(arg('char', 'valter'));
+const PRESSURE = Math.max(0, Math.min(5, Number(arg('pressure', 0)) || 0));
 
 const HOOK = '\nwindow.__hcDebug = { get state() { return state; }, get activeModal() { return activeModal; }, ' +
     'playCard, playAllCards, endTurn, moveRelative, turnPlayer, sortCardsByCombo, isUsefulCard };\n';
@@ -253,8 +255,10 @@ async function runOne(browser, baseUrl, idx) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await ctx.newPage();
     // Colega escolhido: grava a meta mínima antes do jogo carregar (o jogo valida o que lê).
-    if (CHAR !== 'valter') {
-        await page.addInitScript(c => localStorage.setItem('hc_meta_v1', JSON.stringify({ unlockedChars: ['valter', c], selectedChar: c })), CHAR);
+    if (CHAR !== 'valter' || PRESSURE > 0) {
+        await page.addInitScript(([c, pr]) => localStorage.setItem('hc_meta_v1', JSON.stringify({
+            unlockedChars: ['valter', c], selectedChar: c, pressureUnlocked: pr, pressure: pr
+        })), [CHAR, PRESSURE]);
     }
     const errors = [];
     // O bot roda sem WebGL (mais rápido); o aviso do three.js sobre isso é esperado.
@@ -284,6 +288,7 @@ async function runOne(browser, baseUrl, idx) {
     }
     result.errors = errors;
     result.hero = await page.evaluate(() => window.__hcDebug.state.heroId).catch(() => '?');
+    result.pressure = await page.evaluate(() => window.__hcDebug.state.pressure).catch(() => -1);
     await ctx.close();
     return result;
 }
@@ -300,7 +305,9 @@ await browser.close();
 srv.close();
 
 const wins = results.filter(r => r.victory).length;
-console.log('\n=== policy=' + POLICY + ' runs=' + RUNS + ' source=' + SOURCE + ' char=' + CHAR + ' ===');
+console.log('\n=== policy=' + POLICY + ' runs=' + RUNS + ' source=' + SOURCE + ' char=' + CHAR + ' pressure=' + PRESSURE + ' ===');
+const wrongPressure = results.filter(r => r.pressure !== PRESSURE).length;
+if (wrongPressure) console.log('AVISO: ' + wrongPressure + ' run(s) não rodaram no Nível de Pressão pedido');
 const wrongHero = results.filter(r => r.hero !== CHAR).length;
 // Toda run nova passa pela cutscene de 1ª visita (5 cenas) antes de bater o ponto.
 const badIntro = results.filter(r => !r.timeout && !r.stuck && r.introScenes !== 5).length;
