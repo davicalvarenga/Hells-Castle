@@ -2856,3 +2856,440 @@ body.daydream-transition .viewport-frame {
         gap: 1px;
     }
 }
+
+/* ===== META-PROGRESSÃO: RECEPÇÃO, COLEGAS, SETORES E CRACHÁ ATIVO ===== */
+.reception-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 12px;
+    margin-bottom: 6px;
+}
+
+.reserve-pill {
+    background: #0f172a;
+    border: 2px solid #f5cb5c;
+    color: #fde68a;
+    padding: 2px 10px;
+    font-size: 16px;
+    white-space: nowrap;
+}
+
+.reserve-pill b {
+    color: #ffffff;
+}
+
+.meta-record {
+    font-size: 13px;
+    color: #94a3b8;
+}
+
+.crew-grid {
+    grid-template-columns: repeat(4, 1fr);
+    margin-bottom: 6px;
+}
+
+.crew-card {
+    position: relative;
+    padding: 5px 4px;
+    cursor: pointer;
+}
+
+.crew-card .badge-name {
+    font-size: 15px;
+}
+
+.crew-card.locked {
+    filter: grayscale(0.85);
+    opacity: 0.75;
+}
+
+.crew-card.locked .badge-role {
+    color: #fde68a;
+}
+
+.crew-card.shown:not(.selected) {
+    box-shadow: inset 0 0 0 2px #fde68a, 0 4px 0 #090d16;
+}
+
+.badge-detail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    margin-bottom: 8px;
+    padding: 5px 8px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid #334155;
+}
+
+.hire-btn {
+    padding: 3px 12px;
+    background: linear-gradient(180deg, #fde68a 0%, #d4a72c 100%);
+    color: #1c1305;
+    border: 2px solid #090d16;
+    font-size: 15px;
+}
+
+.hire-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.reception-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.reception-btn {
+    padding: 6px 4px;
+    background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+    color: #e2e8f0;
+    border: 2px solid #090d16;
+    box-shadow: inset 0 0 0 1px #64748b, 0 3px 0 #090d16;
+    font-size: 16px;
+    letter-spacing: 0.03em;
+}
+
+.reception-btn:hover {
+    box-shadow: inset 0 0 0 2px #38bdf8, 0 3px 0 #090d16;
+}
+
+.infinite-toggle {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 5px;
+    background: #1e1b2e;
+    color: #c4b5fd;
+    border: 2px dashed #7c3aed;
+    font-size: 15px;
+}
+
+.infinite-toggle.on {
+    background: linear-gradient(180deg, #6d28d9 0%, #3b0764 100%);
+    color: #f5f3ff;
+    border-style: solid;
+    box-shadow: 0 0 14px rgba(167, 139, 250, 0.5);
+}
+
+/* Setores da Recepção: grade compacta que cabe sem rolagem em 1280x800 e 390x844. */
+.reception-overlay {
+    z-index: 95;
+}
+
+.reception-box {
+    width: min(860px, 100%);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.reception-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.reception-head h2 {
+    margin: 0;
+    font-size: 26px;
+}
+
+#reception-desc {
+    margin: 0;
+    font-size: 14px;
+    color: #d6c8ec;
+    line-height: 1.1;
+}
+
+.reception-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+}
+
+.reception-grid.tab-curation {
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.rc-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 5px 3px;
+    min-width: 0;
+    background: linear-gradient(180deg, #2b2140 0%, #1a1426 100%);
+    border: 2px solid #090d16;
+    box-shadow: inset 0 0 0 1px #5b4d75;
+    color: #f1e9ff;
+    line-height: 1;
+}
+
+.rc-tile img {
+    width: 28px;
+    height: 28px;
+    image-rendering: pixelated;
+}
+
+.rc-tile .gem-slot {
+    width: 22px;
+    height: 22px;
+    font-size: 10px;
+}
+
+.rc-name {
+    font-size: 13px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rc-sub {
+    font-size: 11px;
+    color: #9fe8ff;
+}
+
+.rc-price {
+    font-size: 12px;
+    color: #fde68a;
+}
+
+.rc-tile.owned {
+    box-shadow: inset 0 0 0 2px #f5cb5c;
+}
+
+.rc-tile:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.rc-tile.cur-favored {
+    box-shadow: inset 0 0 0 2px #4ade80;
+}
+
+.rc-tile.cur-favored .rc-price {
+    color: #86efac;
+}
+
+.rc-tile.cur-sealed {
+    opacity: 0.6;
+    box-shadow: inset 0 0 0 2px #ef4444;
+}
+
+.rc-tile.cur-sealed .rc-price {
+    color: #fca5a5;
+}
+
+.reception-foot {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.reception-foot .bevel-btn {
+    padding: 6px 14px;
+    font-size: 16px;
+}
+
+.reception-foot .bevel-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.end-meta {
+    color: #a7f3d0 !important;
+    font-size: 15px;
+}
+
+/* Crachá ativo (Carta de Crawler): retrato no canto do combate, pisca a cada disparo. */
+.crawler-portrait {
+    position: absolute;
+    left: 10px;
+    top: 58px;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3px 4px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 2px solid #f5cb5c;
+    box-shadow: 0 3px 0 #090d16;
+    color: #fde68a;
+    line-height: 1;
+    pointer-events: auto;
+}
+
+.crawler-portrait img {
+    width: 34px;
+    height: 34px;
+    image-rendering: pixelated;
+}
+
+.crawler-portrait .cp-name {
+    font-size: 12px;
+    color: #f1f5f9;
+}
+
+.crawler-portrait .cp-turns {
+    font-size: 12px;
+}
+
+.crawler-portrait.fired {
+    animation: crawler-fire 0.35s ease-out;
+}
+
+@keyframes crawler-fire {
+    0% { transform: scale(1.25); box-shadow: 0 0 18px #fde68a; }
+    100% { transform: scale(1); }
+}
+
+.card-btn.crawler {
+    background: linear-gradient(180deg, #7a5a12 0%, #2c1f05 100%);
+    box-shadow: inset 0 0 0 2px #f5cb5c, 0 0 12px rgba(245, 203, 92, 0.35), 0 7px 0 var(--ink);
+}
+
+@media (max-width: 680px) {
+    .reserve-pill {
+        font-size: 13px;
+        padding: 1px 6px;
+    }
+
+    .meta-record {
+        font-size: 11px;
+    }
+
+    .ceo-email-box {
+        display: none;
+    }
+
+    .crew-grid {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 4px;
+    }
+
+    .crew-card {
+        padding: 3px 2px;
+    }
+
+    .crew-card .badge-name {
+        font-size: 11px;
+    }
+
+    .crew-card .badge-role {
+        font-size: 10px;
+    }
+
+    .crew-card img {
+        width: 24px;
+        height: 24px;
+    }
+
+    .badge-detail {
+        padding: 3px 5px;
+        margin-bottom: 6px;
+    }
+
+    .badge-detail .badge-code {
+        font-size: 10px;
+    }
+
+    .badge-detail .badge-desc {
+        font-size: 11px;
+    }
+
+    .hire-btn {
+        font-size: 12px;
+    }
+
+    .reception-actions {
+        gap: 4px;
+        margin-bottom: 6px;
+    }
+
+    .reception-btn {
+        font-size: 13px;
+        padding: 5px 2px;
+    }
+
+    .infinite-toggle {
+        font-size: 12px;
+        padding: 3px;
+        margin-bottom: 6px;
+    }
+
+    .reception-box {
+        padding: 8px;
+        gap: 5px;
+    }
+
+    .reception-head h2 {
+        font-size: 19px;
+    }
+
+    #reception-desc {
+        font-size: 11px;
+    }
+
+    .reception-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+    }
+
+    .reception-grid.tab-curation {
+        grid-template-columns: repeat(5, 1fr);
+    }
+
+    .rc-tile {
+        padding: 3px 2px;
+    }
+
+    .rc-tile img {
+        width: 22px;
+        height: 22px;
+    }
+
+    .rc-tile .gem-slot {
+        width: 16px;
+        height: 16px;
+        font-size: 8px;
+    }
+
+    .rc-name {
+        font-size: 11px;
+    }
+
+    .rc-sub,
+    .rc-price {
+        font-size: 10px;
+    }
+
+    .reception-foot .bevel-btn {
+        font-size: 13px;
+        padding: 5px 8px;
+    }
+
+    .crawler-portrait {
+        top: 46px;
+        left: 6px;
+        padding: 2px 3px;
+    }
+
+    .crawler-portrait img {
+        width: 24px;
+        height: 24px;
+    }
+
+    .crawler-portrait .cp-name,
+    .crawler-portrait .cp-turns {
+        font-size: 10px;
+    }
+}

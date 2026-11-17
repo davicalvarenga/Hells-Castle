@@ -7,7 +7,8 @@
         title: 'Sir Valter'
     };
 
-    // Valter enfrenta os devaneios sozinho (sem aliados contratáveis).
+    // Colegas jogáveis (Crawlers). Cada um traz baralho inicial, passiva fixa e a própria Carta de Crawler.
+    // stats: somados aos stats da run. kbBonus: + chance de Desarme. startVr: VR inicial.
     const CHARACTERS = [
         {
             id: 'valter',
@@ -19,9 +20,65 @@
             icon: 'hero_valter',
             maxHp: 50,
             turn1Shield: 4,
-            desc: 'Sozinho contra os próprios devaneios: Sanidade 50, Mana 3, 4 cartas por turno e +4 Escudo no Turno 1.'
+            crawlerCard: 'crawler_valter',
+            stats: {},
+            desc: 'Equilibrado: Sanidade 50, +4 Escudo no Turno 1. Crawler: cada Ataque jogado dá +3 Escudo.'
+        },
+        {
+            id: 'vivi',
+            name: 'Vivi da Arte',
+            role: 'Designer',
+            title: 'Dama Vivi',
+            dept: 'Criação & Branding',
+            badgeCode: 'HC-0713',
+            icon: 'hero_vivi',
+            maxHp: 48,
+            turn1Shield: 2,
+            crawlerCard: 'crawler_vivi',
+            stats: { Area: 20 },
+            deck: ['grito_guerra', 'moeda_destino', 'moeda_destino', 'w_amuleto', 'w_pulseira', 'golpe_furtivo',
+                'pocao_fogo', 'eco_mare', 'chicote_dados', 'mordida_ferro'],
+            desc: 'Combo e Wild: Sanidade 48, +20% Area. Crawler: cada Wild jogada solta uma pincelada de 6 de dano.'
+        },
+        {
+            id: 'jorge',
+            name: 'Seu Jorge do TI',
+            role: 'Suporte Técnico',
+            title: 'Mestre Jorge',
+            dept: 'Infraestrutura',
+            badgeCode: 'HC-0021',
+            icon: 'hero_jorge',
+            maxHp: 58,
+            turn1Shield: 8,
+            crawlerCard: 'crawler_jorge',
+            stats: {},
+            kbBonus: 0.15,
+            deck: ['tomo_1', 'tomo_2', 'escudo_burocratico', 'escudo_burocratico', 'w_broquel', 'chicote_dados',
+                'mordida_ferro', 'mordida_ferro', 'pocao_fogo', 'vislumbre'],
+            desc: 'Defesa: Sanidade 58, +8 Escudo no Turno 1, +15% Desarme. Crawler: Suporte/Defesa dá +4 Escudo e tenta desarmar.'
+        },
+        {
+            id: 'claudia',
+            name: 'Cláudia do Financeiro',
+            role: 'Controller',
+            title: 'Lady Cláudia',
+            dept: 'Contas a Receber',
+            badgeCode: 'HC-1180',
+            icon: 'hero_claudia',
+            maxHp: 50,
+            turn1Shield: 4,
+            crawlerCard: 'crawler_claudia',
+            stats: { Luck: 20, Greed: 20 },
+            startVr: 15,
+            deck: ['golpe_furtivo', 'golpe_furtivo', 'demissao_silenciosa', 'mordida_ferro', 'mordida_ferro',
+                'moeda_destino', 'grito_guerra', 'pocao_fogo', 'chicote_dados', 'vislumbre'],
+            desc: 'Crítico e VR: Sanidade 50, +20% Luck, +20% Greed e 15 VR. Crawler: cada Ataque jogado rende +3 VR.'
         }
     ];
+
+    function getCharacter(id) {
+        return CHARACTERS.find(c => c.id === id) || CHARACTERS[0];
+    }
 
     // Relógio de ponto: o dia inteiro até a saída.
     const FLOOR_CLOCKS = {
@@ -89,6 +146,18 @@
         arcanaComboCarryCap: 4,    // Elo da Corrente: combo máximo carregado entre turnos
         arcanaShieldCarryCap: 40,  // Escudo Soberbo
         arcanaManaCarry: 4,        // Mente Afiada
+        // ---- Meta-progressão e Hora Extra Infinita ----
+        crawlerTurns: 3,           // Carta de Crawler: o retrato fica ativo N turnos (Duration prolonga)
+        infinite: {
+            firstBreatherMs: 1400,     // respiro antes de cada onda (dá tempo de andar até a fogueira)
+            waveHp: 0.22,              // +22% de HP por onda
+            waveAtk: 0.10,             // +10% de ATK por onda
+            turnGrowth: 0.05,          // a cada turno, inimigos vivos ganham +5% de HP e ATK
+            cursePerTurn: 3,           // e a Curse sobe 3% por turno
+            curseCap: 300,
+            eliteEvery: 3,
+            bossEvery: 5
+        },
         // ---- Etapa 4: gemas avançadas, rachadura e eventos de mapa ----
         maxGemSlots: 4,            // teto de slots por carta (3 naturais + 1 da Mesa de Oferenda)
         gemBombRatio: 0.6,         // Bombardeio: fração do dano da carta na explosão extra
@@ -205,13 +274,15 @@
     const GEM_RARITY_LABEL = { comum: 'Comum', rara: 'Rara', epica: 'Épica', lendaria: 'Lendária' };
 
     // Sorteio ponderado pela raridade. roll em [0, 1); devolve null se a lista estiver vazia.
-    function pickGemByRarity(gemIds, roll) {
-        const ids = (gemIds || []).filter(id => GEMS[id]);
+    // weightMult(id) opcional (Curadoria): 0 tira a gema do sorteio, 2 dobra o peso.
+    function pickGemByRarity(gemIds, roll, weightMult) {
+        const weight = id => GEM_RARITY_WEIGHT[GEMS[id].rarity] * (weightMult ? weightMult(id) : 1);
+        const ids = (gemIds || []).filter(id => GEMS[id] && weight(id) > 0);
         if (ids.length === 0) return null;
-        const total = ids.reduce((sum, id) => sum + GEM_RARITY_WEIGHT[GEMS[id].rarity], 0);
+        const total = ids.reduce((sum, id) => sum + weight(id), 0);
         let left = Math.max(0, Math.min(0.999999, roll || 0)) * total;
         for (const id of ids) {
-            left -= GEM_RARITY_WEIGHT[GEMS[id].rarity];
+            left -= weight(id);
             if (left < 0) return id;
         }
         return ids[ids.length - 1];
@@ -224,7 +295,7 @@
 
     // Rachadura (BreakableCard): só cartas comuns — nem Wild, nem evoluída/fundida, nem Destroy, nem lixo.
     function isBreakableCard(card) {
-        if (!card || card.type === 'curse' || card.evolved || card.destroy || card.tempOnly) return false;
+        if (!card || card.type === 'curse' || card.evolved || card.destroy || card.tempOnly || card.crawler) return false;
         if (isWildCard(card) || cardHasGem(card, 'uncrackable')) return false;
         return true;
     }
@@ -251,7 +322,7 @@
     // Slots visíveis: 1 a 3 conforme o custo (evoluídas sempre 3). Cartas-lixo, pickups e cartas geradas
     // não têm slot. extraSlots: bônus da Mesa de Oferenda (teto BALANCE.maxGemSlots).
     function getCardGemSlots(card, extraSlots) {
-        if (!card || card.type === 'curse' || card.consumable || card.tempOnly) return 0;
+        if (!card || card.type === 'curse' || card.consumable || card.tempOnly || card.crawler) return 0;
         const base = card.gemSlots || (card.evolved ? 3 : Math.min(3, 1 + (card.cost || 0)));
         return Math.min(BALANCE.maxGemSlots, base + Math.max(0, extraSlots || 0));
     }
@@ -259,7 +330,7 @@
     function canSocketGem(card, currentGems, gemId, extraSlots) {
         const gem = GEMS[gemId];
         const gems = currentGems || [];
-        if (!gem || !card || card.type === 'curse' || card.consumable || card.tempOnly) return false;
+        if (!gem || !card || card.type === 'curse' || card.consumable || card.tempOnly || card.crawler) return false;
         if (gem.instant) return !!card.evolvesTo && !card.evolved;
         if (gems.length >= getCardGemSlots(card, extraSlots) || gems.includes(gemId)) return false;
         if (gems.some(g => gem.incompatibleWith.includes(g) || GEMS[g].incompatibleWith.includes(gemId))) return false;
@@ -722,6 +793,41 @@
             shield: 0, heal: 0, manaGain: 0, knockback: false,
             icon: 'c_dew', sfx: 'coffee',
             desc: '{DMG} no alvo + {BURN} Burn na coluna. PERSISTENTE: o Burn dela não cai abaixo de 2 nesta luta.'
+        },
+        // ---------- CARTAS DE CRAWLER (retrato do colega) ----------
+        // Custo 0 (não rouba Cafeína do turno). Jogada, ativa o retrato por crawlerTurns turnos; enquanto ativo, cada carta jogada de um dos tipos
+        // em crawlerTrigger dispara crawlerFx. Wild: comba e reinicia a escada no custo 0.
+        crawler_valter: {
+            id: 'crawler_valter', name: 'Crachá: Valter', origin: 'Relatório Impecável',
+            cost: 0, type: 'crawler', isWild: true, target: 'self', crawler: 'valter',
+            crawlerTrigger: ['atk'], crawlerFx: { shield: 3 },
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'hero_valter', sfx: 'shield',
+            desc: 'Crawler ({TURNS} turnos): cada Ataque jogado dá +3 Escudo.'
+        },
+        crawler_vivi: {
+            id: 'crawler_vivi', name: 'Crachá: Vivi', origin: 'Pincelada Final',
+            cost: 0, type: 'crawler', isWild: true, target: 'self', crawler: 'vivi',
+            crawlerTrigger: ['wild'], crawlerFx: { damage: 6 },
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'hero_vivi', sfx: 'card',
+            desc: 'Crawler ({TURNS} turnos): cada Wild jogada solta uma pincelada de 6 dano (com Area).'
+        },
+        crawler_jorge: {
+            id: 'crawler_jorge', name: 'Crachá: Jorge', origin: 'Chamado Resolvido',
+            cost: 0, type: 'crawler', isWild: true, target: 'self', crawler: 'jorge',
+            crawlerTrigger: ['sup', 'def'], crawlerFx: { shield: 4, disarm: 0.4 },
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'hero_jorge', sfx: 'shield',
+            desc: 'Crawler ({TURNS} turnos): cada Suporte/Defesa dá +4 Escudo e 40% de Desarme num atacante.'
+        },
+        crawler_claudia: {
+            id: 'crawler_claudia', name: 'Crachá: Cláudia', origin: 'Auditoria Surpresa',
+            cost: 0, type: 'crawler', isWild: true, target: 'self', crawler: 'claudia',
+            crawlerTrigger: ['atk'], crawlerFx: { vr: 3 },
+            damage: 0, shield: 0, heal: 0, manaGain: 0, knockback: false,
+            icon: 'hero_claudia', sfx: 'card',
+            desc: 'Crawler ({TURNS} turnos): cada Ataque jogado rende +3 VR (com Greed).'
         },
         // ---------- CARTAS EVOLUÍDAS ----------
         prisma_eclipse: {
@@ -1236,7 +1342,7 @@
             once: true,
             desc: 'ÚNICO: +1 Cafeína máxima (4 por turno) e cura 15 de Sanidade.',
             apply: function (state) {
-                state.maxMana = Math.min(BALANCE.maxManaCap, state.maxMana + 1);
+                state.maxMana = Math.min(state.maxManaCap || BALANCE.maxManaCap, state.maxMana + 1);
                 state.mana += 1;
                 state.hp = Math.min(state.maxHp, state.hp + 15);
                 state.passives.push({ label: 'Cálice Duplo (+1 Cafeína)', icon: 'espresso' });
@@ -1250,7 +1356,7 @@
             icon: 'vr_boost',
             desc: '+5 Sanidade Máxima (teto 85), cura 12 e +10 VR.',
             apply: function (state) {
-                state.maxHp = Math.min(BALANCE.maxHpCap, state.maxHp + 5);
+                state.maxHp = Math.min(state.maxHpCap || BALANCE.maxHpCap, state.maxHp + 5);
                 state.hp = Math.min(state.maxHp, state.hp + 12);
                 state.vr += 10;
                 state.passives.push({ label: 'Bolsa de Moedas (+5 HP Máx)', icon: 'vr_boost' });
@@ -1957,6 +2063,7 @@
     window.GameData = {
         PROTAGONIST: PROTAGONIST,
         CHARACTERS: CHARACTERS,
+        getCharacter: getCharacter,
         FLOOR_CLOCKS: FLOOR_CLOCKS,
         REALITY_FLASH_QUIPS: REALITY_FLASH_QUIPS,
         XP_TABLE: XP_TABLE,

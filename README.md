@@ -46,6 +46,18 @@ Valter Motta enfrenta sozinho cinco devaneios ao longo de um dia de trabalho. Ca
 - **Rachadura:** carta comum usada mais de 5 vezes no mesmo combate fica **Rachada**; usada além do limite de novo, tem 25% de chance de estilhaçar e sair do baralho. *Inquebrável*, *À Prova de Fogo* ou **Reparar Rachaduras** na fogueira (20 VR) resolvem.
 - **Eventos de mapa:** **Baú de Prata** (pede 2 cartas de tipos específicos; dá Gema Épica/Lendária ou Arcana extra), **Mesa de Oferenda** (sacrifique 1 carta por +1 Slot de Gema em outra, ou por 20 VR) e **Poço dos Desejos** (Gema rara ou Arcana extra, uso único).
 
+## Recepção: Meta-Progressão entre Partidas
+
+Tudo é salvo no navegador (`localStorage`, chave `hc_meta_v1`). Se o armazenamento estiver bloqueado ou corrompido, o jogo começa do zero sem erro.
+
+- **Fundo de Reserva:** ao fim de cada run (vitória ou derrota) todo o VR ganho, inclusive o Overkill dos chefes e o que foi gasto na fogueira, vira crédito persistente (CR).
+- **Almoxarifado:** 15 PowerUps permanentes (Might, Sanidade Máx., Armadura, Área, Quantidade, Crescimento, Ganância, Sorte, Recuperação, Cafeína, Re-rolar, Pular, Banir, Revival e Maldição). Custo `(rank + 1) × base + floor(20 × 1,1^total comprado)`; reembolso total e grátis.
+- **Grafia / Encadernação:** até 3 slots de gema permanentes (+1 por carta), que já valem desde o início da run.
+- **Curadoria:** cada gema alterna entre normal, favorita (peso 2x, até 3) e selada (nunca aparece, até 5). Grátis.
+- **Colegas:** Valter Motta desde o início; **Vivi da Arte** (Wild/Combo, +20% Area), **Seu Jorge do TI** (Tomos/Escudo, +15% Desarme) e **Cláudia do Financeiro** (Crítico, Sanidade 50, +20% Luck, +20% Greed, +15 VR) se contratam com CR ou chegam a cada vitória.
+- **Carta de Crawler:** cada colega começa com o próprio crachá no baralho. Jogado, o retrato fica ativo por 3 turnos (Duration prolonga) e dispara a passiva sempre que você joga uma carta do tipo dele.
+- **Hora Extra Infinita:** liberada ao vencer o Senhor das Horas pela primeira vez. Ondas contínuas no Abismo Estrelado (Elite a cada 3, chefe a cada 5), cada uma mais forte, com HP, ATK e Curse subindo a cada turno. O recorde de ondas fica salvo.
+
 ## Testes
 
 ```bash
@@ -66,6 +78,10 @@ node tools/hc-proc.mjs
 
 ```bash
 node tools/hc-bot.mjs --runs 8 --policy good
+```
+
+```bash
+node tools/hc-bot.mjs --runs 6 --policy good --char vivi
 ```
 
 `node --test` cobre as regras puras e o gerador de mapas; os scripts em `tools/` usam o Chrome instalado (via `playwright-core`) para os testes de ponta a ponta em desktop e mobile e para o bot que joga runs completas.

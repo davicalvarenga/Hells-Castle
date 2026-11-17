@@ -1,6 +1,7 @@
 // Bot de calibração do Hell's Castle: joga runs completas no navegador headless via window.__hcDebug.
 // Requer: npm i --no-save playwright-core (usa o Chrome instalado).
-// Uso: node tools/hc-bot.mjs [--runs 8] [--policy good|bad] [--speed 30] [--head] [--source worktree|head]
+// Uso: node tools/hc-bot.mjs [--runs 8] [--policy good|bad] [--speed 30] [--head] [--source worktree|head] [--char valter|vivi|jorge|claudia]
+//   Cada run usa um contexto de navegador próprio: localStorage limpo, sem meta-progressão vazando entre runs.
 //   good = Jogar Tudo (combo ordenado) + usa a fogueira; bad = cartas em ordem ruim, sem fogueira.
 import { chromium } from 'playwright-core';
 import { execSync } from 'node:child_process';
@@ -17,6 +18,7 @@ const POLICY = String(arg('policy', 'good'));
 const SPEED = Number(arg('speed', 30));
 const SOURCE = String(arg('source', 'worktree'));
 const VERBOSE = !!arg('verbose', false);
+const CHAR = String(arg('char', 'valter'));
 
 const HOOK = '\nwindow.__hcDebug = { get state() { return state; }, get activeModal() { return activeModal; }, ' +
     'playCard, playAllCards, endTurn, moveRelative, turnPlayer, sortCardsByCombo, isUsefulCard };\n';
@@ -241,7 +243,12 @@ function botStep(policy) {
 }
 
 async function runOne(browser, baseUrl, idx) {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await ctx.newPage();
+    // Colega escolhido: grava a meta mínima antes do jogo carregar (o jogo valida o que lê).
+    if (CHAR !== 'valter') {
+        await page.addInitScript(c => localStorage.setItem('hc_meta_v1', JSON.stringify({ unlockedChars: ['valter', c], selectedChar: c })), CHAR);
+    }
     const errors = [];
     // O bot roda sem WebGL (mais rápido); o aviso do three.js sobre isso é esperado.
     page.on('console', m => { if (m.type() === 'error' && !/WebGL/.test(m.text())) errors.push(m.text()); });
@@ -269,7 +276,8 @@ async function runOne(browser, baseUrl, idx) {
         })) };
     }
     result.errors = errors;
-    await page.close();
+    result.hero = await page.evaluate(() => window.__hcDebug.state.heroId).catch(() => '?');
+    await ctx.close();
     return result;
 }
 
@@ -285,7 +293,9 @@ await browser.close();
 srv.close();
 
 const wins = results.filter(r => r.victory).length;
-console.log('\n=== policy=' + POLICY + ' runs=' + RUNS + ' source=' + SOURCE + ' ===');
+console.log('\n=== policy=' + POLICY + ' runs=' + RUNS + ' source=' + SOURCE + ' char=' + CHAR + ' ===');
+const wrongHero = results.filter(r => r.hero !== CHAR).length;
+if (wrongHero) console.log('AVISO: ' + wrongHero + ' run(s) não usaram o colega pedido');
 results.forEach((r, i) => {
     const f = r.final || {};
     const floors = Object.entries(r.floors || {}).map(([n, v]) => 'F' + n + ':L' + v.level + ' hp' + v.hp + '/' + v.maxHp).join(' ');

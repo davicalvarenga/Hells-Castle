@@ -7,7 +7,32 @@
     const R = window.GameRenderer;
     const S = window.GameSprites;
     const A = window.GameAudio;
+    const M = window.GameMeta;
     const B = D.BALANCE;
+
+    // ---------- META-PROGRESSÃO (Recepção) ----------
+    // localStorage pode estar bloqueado (aba privada, preview): sem ele a meta vive só nesta página.
+    function metaStorage() {
+        try {
+            return window.localStorage;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function loadMeta() {
+        return M.load(metaStorage(), {
+            gemIds: Object.keys(D.GEMS),
+            cardIds: Object.keys(D.CARDS),
+            charIds: D.CHARACTERS.map(c => c.id)
+        });
+    }
+
+    let meta = loadMeta();
+
+    function saveMeta() {
+        return M.save(metaStorage(), meta);
+    }
 
     const DIR_DX = [0, 1, 0, -1];
     const DIR_DY = [-1, 0, 1, 0];
@@ -67,6 +92,22 @@
         xpParticlesLayer: $('xp-particles-layer'),
         titleModal: $('title-modal'),
         badgeSelectGrid: $('badge-select-grid'),
+        badgeDetail: $('badge-detail'),
+        metaCredits: $('meta-credits'),
+        metaRecord: $('meta-record'),
+        btnOpenAlmox: $('btn-open-almox'),
+        btnOpenForge: $('btn-open-forge'),
+        btnOpenCuration: $('btn-open-curation'),
+        btnInfiniteToggle: $('btn-infinite-toggle'),
+        receptionModal: $('reception-modal'),
+        receptionTitle: $('reception-title'),
+        receptionDesc: $('reception-desc'),
+        receptionCredits: $('reception-credits'),
+        receptionGrid: $('reception-grid'),
+        btnReceptionReset: $('btn-reception-reset'),
+        btnReceptionClose: $('btn-reception-close'),
+        crawlerPortrait: $('crawler-portrait'),
+        endMeta: $('end-meta'),
         btnStartDaydream: $('btn-start-daydream'),
         spreadsheetModal: $('spreadsheet-modal'),
         btnCloseSpreadsheet: $('btn-close-spreadsheet'),
@@ -240,11 +281,13 @@
         return { x: 4, y: 7 };
     }
 
-    function createInitialState() {
-        const run = { runSeed: pickRunSeed(), floors: {} };
+    // opts.seed: reaproveita a seed (ao trocar de colega ou comprar PowerUp na Recepção o mapa não muda).
+    function createInitialState(opts) {
+        const o = opts || {};
+        const run = { runSeed: o.seed || pickRunSeed(), floors: {} };
         const fl = runFloor(run, 1);
         const start = findStartPos(fl.layout);
-        const hero = D.CHARACTERS[0];
+        const hero = D.getCharacter(meta.selectedChar);
         uidCounter = 1;
         chestIndex = 0;
         eventIndex = 0;
@@ -275,7 +318,7 @@
             combo: 1,
             comboCount: 0,
             lastComboCost: null,
-            stats: { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0, Freeze: 0, Recovery: 0, Duration: 0 },
+            stats: { Might: 0, Amount: 0, Area: 0, Luck: 0, Growth: 0, Freeze: 0, Recovery: 0, Duration: 0, Greed: 0 },
             healPerCombat: 0,
             relics: [],
             specialRelics: [],
@@ -333,10 +376,48 @@
             overkills: 0,
             pendingLevelUps: 0,
             exploredTiles: new Set(),
-            clearedTiles: new Set()
+            clearedTiles: new Set(),
+            crawler: null,         // retrato ativo da Carta de Crawler: { cardId, charId, turns }
+            infinite: null         // Hora Extra Infinita: { wave }
         };
+        applyHeroAndMeta(s, hero);
         revealAround(s, start.x, start.y, fl.layout);
         return s;
+    }
+
+    // Colega escolhido + PowerUps do Almoxarifado + slots da Grafia entram na run aqui (uma vez, no início).
+    function applyHeroAndMeta(s, hero) {
+        const rank = id => M.rankOf(meta, id);
+        s.heroId = hero.id;
+        s.deck = (hero.deck || D.STARTING_DECK).slice();
+        if (hero.crawlerCard) s.deck.push(hero.crawlerCard);
+        Object.keys(hero.stats || {}).forEach(k => { s.stats[k] = (s.stats[k] || 0) + hero.stats[k]; });
+        s.kbBonus = hero.kbBonus || 0;
+        s.vr = hero.startVr || 0;
+        s.startVr = s.vr;
+        s.vrSpent = 0;
+        s.stats.Might += 10 * rank('Might');
+        s.stats.Area += 10 * rank('Area');
+        s.stats.Amount += rank('Amount');
+        s.stats.Growth += 15 * rank('Growth');
+        s.stats.Greed += 20 * rank('Greed');
+        s.stats.Luck += 15 * rank('Luck');
+        s.stats.Recovery += rank('Recovery');
+        s.maxHpCap = B.maxHpCap + 10 * rank('MaxHealth');
+        s.maxHp = hero.maxHp + 10 * rank('MaxHealth');
+        s.hp = s.maxHp;
+        s.armor = rank('Armor');
+        s.maxManaCap = B.maxManaCap + rank('Cooldown');
+        s.maxMana = B.baseMana + rank('Cooldown');
+        s.mana = s.maxMana;
+        s.rerollsLeft += rank('Reroll');
+        s.skipsLeft += rank('Skip');
+        s.banishesLeft += rank('Banish');
+        s.revival = Math.min(B.revivalMax, s.revival + rank('Revival'));
+        s.curse = Math.min(B.curseCap, 15 * rank('Curse'));
+        s.extraGemSlots = Object.assign({}, meta.forge);
+        const bought = M.POWERUPS.filter(p => rank(p.id) > 0).map(p => p.name + ' ' + rank(p.id));
+        if (bought.length > 0) s.passives.push({ label: 'Almoxarifado: ' + bought.join(', '), icon: 'vr_boost' });
     }
 
     function revealAround(s, px, py, layout) {
@@ -465,6 +546,23 @@
         return ((state.stats && state.stats[name]) || 0) + ((state.combatBuff && state.combatBuff[name]) || 0);
     }
 
+    // Greed multiplica o VR ganho em combate, baús e pickups. Retorna o VR efetivamente creditado.
+    function gainVr(amount) {
+        const gained = Math.max(0, Math.round(amount * (1 + getStat('Greed') / 100)));
+        state.vr += gained;
+        return gained;
+    }
+
+    // Gasto rastreado: no fim da run, ganho total = VR atual + gasto - VR inicial do colega.
+    function spendVr(amount) {
+        state.vr -= amount;
+        state.vrSpent = (state.vrSpent || 0) + amount;
+    }
+
+    function vrEarnedThisRun() {
+        return Math.max(0, state.vr + (state.vrSpent || 0) - (state.startVr || 0));
+    }
+
     function getManaBombDamage() {
         return B.manaBombBase + B.manaBombStep * ((state && state.manaBombTicks) || 0);
     }
@@ -522,6 +620,7 @@
         return (card.desc || '')
             .replace(/\{HITS\}/g, String(pv.hits))
             .replace(/\{X\}/g, String(pv.x || 0))
+            .replace(/\{TURNS\}/g, String(state ? crawlerTurns() : B.crawlerTurns))
             .replace(/\{DMG\}/g, String(pv.damage))
             .replace(/\{SHIELD\}/g, String(pv.shield))
             .replace(/\{HEAL\}/g, String(pv.heal))
@@ -637,7 +736,7 @@
         } else if (id === 'bilhete_cinema') {
             state.stats.Might += 10;
         } else if (id === 'chave_bicicleta') {
-            state.maxMana = Math.min(B.maxManaCap, state.maxMana + 1);
+            state.maxMana = Math.min((state.maxManaCap || B.maxManaCap), state.maxMana + 1);
             state.mana = Math.min(state.maxMana, state.mana + 1);
         }
         triggerGoldBanner('RELÍQUIA: ' + relic.title.toUpperCase());
@@ -928,7 +1027,9 @@
         const usable = Object.keys(D.GEMS).filter(gemId => gemTargets(gemId).length > 0);
         const wanted = rarities ? usable.filter(gemId => rarities.includes(D.GEMS[gemId].rarity)) : usable;
         // Sem gema da raridade pedida que caiba no baralho, vale qualquer uma que caiba.
-        return D.pickGemByRarity(wanted.length > 0 ? wanted : usable, Math.random()) || 'swift';
+        const weight = id => M.gemWeightMult(meta, id);
+        return D.pickGemByRarity(wanted.length > 0 ? wanted : usable, Math.random(), weight) ||
+            D.pickGemByRarity(usable, Math.random(), weight) || 'swift';
     }
 
     function grantGem(gemId) {
@@ -1017,7 +1118,7 @@
 
     // Cartas do baralho (sem repetir) que passam no filtro; pickups nunca entram em oferendas.
     function deckCardsWhere(filter) {
-        return state.deck.filter((id, i) => state.deck.indexOf(id) === i && !D.CARDS[id].consumable && filter(id));
+        return state.deck.filter((id, i) => state.deck.indexOf(id) === i && !D.CARDS[id].consumable && !D.CARDS[id].crawler && filter(id));
     }
 
     // ---------- ARCANAS ----------
@@ -1245,7 +1346,7 @@
                     icon: card.icon,
                     priceText: 'REMOVER',
                     onPick: () => {
-                        state.vr -= removePrice;
+                        spendVr(removePrice);
                         state.deck.splice(state.deck.indexOf(id), 1);
                         flags.removed++;
                         activeModal.view = 'main';
@@ -1274,7 +1375,7 @@
             disabled: state.vr < rest.healPrice || !needHeal,
             priceText: needHeal ? rest.healPrice + ' VR' : 'SANIDADE CHEIA',
             onPick: () => {
-                state.vr -= rest.healPrice;
+                spendVr(rest.healPrice);
                 state.hp = Math.min(state.maxHp, state.hp + rest.healAmount);
                 A.play('chest');
                 setLog('Um momento de calma. +' + rest.healAmount + ' Sanidade.');
@@ -1299,7 +1400,7 @@
             disabled: !!flags.gem || state.vr < rest.gemPrice,
             priceText: flags.gem ? 'JÁ COMPRADA' : rest.gemPrice + ' VR',
             onPick: () => {
-                state.vr -= rest.gemPrice;
+                spendVr(rest.gemPrice);
                 flags.gem = true;
                 modalQueue.push({ type: 'gem', gemId: randomGemId() }, { type: 'rest' });
                 closeActiveModal();
@@ -1313,7 +1414,7 @@
             disabled: !!state.extraBreath || state.vr < rest.breathPrice,
             priceText: state.extraBreath ? 'JÁ PREPARADO' : rest.breathPrice + ' VR',
             onPick: () => {
-                state.vr -= rest.breathPrice;
+                spendVr(rest.breathPrice);
                 state.extraBreath = true;
                 state.passives.push({ label: 'Fôlego Extra (próximo combate)', icon: 'shield' });
                 A.play('shield');
@@ -1331,7 +1432,7 @@
             disabled: cracked.length === 0 || state.vr < rest.repairPrice,
             priceText: cracked.length === 0 ? 'NADA RACHADO' : rest.repairPrice + ' VR',
             onPick: () => {
-                state.vr -= rest.repairPrice;
+                spendVr(rest.repairPrice);
                 state.crackedCards = {};
                 A.play('shield');
                 setLog('Cartas reparadas: nenhuma rachadura no baralho.');
@@ -1348,7 +1449,7 @@
                 disabled: flags.relic || state.vr < rest.relicPrice,
                 priceText: flags.relic ? 'JÁ COMPRADA' : rest.relicPrice + ' VR',
                 onPick: () => {
-                    state.vr -= rest.relicPrice;
+                    spendVr(rest.relicPrice);
                     state.relics.push(relic.passiveId);
                     state.passives.push({ label: relic.title + ' (Evolução)', icon: relic.icon });
                     flags.relic = true;
@@ -1875,7 +1976,7 @@
         const loot = D.CHEST_LOOT[chestIndex % D.CHEST_LOOT.length];
         chestIndex++;
         state.hp = Math.min(state.maxHp, state.hp + loot.hp);
-        state.vr += loot.vr;
+        gainVr(loot.vr);
         A.play('chest');
         setLog(loot.title + ': ' + loot.text);
         // A gema do baú espera na fila: abre ao fim do passo (ou depois do combate, se houver aggro).
@@ -1983,6 +2084,12 @@
             e.kbResist = Math.max(e.kbResist, B.eliteKbResist);
             e.hexEvery = B.eliteHexEvery;
         }
+        // Hora Extra Infinita: cada onda nasce mais forte.
+        if (state.infinite) {
+            const w = Math.max(0, state.infinite.wave - 1);
+            e.hp = Math.round(e.hp * (1 + B.infinite.waveHp * w));
+            e.atk = Math.round(e.atk * (1 + B.infinite.waveAtk * w));
+        }
         // Curse da run: quem nasce agora já vem com HP e dano escalados.
         e.hp = D.scaleByCurse(e.hp, state.curse);
         e.maxHp = e.hp;
@@ -1997,7 +2104,7 @@
 
     function raiseCurse(amount) {
         const before = state.curse;
-        state.curse = Math.min(B.curseCap, state.curse + amount);
+        state.curse = Math.min(state.infinite ? B.infinite.curseCap : B.curseCap, state.curse + amount);
         if (state.curse === before) return;
         // Inimigos já em campo só ganham dano; o HP escalado vale para os próximos encontros.
         const ratio = (100 + state.curse) / (100 + before);
@@ -2113,9 +2220,11 @@
         state.mode = 'combat';
         state.busy = false;
         state.currentEncounterId = encId;
+        state.currentEncDef = enc;
         state.mana = state.maxMana;
         state.manaDrain = 0;
-        state.shield = state.turn1Shield || 0;
+        state.shield = (state.turn1Shield || 0) + (state.armor || 0);
+        state.crawler = null;
         state.comboCount = 0;
         state.lastComboCost = null;
         state.combo = 1;
@@ -2393,8 +2502,7 @@
                 ? Math.random() < (card.critChance * getLuckMultiplier())
                 : false;
             const dmg = critRoll ? Math.round(rawDmg * (card.critMult || 1.5)) : rawDmg;
-            const extraVr = Math.max(1, Math.ceil(dmg / 4));
-            state.vr += extraVr;
+            const extraVr = gainVr(Math.max(1, Math.ceil(dmg / 4)));
             state.overkills += 1;
             R.triggerEnemyHitAnim(enemy.uid, true);
             R.triggerShake(0.055, 0.16);
@@ -2483,8 +2591,7 @@
                 }
 
                 state.kills += 1;
-                const gainedVr = enemy.vr + bonusVr;
-                state.vr += gainedVr;
+                const gainedVr = gainVr(enemy.vr + bonusVr);
                 A.play('death');
                 R.spawnBurst(pos.x, pos.y, ['#3cc8ff', '#b8f4ff', '#ffd147', '#fff2a8'], 16, { speed: 170, life: 0.55, size: 6 });
                 // A chuva é só visual (cai e quica); os orbes abaixo voam até as barras e creditam XP/VR.
@@ -2535,7 +2642,7 @@
         }
         if (!enemy.hasIntent) return;
         const baseChance = typeof card.knockbackChance === 'number' ? card.knockbackChance : 0.6;
-        const chance = Math.min(0.98, baseChance * getLuckMultiplier());
+        const chance = Math.min(0.98, (baseChance + (state.kbBonus || 0)) * getLuckMultiplier());
         if (D.rollKnockback(chance, enemy.kbResist, Math.random())) {
             enemy.disarmed = true;
             enemy.hasIntent = false;
@@ -2797,10 +2904,10 @@
             buffs.push(made > 0 ? '+' + made + ' ' + D.CARDS[card.genCard].name : 'Mão cheia!');
         }
         if (card.vrGain > 0) {
-            state.vr += card.vrGain;
+            const got = gainVr(card.vrGain);
             const p = viewportPoint(0.5, 0.5);
-            spawnVrParticles(p.x, p.y, card.vrGain);
-            buffs.push('+' + card.vrGain + ' VR');
+            spawnVrParticles(p.x, p.y, got);
+            buffs.push('+' + got + ' VR');
         }
         if (buffs.length > 0) {
             const p = viewportPoint(0.5, 0.58);
@@ -2808,6 +2915,7 @@
         }
         if (card.freezeFront > 0) getFrontEnemies(false).forEach(front => applyFrost(front, card.freezeFront));
         if (card.erase) eraseEnemies(card);
+        if (card.crawler) activateCrawler(card);
 
         if (!(pv.damage > 0 || card.knockback || card.burn > 0)) {
             A.play(card.sfx);
@@ -2892,6 +3000,58 @@
         runHit();
     }
 
+    // ---------- CARTA DE CRAWLER ----------
+    function crawlerTurns() {
+        return D.withDuration(B.crawlerTurns, getStat('Duration'));
+    }
+
+    function activateCrawler(card) {
+        state.crawler = { cardId: card.id, charId: card.crawler, turns: crawlerTurns(), triggers: 0 };
+        const hero = D.getCharacter(card.crawler);
+        const p = viewportPoint(0.5, 0.42);
+        spawnFloatingText(p.x, p.y, 'CRACHÁ ATIVO: ' + hero.name + ' (' + state.crawler.turns + ' turnos)', 'combo');
+        A.play('levelup');
+    }
+
+    // Toda carta jogada do tipo certo dispara a passiva do retrato ativo (Eco/LOOP/Pós-Vida não disparam).
+    function triggerCrawler(card) {
+        const cr = state.crawler;
+        if (!cr || cr.turns <= 0 || card.crawler || card.type === 'curse') return;
+        const def = D.CARDS[cr.cardId];
+        const kind = D.isWildCard(card) ? 'wild' : card.type;
+        if (!def.crawlerTrigger.includes(kind) && !def.crawlerTrigger.includes(card.type)) return;
+        const fx = def.crawlerFx;
+        const notes = [];
+        if (fx.shield) {
+            state.shield += fx.shield;
+            notes.push('+' + fx.shield + ' Escudo');
+        }
+        if (fx.vr) notes.push('+' + gainVr(fx.vr) + ' VR');
+        const fronts = getFrontEnemies(false);
+        if (fx.damage && fronts.length > 0) {
+            const target = fronts[Math.floor(Math.random() * fronts.length)];
+            const dmg = Math.max(1, Math.round(fx.damage * (1 + getStat('Might') / 100)));
+            R.fireProjectile({ kind: 'orb', toUid: target.uid, duration: 110 });
+            applyDamageToEnemy(target, dmg, null, 1, {});
+            notes.push('Pincelada ' + dmg);
+        }
+        if (fx.disarm) {
+            const attackers = fronts.filter(e => e.hp > 0 && e.hasIntent);
+            if (attackers.length > 0) {
+                const target = attackers[Math.floor(Math.random() * attackers.length)];
+                tryKnockback(target, { knockbackChance: fx.disarm }, getEnemyTargetPos(target));
+            }
+        }
+        cr.triggers += 1;
+        const p = viewportPoint(0.2, 0.34);
+        spawnFloatingText(p.x, p.y, D.getCharacter(cr.charId).name.split(' ')[0] + ': ' + notes.join(' • '), 'combo');
+        if (els.crawlerPortrait) {
+            els.crawlerPortrait.classList.remove('fired');
+            void els.crawlerPortrait.offsetWidth;
+            els.crawlerPortrait.classList.add('fired');
+        }
+    }
+
     function playCard(handIndex) {
         if (state.mode !== 'combat' || state.busy) return false;
         const cardId = state.hand[handIndex];
@@ -2953,7 +3113,7 @@
             }
             if (card.permMaxHp > 0 || card.permGrowth > 0 || card.permRevival > 0) {
                 if (card.permMaxHp > 0) {
-                    state.maxHp = Math.min(B.maxHpCap, state.maxHp + card.permMaxHp);
+                    state.maxHp = Math.min((state.maxHpCap || B.maxHpCap), state.maxHp + card.permMaxHp);
                     state.hp = Math.min(state.maxHp, state.hp + card.permMaxHp);
                 }
                 state.stats.Growth += card.permGrowth || 0;
@@ -3003,6 +3163,7 @@
 
         if (usedMult > 1) setTimeout(() => A.play('combo', usedMult), 60);
         state.busy = true;
+        triggerCrawler(card);
         runCardEffect(card, { mult: usedMult, x: xValue, dmgMult: dmgMult, gems: true }, res => {
             hitNum = res.hits;
             anyOverkill = res.overkill;
@@ -3035,6 +3196,7 @@
         // Lixo quebra a cadeia: o Jogar Tudo só gasta Cafeína para desarmar a Bomba de Mana.
         if (c.type === 'curse') return !!c.endTurnBomb && state.enemies.some(e => e.hp > 0);
         const hasTarget = state.enemies.some(e => e.hp > 0 || e.overkill);
+        if (c.crawler) return hasTarget && !(state.crawler && state.crawler.turns > 0);
         if (c.damage > 0 || c.knockback || c.burn > 0 || c.erase || c.freezeFront > 0) return hasTarget;
         if (c.buffAmount > 0) return state.combatBuff.Amount < B.combatAmountCap;
         // Pickup de cura só vale com Sanidade faltando; desconto e +Combo só com outra carta para aproveitar.
@@ -3146,6 +3308,25 @@
         state.combo = D.getComboMult(state.comboCount);
         // O Escudo acumulado expira no início do turno do jogador (Escudo Soberbo o mantém, com teto).
         state.shield = hasArcana('escudo_soberbo') ? Math.min(B.arcanaShieldCarryCap, state.shield) : 0;
+        if (state.crawler && state.crawler.turns > 0) {
+            state.crawler.turns -= 1;
+            if (state.crawler.turns <= 0) {
+                setLog('O crachá de ' + D.getCharacter(state.crawler.charId).name + ' saiu de cena.');
+                state.crawler = null;
+            }
+        }
+        if (state.infinite) {
+            // Hora Extra: a cada turno os inimigos vivos crescem e a Curse sobe.
+            const g = 1 + B.infinite.turnGrowth;
+            state.enemies.forEach(e => {
+                if (e.hp <= 0) return;
+                const extra = Math.round(e.maxHp * B.infinite.turnGrowth);
+                e.maxHp += extra;
+                e.hp += extra;
+                e.atk = Math.round(e.atk * g);
+            });
+            raiseCurse(B.infinite.cursePerTurn);
+        }
         state.nextCostDiscount = 0;
         state.turnLastFx = null;
 
@@ -3560,8 +3741,17 @@
                 renderHud();
             }
             // Elite derrotado: recompensa garantida de baú (loot + gema pela fila única).
-            if (enc && enc.isElite) grantChestLoot();
+            if ((enc && enc.isElite) || (!enc && state.infinite && state.currentEncDef && state.currentEncDef.isElite)) grantChestLoot();
 
+            if (state.infinite) {
+                const cleared = state.infinite.wave;
+                state.infinite.wave += 1;
+                state.bossDefeated = false;
+                setLog('ONDA ' + cleared + ' VENCIDA! A próxima Hora Extra já vem aí...');
+                processModalQueue();
+                scheduleNextWave(B.infinite.firstBreatherMs);
+                return;
+            }
             if (state.bossDefeated && state.floor === D.FLOORS.length) {
                 setLog('O Senhor das Horas parou.');
                 modalQueue.push({ type: 'epilogue' });
@@ -3576,6 +3766,63 @@
             }
             processModalQueue();
         });
+    }
+
+    // ---------- HORA EXTRA INFINITA ----------
+    function buildInfiniteWave(wave) {
+        const G = window.GameDungeon;
+        const cfg = B.infinite;
+        const pool = D.getEnemyPool(((wave - 1) % 4) + 1);
+        const stats = {};
+        const names = {};
+        pool.common.concat(pool.boss).forEach(kind => {
+            stats[kind] = { hp: D.ENEMIES[kind].hp, atk: D.ENEMIES[kind].atk };
+            names[kind] = D.ENEMIES[kind].name;
+        });
+        if (wave % cfg.bossEvery === 0) {
+            const formation = [{ kind: pool.boss, col: 2, row: 0 }, { kind: pool.common[0], col: 1, row: 0 }, { kind: pool.common[1], col: 3, row: 0 }];
+            return {
+                zone: 'Hora Extra', isBoss: true, formation: formation, enemies: formation.map(f => f.kind),
+                intro: 'ONDA ' + wave + ' — CHEFE: ' + names[pool.boss] + ' bate o ponto de novo!'
+            };
+        }
+        const enc = G.rollEncounter(null, {
+            rng: G.createRng((state.runSeed + wave * 7919) >>> 0),
+            enemyPool: pool.common, enemyStats: stats, enemyNames: names, maxEnemies: D.MAX_ENEMIES_IN_COMBAT,
+            tier: Math.min(3, 1 + Math.floor(wave / 2)),
+            elite: wave % cfg.eliteEvery === 0,
+            eliteKind: pool.common[2]
+        });
+        enc.zone = 'Hora Extra';
+        enc.intro = 'ONDA ' + wave + ': ' + enc.intro;
+        return enc;
+    }
+
+    // A próxima onda espera a fila de modais (level ups, gemas) e a fogueira fecharem.
+    function scheduleNextWave(delay) {
+        later(delay, () => {
+            if (!state.infinite || state.mode === 'gameover') return;
+            if (state.mode !== 'explore' || state.busy || activeModal !== null || modalQueue.length > 0 || bossKeyOpen) {
+                scheduleNextWave(400);
+                return;
+            }
+            startEncounter(null, buildInfiniteWave(state.infinite.wave));
+        });
+    }
+
+    // Hora Extra: Abismo Estrelado sem chefe no mapa; a fogueira e o baú continuam lá entre as ondas.
+    function setupInfiniteRun() {
+        state.infinite = { wave: 1 };
+        state.floor = D.FLOORS.length;
+        const fl = currentFloor();
+        const start = findStartPos(fl.layout);
+        state.player = { x: start.x, y: start.y, dir: start.dir || 0 };
+        state.encounters = [];
+        state.exploredTiles = new Set();
+        revealAround(state, start.x, start.y, fl.layout);
+        R.buildMap(fl.layout, state);
+        R.syncState(state);
+        R.settleCamera();
     }
 
     function endGame(victory) {
@@ -3593,9 +3840,12 @@
         els.endBox.classList.toggle('defeat', !victory);
         els.endBox.classList.toggle('sunset', !!victory);
         els.endDesc.innerHTML = '';
-        const lines = victory
-            ? D.EPILOGUE.endLines
-            : ['A Sanidade de ' + state.heroName + ' zerou em ' + currentFloor().name + '.', 'O devaneio venceu desta vez. O expediente recomeça.'];
+        const wavesSurvived = state.infinite ? state.infinite.wave - 1 : 0;
+        const lines = state.infinite
+            ? [state.heroName + ' aguentou ' + wavesSurvived + ' onda(s) de Hora Extra.', 'Ninguém viu. Mas o Fundo de Reserva viu.']
+            : victory
+                ? D.EPILOGUE.endLines
+                : ['A Sanidade de ' + state.heroName + ' zerou em ' + currentFloor().name + '.', 'O devaneio venceu desta vez. O expediente recomeça.'];
         lines.forEach(line => {
             const p = document.createElement('p');
             p.textContent = line;
@@ -3606,11 +3856,21 @@
             els.endTitle.textContent = D.EPILOGUE.endTitle + ' — PONTO BATIDO';
         } else {
             A.play('defeat');
-            els.endTitle.textContent = 'BURNOUT...';
+            els.endTitle.textContent = state.infinite ? 'HORA EXTRA ENCERRADA' : 'BURNOUT...';
         }
         els.endStats.textContent =
-            'Seed ' + state.runSeed + '  |  FASE ' + state.floor + '/' + D.FLOORS.length + '  |  LV ' + state.level +
-            '  |  VR: ' + state.vr + '  |  Abates: ' + state.kills + '  |  Overkills: ' + state.overkills;
+            'Seed ' + state.runSeed + '  |  ' + (state.infinite ? 'ONDAS ' + wavesSurvived : 'FASE ' + state.floor + '/' + D.FLOORS.length) +
+            '  |  LV ' + state.level + '  |  VR: ' + state.vr + '  |  Abates: ' + state.kills + '  |  Overkills: ' + state.overkills;
+        // Todo VR ganho na run (Overkill de chefe incluso, mesmo o já gasto) vira crédito persistente.
+        const earned = vrEarnedThisRun();
+        const result = M.recordRun(meta, { vrEarned: earned, victory: !!victory, infinite: !!state.infinite, wave: wavesSurvived });
+        const saved = saveMeta();
+        const notes = ['+' + result.credits + ' CR no Fundo de Reserva (total ' + meta.credits + ')'];
+        if (result.unlockedInfinite) notes.push('HORA EXTRA INFINITA desbloqueada!');
+        if (result.unlockedChar) notes.push('Novo colega: ' + D.getCharacter(result.unlockedChar).name + '!');
+        if (result.newBestWave) notes.push('Recorde: ' + wavesSurvived + ' ondas!');
+        if (!saved) notes.push('(sem armazenamento: o progresso vale só nesta aba)');
+        if (els.endMeta) els.endMeta.textContent = notes.join('  ·  ');
         els.btnPlayAgain.textContent = victory ? 'VIVER OUTRO DIA' : 'TENTAR DE NOVO';
         els.endModal.classList.remove('hidden');
         renderAll();
@@ -3622,10 +3882,10 @@
         els.xpFill.style.width = xpPct + '%';
         els.statHero.textContent = state.heroTitle.toUpperCase();
         els.statLv.textContent = String(state.level);
-        els.statFloor.textContent = 'FASE ' + state.floor + '/' + D.FLOORS.length;
+        els.statFloor.textContent = state.infinite ? 'ONDA ' + state.infinite.wave : 'FASE ' + state.floor + '/' + D.FLOORS.length;
         els.statKills.textContent = String(state.kills);
         els.statVr.textContent = String(state.vr);
-        els.clockTime.textContent = state.finalVictory ? D.FLOOR_CLOCKS.victory : (D.FLOOR_CLOCKS[state.floor] || '08:17');
+        els.clockTime.textContent = state.infinite ? '18:00+' : state.finalVictory ? D.FLOOR_CLOCKS.victory : (D.FLOOR_CLOCKS[state.floor] || '08:17');
 
         if (els.statMight) els.statMight.textContent = '+' + getStat('Might') + '%';
         if (els.statAmount) els.statAmount.textContent = '+' + getStat('Amount');
@@ -3636,7 +3896,7 @@
             // Stats raros só ocupam espaço na HUD quando ativos.
             const extras = [
                 ['FRZ', getStat('Freeze'), '%'], ['REC', getStat('Recovery'), ''], ['DUR', getStat('Duration'), '%'],
-                ['REV', state.revival, ''], ['CURSE', state.curse, '%']
+                ['REV', state.revival, ''], ['GRD', getStat('Greed'), '%'], ['CURSE', state.curse, '%']
             ].filter(item => item[1] > 0);
             els.statExtra.innerHTML = extras.map(item => '<span>' + item[0] + ' <b>+' + item[1] + item[2] + '</b></span>').join('');
         }
@@ -3691,8 +3951,21 @@
         return pills.length > 0 ? '<div class="card-kw-row">' + pills.slice(0, 3).join('') + '</div>' : '';
     }
 
+    function renderCrawlerPortrait(inCombat) {
+        const el = els.crawlerPortrait;
+        if (!el) return;
+        const cr = state.crawler;
+        el.classList.toggle('hidden', !inCombat || !cr || cr.turns <= 0);
+        if (!inCombat || !cr || cr.turns <= 0) return;
+        const hero = D.getCharacter(cr.charId);
+        el.title = D.CARDS[cr.cardId].desc.replace('{TURNS}', String(cr.turns));
+        el.innerHTML = '<img src="' + S.getIconUrl(hero.icon) + '" alt="" /><span class="cp-name">' + hero.name.split(' ')[0] +
+            '</span><span class="cp-turns">' + cr.turns + 't</span>';
+    }
+
     function renderCombatControls(popCombo) {
         const inCombat = state.mode === 'combat';
+        renderCrawlerPortrait(inCombat);
         els.explorePanel.classList.toggle('hidden', inCombat);
         els.combatPanel.classList.toggle('hidden', !inCombat);
         document.body.classList.toggle('in-combat', inCombat);
@@ -3790,16 +4063,179 @@
         renderCombatControls(popCombo);
     }
 
+    // ---------- RECEPÇÃO (tela inicial): colegas, Fundo de Reserva e os 3 setores ----------
+    let previewChar = null;   // colega bloqueado clicado (só mostra o detalhe e o botão de contratar)
+
     function renderBadge() {
-        const hero = D.CHARACTERS[0];
-        els.badgeSelectGrid.innerHTML =
-            '<div class="badge-card selected solo">' +
+        els.metaCredits.textContent = String(meta.credits);
+        els.metaRecord.textContent = 'Runs ' + meta.stats.runs + ' · Vitórias ' + meta.stats.wins +
+            (meta.infiniteUnlocked ? ' · Recorde ' + meta.stats.bestWave + ' ondas' : '');
+        const shown = previewChar || meta.selectedChar;
+        els.badgeSelectGrid.innerHTML = '';
+        D.CHARACTERS.forEach(hero => {
+            const unlocked = M.isUnlocked(meta, hero.id);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'badge-card crew-card' + (hero.id === meta.selectedChar ? ' selected' : '') +
+                (!unlocked ? ' locked' : '') + (hero.id === shown ? ' shown' : '');
+            btn.dataset.char = hero.id;
+            btn.innerHTML =
+                '<img src="' + S.getIconUrl(hero.icon) + '" alt="" />' +
+                '<div class="badge-name">' + hero.name + '</div>' +
+                '<div class="badge-role">' + (unlocked ? hero.role : M.CHARACTER_PRICES[hero.id] + ' CR') + '</div>';
+            btn.addEventListener('click', () => {
+                A.unlock();
+                A.play('card');
+                if (unlocked) {
+                    M.selectCharacter(meta, hero.id);
+                    previewChar = null;
+                    saveMeta();
+                } else {
+                    previewChar = hero.id;
+                }
+                renderBadge();
+            });
+            els.badgeSelectGrid.appendChild(btn);
+        });
+
+        const hero = D.getCharacter(shown);
+        const unlocked = M.isUnlocked(meta, hero.id);
+        const price = M.CHARACTER_PRICES[hero.id];
+        els.badgeDetail.innerHTML =
             '<span class="badge-code">' + hero.badgeCode + ' &middot; ' + hero.dept + '</span>' +
-            '<img src="' + S.getIconUrl(hero.icon) + '" alt="" />' +
-            '<div class="badge-name">' + hero.name + '</div>' +
-            '<div class="badge-role">' + hero.role + ' (' + hero.title + ')</div>' +
-            '<div class="badge-desc">' + hero.desc + '</div>' +
-            '</div>';
+            '<span class="badge-desc">' + hero.desc + '</span>' +
+            (unlocked ? '' : '<button type="button" id="btn-hire-char" class="hire-btn"' + (meta.credits < price ? ' disabled' : '') +
+                '>CONTRATAR (' + price + ' CR) ou vença uma run</button>');
+        const hire = document.getElementById('btn-hire-char');
+        if (hire) {
+            hire.addEventListener('click', () => {
+                if (!M.unlockCharacter(meta, hero.id)) return;
+                M.selectCharacter(meta, hero.id);
+                previewChar = null;
+                saveMeta();
+                A.play('levelup');
+                renderBadge();
+            });
+        }
+
+        els.btnInfiniteToggle.classList.toggle('hidden', !meta.infiniteUnlocked);
+        els.btnInfiniteToggle.classList.toggle('on', !!meta.infiniteMode);
+        els.btnInfiniteToggle.textContent = 'HORA EXTRA INFINITA: ' + (meta.infiniteMode ? 'LIGADA' : 'DESLIGADA');
+        els.btnStartDaydream.textContent = meta.infiniteMode ? 'BATER PONTO DA HORA EXTRA' : 'BATER PONTO E COMEÇAR O DIA';
+    }
+
+    // Os 3 setores usam o mesmo modal; cada um descreve o próprio conteúdo.
+    let receptionTab = null;
+
+    function receptionTile(opts) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rc-tile' + (opts.extraClass ? ' ' + opts.extraClass : '');
+        btn.disabled = !!opts.disabled;
+        btn.title = opts.title || '';
+        btn.innerHTML = opts.head +
+            '<span class="rc-name">' + opts.name + '</span>' +
+            '<span class="rc-sub">' + opts.sub + '</span>' +
+            '<span class="rc-price">' + opts.price + '</span>';
+        btn.addEventListener('click', () => {
+            A.unlock();
+            if (!opts.onPick()) return;
+            saveMeta();
+            renderReception();
+            renderBadge();
+        });
+        els.receptionGrid.appendChild(btn);
+    }
+
+    function forgeCards() {
+        const ids = [];
+        D.CHARACTERS.filter(h => M.isUnlocked(meta, h.id)).forEach(h => {
+            (h.deck || D.STARTING_DECK).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+        });
+        Object.keys(meta.forge).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+        return ids.filter(id => D.getCardGemSlots(D.CARDS[id]) > 0);
+    }
+
+    function renderReception() {
+        els.receptionCredits.textContent = String(meta.credits);
+        els.receptionGrid.innerHTML = '';
+        els.receptionGrid.className = 'reception-grid tab-' + receptionTab;
+        if (receptionTab === 'almox') {
+            els.receptionTitle.textContent = 'ALMOXARIFADO';
+            els.receptionDesc.textContent = 'PowerUps permanentes para todas as runs. Reembolso total e grátis a qualquer momento.';
+            M.POWERUPS.forEach(p => {
+                const rank = M.rankOf(meta, p.id);
+                const cost = M.nextPowerupCost(meta, p.id);
+                receptionTile({
+                    head: '<img src="' + S.getIconUrl(p.icon) + '" alt="" />',
+                    name: p.name,
+                    sub: rank + '/' + p.max,
+                    price: cost === null ? 'MÁX' : cost + ' CR',
+                    title: p.desc,
+                    extraClass: rank > 0 ? 'owned' : '',
+                    disabled: cost === null || meta.credits < cost,
+                    onPick: () => M.buyPowerup(meta, p.id)
+                });
+            });
+            els.btnReceptionReset.textContent = 'REEMBOLSAR (' + meta.spentOnPowerups + ' CR)';
+            els.btnReceptionReset.disabled = meta.spentOnPowerups === 0;
+        } else if (receptionTab === 'forge') {
+            const next = M.nextForgeCost(meta);
+            els.receptionTitle.textContent = 'GRAFIA / ENCADERNAÇÃO';
+            els.receptionDesc.textContent = 'Slots de gema permanentes (+1 por carta, ' + M.forgeUsed(meta) + '/' + M.FORGE_MAX_SLOTS +
+                ' usados). Próximo: ' + (next === null ? 'esgotado' : next + ' CR') + '.';
+            forgeCards().forEach(id => {
+                const card = D.CARDS[id];
+                const extra = meta.forge[id] || 0;
+                const can = M.canForge(meta, id);
+                receptionTile({
+                    head: '<img src="' + S.getIconUrl(card.icon) + '" alt="" />',
+                    name: card.name,
+                    sub: D.getCardGemSlots(card, extra) + ' slot(s)' + (extra ? ' ★' : ''),
+                    price: extra ? 'ENCADERNADA' : next === null ? '—' : next + ' CR',
+                    title: card.desc.replace(/\{[A-Z]+\}/g, '?'),
+                    extraClass: extra ? 'owned' : '',
+                    disabled: !can || meta.credits < next,
+                    onPick: () => M.forgeSlot(meta, id)
+                });
+            });
+            els.btnReceptionReset.textContent = 'REEMBOLSAR (' + meta.spentOnForge + ' CR)';
+            els.btnReceptionReset.disabled = meta.spentOnForge === 0;
+        } else {
+            els.receptionTitle.textContent = 'CURADORIA';
+            els.receptionDesc.textContent = 'Toque para alternar: normal → favorita (2x, até ' + M.CURATION_MAX_FAVORED +
+                ') → selada (nunca aparece, até ' + M.CURATION_MAX_SEALED + '). Grátis.';
+            Object.keys(D.GEMS).forEach(id => {
+                const gem = D.GEMS[id];
+                const cur = M.gemCuration(meta, id);
+                receptionTile({
+                    head: '<span class="gem-slot filled" style="--gem:' + gem.color + '">' + gem.glyph + '</span>',
+                    name: gem.name,
+                    sub: D.GEM_RARITY_LABEL[gem.rarity],
+                    price: cur === 'sealed' ? 'SELADA' : cur === 'favored' ? 'FAVORITA' : 'NORMAL',
+                    title: gem.desc,
+                    extraClass: 'cur-' + cur,
+                    onPick: () => { M.cycleGem(meta, id); return true; }
+                });
+            });
+            els.btnReceptionReset.textContent = 'LIMPAR CURADORIA';
+            els.btnReceptionReset.disabled = meta.sealedGems.length + meta.favoredGems.length === 0;
+        }
+    }
+
+    function openReception(tab) {
+        if (!isTitleOpen()) return;
+        A.unlock();
+        A.play('chest');
+        receptionTab = tab;
+        renderReception();
+        els.receptionModal.classList.remove('hidden');
+    }
+
+    function closeReception() {
+        els.receptionModal.classList.add('hidden');
+        receptionTab = null;
+        renderBadge();
     }
 
     function initWorld() {
@@ -3813,6 +4249,9 @@
 
     function openTitleModal() {
         bossKeyOpen = false;
+        meta = loadMeta();
+        previewChar = null;
+        if (els.receptionModal) els.receptionModal.classList.add('hidden');
         A.stopAmbience();
         els.spreadsheetModal.classList.add('hidden');
         resetModalSystem();
@@ -3826,6 +4265,31 @@
         A.unlock();
         A.play('levelup');
         els.titleModal.classList.add('hidden');
+        els.receptionModal.classList.add('hidden');
+        // A run nasce com o colega e a meta atuais (comprados na Recepção), na mesma seed do mapa já mostrado.
+        state = createInitialState({ seed: state.runSeed });
+        if (meta.infiniteUnlocked && meta.infiniteMode) {
+            setupInfiniteRun();
+            renderAll();
+            A.setAmbience(currentFloor().biome);
+            enqueueModal({
+                type: 'narrative',
+                biome: 'abyss',
+                tag: '18:01 — HORA EXTRA INFINITA',
+                title: 'O relógio de ponto não deixa sair',
+                lines: [
+                    'O Senhor das Horas caiu, mas alguém marcou "só mais uma reunião".',
+                    'Eles voltam em ondas, cada vez mais fortes. Até onde a sua build aguenta?'
+                ],
+                onClose: () => scheduleNextWave(B.infinite.firstBreatherMs)
+            });
+            enqueueModal({ type: 'arcana' });
+            return;
+        }
+        const firstFloor = currentFloor();
+        R.buildMap(firstFloor.layout, state);
+        R.syncState(state);
+        renderAll();
         const fl = currentFloor();
         A.setAmbience(fl.biome);
         enqueueModal(triggerCard(fl, () => {
@@ -3856,6 +4320,31 @@
     els.btnBossKey.addEventListener('click', toggleBossKey);
     els.btnCloseSpreadsheet.addEventListener('click', toggleBossKey);
     els.btnStartDaydream.addEventListener('click', confirmStartDaydream);
+    els.btnOpenAlmox.addEventListener('click', () => openReception('almox'));
+    els.btnOpenForge.addEventListener('click', () => openReception('forge'));
+    els.btnOpenCuration.addEventListener('click', () => openReception('curation'));
+    els.btnReceptionClose.addEventListener('click', closeReception);
+    els.btnReceptionReset.addEventListener('click', () => {
+        A.unlock();
+        if (receptionTab === 'almox') M.refundPowerups(meta);
+        else if (receptionTab === 'forge') M.refundForge(meta);
+        else {
+            meta.sealedGems = [];
+            meta.favoredGems = [];
+        }
+        A.play('card');
+        saveMeta();
+        renderReception();
+        renderBadge();
+    });
+    els.btnInfiniteToggle.addEventListener('click', () => {
+        if (!meta.infiniteUnlocked) return;
+        A.unlock();
+        A.play('card');
+        meta.infiniteMode = !meta.infiniteMode;
+        saveMeta();
+        renderBadge();
+    });
 
     if (els.btnLvlReroll) {
         els.btnLvlReroll.addEventListener('click', () => {
@@ -3956,6 +4445,10 @@
             }
             return;
         }
+        if (receptionTab && ev.key === 'Escape') {
+            closeReception();
+            return;
+        }
         if (isTitleOpen() || !state || state.mode === 'gameover') return;
 
         if (activeModal !== null) {
@@ -4049,6 +4542,11 @@
         grantPickup: grantPickup,
         randomGemId: randomGemId,
         gainXp: gainXp,
+        get meta() { return meta; },
+        reloadMeta: () => { meta = loadMeta(); renderBadge(); return meta; },
+        openReception: openReception,
+        endGame: endGame,
+        vrEarned: vrEarnedThisRun,
         openRest: () => enqueueModal({ type: 'rest' }),
         // Abre o evento de um tile especial ('P', 'O' ou 'W') sem precisar andar até ele.
         openSpecial: (tile, key) => {

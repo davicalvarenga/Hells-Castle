@@ -472,6 +472,29 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         s.deck = s.deck.filter(id => id !== 'e_sino');
     });
 
+    // --- Carta de Crawler (retrato com Duration que dispara a passiva do colega) ---
+    await arena(['crawler_valter', 'mordida_ferro', 'grito_guerra']);
+    await play('crawler_valter');
+    const cr0 = await st(() => JSON.parse(JSON.stringify(window.__hcDebug.state.crawler)));
+    const portrait = await st(() => !document.getElementById('crawler-portrait').classList.contains('hidden'));
+    await play('mordida_ferro');
+    const crShield = (await snap()).shield;
+    await play('grito_guerra');
+    check(vp, 'Crawler: crachá ativo por 3 turnos, retrato visível e Ataque dispara +3 Escudo (Suporte não)',
+        cr0 && cr0.charId === 'valter' && cr0.turns === 3 && portrait && crShield === 3 && (await snap()).shield === 3, { cr0, crShield });
+    check(vp, 'Crawler: Jogar Tudo não repete o crachá enquanto ativo', await st(() => {
+        const h = window.__hcDebug;
+        h.state.hand = ['crawler_valter'];
+        h.state.handTemp = [false];
+        return !h.isUsefulCard('crawler_valter', 0);
+    }));
+    await fastTurn();
+    await fastTurn();
+    const crMid = await st(() => window.__hcDebug.state.crawler && window.__hcDebug.state.crawler.turns);
+    await fastTurn();
+    check(vp, 'Crawler: Duration conta os turnos e o retrato sai de cena', crMid === 1 &&
+        await st(() => window.__hcDebug.state.crawler === null && document.getElementById('crawler-portrait').classList.contains('hidden')), { crMid });
+
     // --- Selo do Eclipse (por último: apaga inimigos do combate de teste) ---
     await st(() => { window.__hcDebug.state.deck.push('selo_eclipse'); });
     await arena(['selo_eclipse']);
@@ -680,6 +703,198 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'layout: sem overflow', ov.sw <= ov.w && ov.sh <= ov.h, ov);
     check(vp, 'console: 0 erros', errors.length === 0, errors.slice(0, 4));
     await page.close();
+
+    // ================= META-PROGRESSÃO: RECEPÇÃO, LOCALSTORAGE, COLEGAS E HORA EXTRA =================
+    // Página nova = contexto novo = localStorage vazio. Recarregar a página prova a persistência.
+    const mp = await browser.newPage({ viewport: size });
+    const merr = [];
+    mp.on('console', m => { if (m.type() === 'error') merr.push(m.text()); });
+    mp.on('pageerror', e => merr.push('PAGEERROR ' + e.message));
+    await mp.goto(srv.url);
+    await mp.waitForTimeout(400);
+    const mq = (fn, arg) => mp.evaluate(fn, arg);
+    const metaNow = () => mq(() => JSON.parse(JSON.stringify(window.__hcDebug.meta)));
+    const stored = () => mq(() => JSON.parse(localStorage.getItem('hc_meta_v1') || 'null'));
+    const mOpen = () => mq(() => Array.from(document.querySelectorAll('.modal-overlay')).filter(m => !m.classList.contains('hidden')).map(m => m.id));
+    const fits = () => mq(() => {
+        const d = document.documentElement;
+        const box = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden) .modal-box')).pop();
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && (!box || box.scrollHeight <= box.clientHeight + 1);
+    });
+    const tile = name => mq(n => {
+        const b = Array.from(document.querySelectorAll('#reception-grid .rc-tile')).find(t => t.querySelector('.rc-name').textContent === n);
+        if (b && !b.disabled) b.click();
+        return !!b && !b.disabled;
+    }, name);
+    const beginRun = async () => {
+        await mp.click('#btn-start-daydream');
+        await mp.waitForTimeout(300);
+        await mp.click('#btn-narrative-continue');
+        await mp.waitForTimeout(400);
+        await mp.locator('#arcana-modal .arcana-choice').first().click();
+        await mp.waitForTimeout(500);
+    };
+    const backToTitle = async () => {
+        await mp.click('#btn-play-again');
+        await mp.waitForTimeout(400);
+    };
+    const drainMp = async () => {
+        for (let i = 0; i < 30 && (await mOpen()).length > 0; i++) {
+            await mq(sel => { const b = document.querySelector(sel); if (b) b.click(); }, CLOSE_ANY);
+            await mp.waitForTimeout(350);
+        }
+    };
+
+    const m0 = await metaNow();
+    check(vp, 'meta: começa sem créditos, só com Valter e sem Hora Extra', m0.credits === 0 &&
+        JSON.stringify(m0.unlockedChars) === '["valter"]' && !m0.infiniteUnlocked &&
+        await mq(() => document.getElementById('btn-infinite-toggle').classList.contains('hidden')));
+    check(vp, 'Recepção: tela inicial sem overflow', await fits());
+    await mp.screenshot({ path: 'e2e-' + vp + '-recepcao.png' });
+
+    // Fim de run: TODO o VR ganho (inclusive o gasto na fogueira) vira Fundo de Reserva no localStorage.
+    await beginRun();
+    await mq(() => { const s = window.__hcDebug.state; s.vr = 300; s.vrSpent = 200; window.__hcDebug.endGame(false); });
+    await mp.waitForTimeout(300);
+    const afterLoss = await stored();
+    check(vp, 'meta: derrota converte 500 VR ganhos em 500 CR salvos', afterLoss && afterLoss.credits === 500 && afterLoss.stats.runs === 1 &&
+        await mq(() => document.getElementById('end-meta').textContent.indexOf('+500 CR') === 0), afterLoss && afterLoss.credits);
+    await backToTitle();
+    check(vp, 'meta: tela inicial mostra o Fundo de Reserva', await mq(() => document.getElementById('meta-credits').textContent === '500'));
+
+    // Almoxarifado: compra, persiste após recarregar e reembolsa grátis.
+    await mp.click('#btn-open-almox');
+    await mp.waitForTimeout(300);
+    check(vp, 'Almoxarifado: 15 PowerUps sem overflow', await mq(() => document.querySelectorAll('#reception-grid .rc-tile').length === 15) && await fits());
+    const mightCost = await mq(() => window.GameMeta.nextPowerupCost(window.__hcDebug.meta, 'Might'));
+    await tile('Might');
+    await mp.waitForTimeout(200);
+    await mp.reload();
+    await mp.waitForTimeout(500);
+    const reloaded = await metaNow();
+    check(vp, 'Almoxarifado: rank comprado sobrevive ao recarregar a página', reloaded.powerups.Might === 1 &&
+        reloaded.credits === 500 - mightCost && await mq(() => window.__hcDebug.state.stats.Might === 10), { mightCost, credits: reloaded.credits });
+    await mp.click('#btn-open-almox');
+    await mp.waitForTimeout(300);
+    await mp.click('#btn-reception-reset');
+    await mp.waitForTimeout(200);
+    check(vp, 'Almoxarifado: reembolso devolve tudo', (await stored()).credits === 500 && !(await stored()).powerups.Might);
+    await mp.click('#btn-reception-close');
+
+    // Vitória: libera a Hora Extra Infinita e o próximo colega (Vivi).
+    await beginRun();
+    await mq(() => { window.__hcDebug.state.vr = 100; window.__hcDebug.endGame(true); });
+    await mp.waitForTimeout(300);
+    const afterWin = await stored();
+    check(vp, 'meta: vitória libera Hora Extra Infinita e a Vivi', afterWin.infiniteUnlocked && afterWin.unlockedChars.includes('vivi') &&
+        afterWin.credits === 600 && await mq(() => /HORA EXTRA INFINITA/.test(document.getElementById('end-meta').textContent)));
+    await backToTitle();
+
+    // Contratar o Seu Jorge com créditos e escolher o crachá.
+    await mq(() => {
+        const h = window.__hcDebug;
+        h.meta.credits = 2000;
+        window.GameMeta.save(localStorage, h.meta);
+        h.reloadMeta();
+    });
+    await mp.click('.crew-card[data-char="jorge"]');
+    await mp.waitForTimeout(200);
+    await mp.click('#btn-hire-char');
+    await mp.waitForTimeout(200);
+    const hired = await stored();
+    check(vp, 'colegas: contratar o Jorge cobra 600 CR, seleciona e salva', hired.unlockedChars.includes('jorge') &&
+        hired.selectedChar === 'jorge' && hired.credits === 1400 &&
+        await mq(() => document.querySelector('.crew-card[data-char="jorge"]').classList.contains('selected')));
+
+    // Grafia: slot permanente na Lâmina; Curadoria: sela o Dano Duplo.
+    await mp.click('#btn-open-forge');
+    await mp.waitForTimeout(300);
+    check(vp, 'Grafia: sem overflow', await fits());
+    await tile('Lâmina do Devaneio');
+    await mp.click('#btn-reception-close');
+    await mp.click('#btn-open-curation');
+    await mp.waitForTimeout(300);
+    check(vp, 'Curadoria: 25 gemas sem overflow', await mq(() => document.querySelectorAll('#reception-grid .rc-tile').length === 25) && await fits());
+    await tile('Dano Duplo');
+    await tile('Dano Duplo');
+    await mp.waitForTimeout(200);
+    await mp.screenshot({ path: 'e2e-' + vp + '-curadoria.png' });
+    await mp.click('#btn-reception-close');
+    const curated = await stored();
+    check(vp, 'Grafia e Curadoria: salvas no localStorage', curated.forge.mordida_ferro === 1 && curated.sealedGems.includes('double') &&
+        curated.credits === 1400 - 150);
+
+    // Run com o Jorge: baralho, passiva, crachá, slot da Grafia e gema selada fora do sorteio.
+    await beginRun();
+    const run = await mq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        const rolls = Array.from({ length: 300 }, () => h.randomGemId());
+        return { hero: s.heroId, crawler: s.deck.includes('crawler_jorge'), tomo: s.deck.includes('tomo_1'), maxHp: s.maxHp,
+            kb: s.kbBonus, slot: s.extraGemSlots.mordida_ferro, doubled: rolls.filter(g => g === 'double').length,
+            hud: document.getElementById('stat-hero').textContent };
+    });
+    check(vp, 'run: Jorge com baralho de Tomos, crachá, +15% Desarme e Sanidade 58', run.hero === 'jorge' && run.crawler && run.tomo &&
+        run.maxHp === 58 && run.kb === 0.15 && run.hud === 'MESTRE JORGE', run);
+    check(vp, 'run: slot da Grafia ativo e gema selada nunca sorteada', run.slot === 1 && run.doubled === 0, run);
+    await mq(() => window.__hcDebug.endGame(false));
+    await mp.waitForTimeout(300);
+    await backToTitle();
+
+    // Hora Extra Infinita: ondas contínuas, escalamento por onda e por turno, recorde salvo.
+    await mp.click('#btn-infinite-toggle');
+    await mp.waitForTimeout(200);
+    check(vp, 'Hora Extra: alternador liga e salva', (await stored()).infiniteMode === true &&
+        await mq(() => document.getElementById('btn-start-daydream').textContent === 'BATER PONTO DA HORA EXTRA'));
+    await beginRun();
+    await mp.waitForFunction(() => window.__hcDebug.state.mode === 'combat', null, { timeout: 20000 });
+    const w1 = await mq(() => {
+        const s = window.__hcDebug.state;
+        return { wave: s.infinite.wave, floor: s.floor, enc: s.encounters.length, hud: document.getElementById('stat-floor').textContent,
+            n: s.enemies.length, clock: document.getElementById('clock-time').textContent };
+    });
+    check(vp, 'Hora Extra: a onda 1 começa sozinha no Abismo, sem chefe no mapa', w1.wave === 1 && w1.floor === 5 && w1.enc === 0 &&
+        w1.hud === 'ONDA 1' && w1.n > 0 && w1.clock === '18:00+', w1);
+    await mp.waitForTimeout(500);
+    await mp.screenshot({ path: 'e2e-' + vp + '-hora-extra.png' });
+    await mq(() => { const h = window.__hcDebug; h.state.enemies.forEach(e => { e.hp = 0; }); h.state.hand = []; h.endTurn(); });
+    await mp.waitForFunction(() => window.__hcDebug.state.mode !== 'combat', null, { timeout: 20000 });
+    for (let i = 0; i < 40; i++) {
+        await drainMp();
+        if (await mq(() => window.__hcDebug.state.mode === 'combat')) break;
+        await mp.waitForTimeout(250);
+    }
+    const w2 = await mq(() => {
+        const s = window.__hcDebug.state;
+        const D = window.GameData;
+        return { wave: s.infinite.wave, mode: s.mode, scaled: s.enemies.every(e => e.maxHp > D.ENEMIES[e.kind].hp) };
+    });
+    check(vp, 'Hora Extra: a onda 2 vem sozinha e mais forte', w2.wave === 2 && w2.mode === 'combat' && w2.scaled, w2);
+    const g0 = await mq(() => ({ curse: window.__hcDebug.state.curse, hp: window.__hcDebug.state.enemies.map(e => e.maxHp) }));
+    await mq(() => { const h = window.__hcDebug; h.state.enemies.forEach(e => { e.intent = null; e.hasIntent = false; }); h.state.hand = []; h.endTurn(); });
+    await mp.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 20000 });
+    const g1 = await mq(() => ({ curse: window.__hcDebug.state.curse, hp: window.__hcDebug.state.enemies.map(e => e.maxHp) }));
+    check(vp, 'Hora Extra: a cada turno a Curse sobe e os inimigos crescem',
+        g1.curse === g0.curse + 3 && g1.hp.every((v, i) => v > g0.hp[i]), { g0, g1 });
+    await mq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        s.hp = 1; s.shield = 0; s.revival = 0; s.hand = [];
+        s.enemies.forEach(e => { e.atk = 99; e.frost = 0; e.disarmed = false; e.stunned = false; });
+        h.endTurn();
+    });
+    await mp.waitForFunction(() => !document.getElementById('end-modal').classList.contains('hidden'), null, { timeout: 30000 });
+    const endInf = await mq(() => document.getElementById('end-title').textContent);
+    check(vp, 'Hora Extra: derrota encerra e salva o recorde de ondas', endInf === 'HORA EXTRA ENCERRADA' &&
+        (await stored()).stats.bestWave === 1, { endInf, best: (await stored()).stats.bestWave });
+
+    // Armazenamento corrompido: volta ao padrão sem erro.
+    await mq(() => localStorage.setItem('hc_meta_v1', '{quebrado'));
+    await mp.reload();
+    await mp.waitForTimeout(500);
+    check(vp, 'meta: localStorage corrompido volta ao padrão sem erro', (await metaNow()).credits === 0);
+    check(vp, 'meta: console sem erros', merr.length === 0, merr.slice(0, 4));
+    await mp.close();
 }
 await browser.close();
 srv.close();
