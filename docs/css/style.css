@@ -4150,3 +4150,220 @@ body.daydream-transition .viewport-frame {
         padding: 3px 6px;
     }
 }
+
+/* ===== COLEÇÃO & METAS, BACKUP DO SAVE E TOAST DE META ===== */
+.save-actions {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.save-actions .reception-btn {
+    background: linear-gradient(180deg, #5b3a12 0%, #33200a 100%);
+    color: #fde68a;
+}
+
+.collection-progress {
+    font-size: 16px;
+    color: #fde68a;
+}
+
+.collection-tabs {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.col-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px;
+}
+
+.col-grid h4 {
+    grid-column: 1 / -1;
+    margin: 8px 0 0;
+    font-size: 18px;
+    color: #fde68a;
+}
+
+.col-tile {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 6px;
+    align-items: center;
+    padding: 4px 6px;
+    background: #1b1428;
+    border: 1px solid #4c3d63;
+    min-width: 0;
+}
+
+.col-tile img,
+.col-tile .gem-slot {
+    grid-row: 1 / span 2;
+    width: 36px;
+    height: 36px;
+    image-rendering: pixelated;
+}
+
+.col-tile b {
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.col-tile small {
+    font-size: 12px;
+    line-height: 1.1;
+    color: #c4b5dd;
+}
+
+.col-tile em {
+    grid-column: 1 / -1;
+    font-style: normal;
+    font-size: 13px;
+    color: #fbbf24;
+    text-align: right;
+}
+
+.col-tile.locked img,
+.col-tile.locked .gem-slot {
+    filter: brightness(0) drop-shadow(0 0 1px #7c6a99);
+    opacity: 0.7;
+}
+
+.col-tile.locked b {
+    color: #7c6a99;
+}
+
+.col-tile.boss { border-color: #b91c1c; }
+.col-tile.secret { border-color: #a855f7; }
+
+.col-tile.goal {
+    opacity: 0.8;
+}
+
+.col-tile.goal img {
+    filter: grayscale(1) brightness(0.7);
+}
+
+.col-tile.goal.done {
+    opacity: 1;
+    border-color: #f5cb5c;
+    background: #2a2010;
+}
+
+.col-tile.goal.done img {
+    filter: none;
+}
+
+.col-tile.goal.done em {
+    color: #86efac;
+}
+
+.backup-box {
+    height: auto;
+    max-height: 88dvh;
+}
+
+.backup-text {
+    width: 100%;
+    flex: 1 1 auto;
+    min-height: 120px;
+    max-height: 40dvh;
+    resize: none;
+    box-sizing: border-box;
+    padding: 6px;
+    background: #0b0712;
+    color: #e9e3f5;
+    border: 1px solid #4c3d63;
+    font-family: monospace;
+    font-size: 12px;
+    word-break: break-all;
+}
+
+.backup-status {
+    min-height: 1.2em;
+    font-size: 15px;
+    color: #d6c8ec;
+}
+
+.backup-status.ok { color: #86efac; }
+.backup-status.error { color: #fca5a5; }
+
+.backup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.backup-actions .reception-btn {
+    flex: 1 1 120px;
+}
+
+.backup-actions .backup-confirm {
+    flex-basis: 100%;
+    background: linear-gradient(180deg, #991b1b 0%, #5c0f0f 100%);
+    color: #fff;
+}
+
+.goal-toast {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 260;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: max-content;
+    max-width: min(460px, calc(100vw - 16px));
+    box-sizing: border-box;
+    padding: 6px 10px;
+    background: rgba(28, 19, 5, 0.94);
+    border: 2px solid #f5cb5c;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    color: #fef3c7;
+    animation: tip-in 0.25s ease-out;
+}
+
+.goal-toast img {
+    width: 30px;
+    height: 30px;
+    image-rendering: pixelated;
+}
+
+.goal-toast span {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.goal-toast b {
+    font-size: 15px;
+}
+
+.goal-toast small {
+    font-size: 12px;
+    color: #e5d3a1;
+}
+
+.goal-toast em {
+    font-style: normal;
+    font-size: 16px;
+    color: #86efac;
+    white-space: nowrap;
+}
+
+.goal-toast.hidden {
+    display: none;
+}
+
+@media (max-width: 680px) {
+    .col-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+
+    .col-tile b { font-size: 13px; }
+    .col-tile small { font-size: 11px; }
+    .collection-progress { font-size: 14px; }
+}

@@ -6,17 +6,22 @@
     <meta name="robots" content="noindex" />
     <title>Hell's Castle: Expediente Sombrio</title>
     <script>
-        // O GitHub Pages serve este arquivo em qualquer caminho inexistente, então um link
-        // relativo quebraria em subpastas: o destino é a raiz do site (com o nome do repositório
-        // quando hospedado em *.github.io).
+        // O GitHub Pages serve este arquivo em qualquer caminho inexistente. O destino é a raiz do
+        // jogo, calculada de forma RELATIVA (sem "/" absoluto): sobe quantas pastas forem precisas
+        // a partir da URL atual. Em *.github.io a raiz é a pasta do repositório (1º segmento);
+        // em outros hosts (Itch.io, servidor local) é a pasta onde o jogo foi aberto.
         (function () {
-            var repo = location.pathname.split('/')[1];
-            var isProjectSite = /\.github\.io$/.test(location.hostname) && repo;
-            location.replace(isProjectSite ? '/' + repo + '/' : '/');
+            var parts = location.pathname.split('/');
+            var dirDepth = Math.max(0, parts.length - 2);
+            var isProjectSite = /\.github\.io$/.test(location.hostname) && parts[1];
+            var ups = Math.max(0, dirDepth - (isProjectSite ? 1 : 0));
+            var target = '';
+            for (var i = 0; i < ups; i++) target += '../';
+            location.replace(target || './');
         })();
     </script>
 </head>
 <body>
-    <noscript><p>Página não encontrada. <a href="/">Voltar ao jogo</a>.</p></noscript>
+    <noscript><p>Página não encontrada. <a href="./">Voltar ao jogo</a>.</p></noscript>
 </body>
 </html>

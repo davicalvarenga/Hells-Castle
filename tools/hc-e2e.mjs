@@ -4,9 +4,18 @@
 import { chromium } from 'playwright-core';
 import { fileURLToPath } from 'node:url';
 import { serve, CHROME_ARGS } from './serve.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const REPO = process.env.HC_REPO || fileURLToPath(new URL('..', import.meta.url));
 const srv = await serve(REPO + '/docs');
+// Itch.io: mesma pasta docs/ servida numa subpasta (jogo/) e embutida num iframe (host.html).
+const subRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-itch-'));
+fs.symlinkSync(path.resolve(REPO, 'docs'), path.join(subRoot, 'jogo'), 'dir');
+fs.writeFileSync(path.join(subRoot, 'host.html'), '<!doctype html><meta charset="utf-8"><title>host</title><link rel="icon" href="data:,">' +
+    '<body style="margin:0"><iframe src="jogo/index.html" style="border:0;width:100vw;height:100vh"></iframe></body>');
+const subSrv = await serve(subRoot);
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: CHROME_ARGS });
 let failed = 0;
 const check = (vp, name, ok, detail) => {
@@ -966,7 +975,8 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     await mp.waitForTimeout(300);
     const afterWin = await stored();
     check(vp, 'meta: vitória libera Hora Extra Infinita e a Vivi', afterWin.infiniteUnlocked && afterWin.unlockedChars.includes('vivi') &&
-        afterWin.credits === 600 && await mq(() => /HORA EXTRA INFINITA/.test(document.getElementById('end-meta').textContent)));
+        afterWin.credits === 600 + await mq(g => Object.keys(g).reduce((n, id) => n + window.GameMeta.GOAL_BY_ID[id].reward, 0), afterWin.goals) &&
+        afterWin.goals.primeiro_ponto === true && await mq(() => /HORA EXTRA INFINITA/.test(document.getElementById('end-meta').textContent)));
     await backToTitle();
 
     // Contratar o Seu Jorge com créditos e escolher o crachá.
@@ -1471,8 +1481,11 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
         deck: window.__hcDebug.state.deck.length,
         level: window.__hcDebug.state.level
     }));
-    check(vp, 'tutorial: concluído volta limpo à Recepção sem gravar nada no save da meta', done.title && !done.tut && done.coach &&
-        done.spots === 0 && done.ui.tutorialDone === true && done.meta === null && done.level === 1 && done.deck > 7, done);
+    check(vp, 'tutorial: concluído volta limpo à Recepção e só carimba a meta do tutorial', done.title && !done.tut && done.coach &&
+        done.spots === 0 && done.ui.tutorialDone === true &&
+        // Única escrita permitida: o carimbo "Estagiário Promovido" (+40 CR); nada de run, colegas ou descobertas.
+        (() => { const m = JSON.parse(done.meta); return JSON.stringify(m.goals) === '{"estagiario":true}' && m.credits === 40 && m.stats.runs === 0 &&
+            Object.values(m.seen).every(a => a.length === 0); })() && done.level === 1 && done.deck > 7, done);
 
     // --- Rever Intro (reprise) e Sair do Tutorial ---
     await op.reload();
@@ -1685,8 +1698,254 @@ for (const [vp, size] of [['desktop', { width: 1280, height: 800 }], ['mobile', 
     check(vp, 'arte: transição sem imagem usa o degradê do bioma e o card fecha normalmente', brokenArt.visible && brokenArt.failed &&
         /gradient/.test(brokenArt.bg) && await fp.evaluate(() => window.__hcDebug.state.mode === 'explore') && ferr.length === 0, { brokenArt, ferr });
     await fp.close();
+
+    // ================= ETAPA 7: METAS ("CARIMBOS DO RH"), COLEÇÃO, BACKUP DO SAVE E CAMINHOS RELATIVOS =================
+    const gp = await browser.newPage({ viewport: size });
+    const gerr = [];
+    gp.on('console', m => { if (m.type() === 'error') gerr.push(m.text()); });
+    gp.on('pageerror', e => gerr.push('PAGEERROR ' + e.message));
+    await gp.addInitScript(() => { if (!localStorage.getItem('hc_ui_v1')) localStorage.setItem('hc_ui_v1', JSON.stringify({ introSeen: true })); });
+    await gp.goto(srv.url);
+    await gp.waitForTimeout(400);
+    const gq = (fn, arg) => gp.evaluate(fn, arg);
+    const gOpen = () => gq(() => Array.from(document.querySelectorAll('.modal-overlay')).filter(m => !m.classList.contains('hidden')).map(m => m.id));
+    const gFits = () => gq(() => {
+        const d = document.documentElement;
+        const box = Array.from(document.querySelectorAll('.modal-overlay:not(.hidden) .modal-box')).pop();
+        return d.scrollHeight <= innerHeight && d.scrollWidth <= innerWidth && (!box || (box.scrollHeight <= box.clientHeight + 1 &&
+            box.getBoundingClientRect().bottom <= innerHeight + 1));
+    });
+    const gStored = () => gq(() => localStorage.getItem('hc_meta_v1'));
+    check(vp, 'Etapa7: Recepção com [COLEÇÃO & METAS][BACKUP DO SAVE] sem overflow',
+        await gq(() => !!document.getElementById('btn-open-collection').offsetParent && !!document.getElementById('btn-open-backup').offsetParent) && await gFits());
+
+    // --- Coleção: 4 abas, 18 metas, tudo bloqueado como silhueta ??? com dica ---
+    await gp.click('#btn-open-collection');
+    await gp.waitForTimeout(250);
+    const col0 = await gq(() => ({
+        tabs: Array.from(document.querySelectorAll('#collection-tabs .codex-tab')).map(b => b.textContent),
+        goals: document.querySelectorAll('#collection-content .col-tile.goal').length,
+        done: document.querySelectorAll('#collection-content .col-tile.goal.done').length,
+        progress: document.getElementById('collection-progress').textContent
+    }));
+    check(vp, 'Coleção: abre na aba Metas com 18 carimbos pendentes', col0.tabs.length === 4 && col0.goals === 18 && col0.done === 0 &&
+        /Metas 0\/18/.test(col0.progress), col0);
+    check(vp, 'Coleção: só rolagem interna (sem overflow da página nem da caixa)', await gFits());
+    const colTabs = {};
+    for (const tab of ['cartas', 'gemas', 'bestiario']) {
+        await gq(t => document.querySelector('#collection-tabs [data-tab="' + t + '"]').click(), tab);
+        await gp.waitForTimeout(120);
+        colTabs[tab] = await gq(() => {
+            const c = document.getElementById('collection-content');
+            const locked = Array.from(c.querySelectorAll('.col-tile.locked'));
+            return { total: c.querySelectorAll('.col-tile').length, locked: locked.length,
+                q: locked.every(t => t.querySelector('b').textContent === '???' && t.querySelector('small').textContent.length > 5),
+                inner: c.scrollHeight > c.clientHeight ? getComputedStyle(c).overflowY : 'fits' };
+        });
+        check(vp, 'Coleção: aba ' + tab + ' começa toda em silhueta ??? com dica', colTabs[tab].total > 0 && colTabs[tab].locked === colTabs[tab].total &&
+            colTabs[tab].q && /auto|scroll|fits/.test(colTabs[tab].inner) && await gFits(), colTabs[tab]);
+    }
+    await gp.keyboard.press('Escape');
+    await gp.waitForTimeout(150);
+    check(vp, 'Coleção: Esc fecha', await gq(() => document.getElementById('collection-modal').classList.contains('hidden')));
+
+    // --- Run: descobertas entram na Coleção; metas pagam crédito com toast discreto no topo ---
+    await gp.click('#btn-start-daydream');
+    await gp.waitForTimeout(300);
+    await gp.click('#btn-narrative-continue');
+    await gp.waitForTimeout(400);
+    await gp.locator('#arcana-modal .arcana-choice').first().click();
+    await gp.waitForTimeout(500);
+    const seen1 = await gq(() => JSON.parse(localStorage.getItem('hc_meta_v1') || '{}').seen || {});
+    check(vp, 'Coleção: baralho inicial e Arcanas oferecidas ficam registrados no save', (seen1.cards || []).includes('mordida_ferro') &&
+        (seen1.arcanas || []).length >= 1, seen1);
+    const credBefore = await gq(() => window.__hcDebug.meta.credits);
+    // Mestre da Escadinha: carta jogada com Combo x5 (4 cartas já encadeadas).
+    await gq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        h.startEncounter(null, window.GameData.getFloorConfig(1).encounters['1']);
+        s.enemies.forEach(e => { e.hp = 9999; e.maxHp = 9999; e.atk = 0; });
+        s.hand = ['mordida_ferro'];
+        s.handReturnCounts = [0];
+        s.handCostMods = [0];
+        s.handTemp = [false];
+        s.mana = 20;
+        s.comboCarry = false;
+        s.comboReverse = false;
+        s.comboCount = 3;
+        s.lastComboCost = 0;
+        s.busy = false;
+        h.playCard(0);
+    });
+    await gp.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 30000 });
+    await gp.waitForTimeout(150);
+    const toast = await gq(() => {
+        const t = document.getElementById('goal-toast');
+        const r = t.getBoundingClientRect();
+        return { visible: !t.classList.contains('hidden'), goal: t.dataset.goal, text: t.textContent, top: r.top, pe: getComputedStyle(t).pointerEvents,
+            inView: r.left >= 0 && r.right <= innerWidth };
+    });
+    const afterGoal = await gq(() => ({ credits: window.__hcDebug.meta.credits, stored: JSON.parse(localStorage.getItem('hc_meta_v1')) }));
+    check(vp, 'Metas: Combo x5 carimba "Mestre da Escadinha" (+40 CR salvo) com toast no topo que não bloqueia cliques',
+        toast.visible && toast.goal === 'escadinha' && /META CONCLUÍDA/.test(toast.text) && /\+40 CR/.test(toast.text) && toast.top <= 20 &&
+        toast.pe === 'none' && toast.inView && afterGoal.credits === credBefore + 40 && afterGoal.stored.goals.escadinha === true &&
+        afterGoal.stored.credits === credBefore + 40, { toast, credBefore, credits: afterGoal.credits });
+    check(vp, 'Metas: toast não entra na fila de modais', JSON.stringify(await gOpen()) === '[]');
+    check(vp, 'Metas: a mesma meta não paga duas vezes', await gq(() => window.__hcDebug.goal('escadinha')) === 0);
+    // Abates: 100º inimigo derrotado na run.
+    await gq(() => {
+        const h = window.__hcDebug;
+        const s = h.state;
+        s.enemies.forEach(e => { e.hp = 1; e.shield = 0; });
+        s.kills = 99;
+        s.hand = ['mordida_ferro'];
+        s.handReturnCounts = [0];
+        s.handCostMods = [0];
+        s.handTemp = [false];
+        s.mana = 20;
+        s.busy = false;
+        h.playCard(0);
+    });
+    await gp.waitForFunction(() => !window.__hcDebug.state.busy, null, { timeout: 30000 });
+    check(vp, 'Metas: 100 abates carimba "Hora de Pico"/abates', await gq(() => window.__hcDebug.meta.goals.abates === true));
+    // Fim da run com vitória sem fogueira: Minimalista + Primeiro Ponto (meta de save) no mesmo fechamento.
+    await gq(() => { window.__hcDebug.state.vrSpent = 0; window.__hcDebug.endGame(true); });
+    await gp.waitForTimeout(500);
+    const endG = await gq(() => ({ goals: Object.keys(JSON.parse(localStorage.getItem('hc_meta_v1')).goals),
+        notes: document.getElementById('end-modal') ? document.getElementById('end-modal').textContent : '' }));
+    check(vp, 'Metas: vitória sem Fogueira carimba Minimalista e Primeiro Ponto',
+        ['primeiro_ponto', 'minimalista', 'escadinha', 'abates'].every(g => endG.goals.includes(g)) && /meta\(s\) conclu/.test(endG.notes), endG.goals);
+    for (let i = 0; i < 20 && (await gOpen()).length > 0; i++) {
+        await gq(() => { const b = ['#btn-narrative-continue', '#btn-play-again'].map(q => document.querySelector(q)).find(x => x && x.offsetParent); if (b) b.click(); });
+        await gp.waitForTimeout(350);
+    }
+    await gp.waitForTimeout(300);
+    await gp.click('#btn-open-collection');
+    await gp.waitForTimeout(250);
+    const col1 = await gq(() => ({ done: document.querySelectorAll('#collection-content .col-tile.goal.done').length,
+        stamped: document.querySelector('#collection-content [data-goal="escadinha"] em').textContent,
+        progress: document.getElementById('collection-progress').textContent }));
+    await gq(() => document.querySelector('#collection-tabs [data-tab="cartas"]').click());
+    await gp.waitForTimeout(120);
+    const col1c = await gq(() => {
+        const t = Array.from(document.querySelectorAll('#collection-content .col-tile')).find(x => x.querySelector('b').textContent === window.GameData.CARDS.mordida_ferro.name);
+        return { unlocked: !!t && !t.classList.contains('locked'), locked: document.querySelectorAll('#collection-content .col-tile.locked').length };
+    });
+    await gq(() => document.querySelector('#collection-tabs [data-tab="bestiario"]').click());
+    await gp.waitForTimeout(120);
+    const col1b = await gq(() => document.querySelectorAll('#collection-content .col-tile:not(.locked)').length);
+    check(vp, 'Coleção: metas carimbadas, carta e inimigos vistos saem da silhueta', col1.done >= 4 && /CARIMBADA/.test(col1.stamped) &&
+        col1c.unlocked && col1c.locked > 0 && col1b >= 1 && await gFits(), { col1, col1c, col1b });
+    await gp.screenshot({ path: 'e2e-' + vp + '-colecao.png' });
+    await gp.click('#btn-collection-close');
+    await gp.waitForTimeout(150);
+
+    // --- Backup do Save: exportar, importar inválido (nada muda) e válido (só após confirmar) ---
+    await gp.click('#btn-open-backup');
+    await gp.waitForTimeout(200);
+    check(vp, 'Backup: modal cabe na tela', await gFits());
+    await gp.click('#btn-backup-export');
+    await gp.waitForTimeout(300);
+    const exp = await gq(() => {
+        const code = document.getElementById('backup-text').value;
+        const dec = window.GameMeta.decodeBackup(code, {});
+        return { prefix: code.slice(0, 8), ok: dec.ok, same: dec.ok && JSON.stringify(dec.meta.goals) === JSON.stringify(window.__hcDebug.meta.goals) &&
+            dec.meta.credits === window.__hcDebug.meta.credits && dec.ui.introSeen === true, status: document.getElementById('backup-status').textContent };
+    });
+    check(vp, 'Backup: Exportar gera HCSAVE1 (Base64 + checksum) com meta e metas completas', exp.prefix === 'HCSAVE1.' && exp.ok && exp.same &&
+        /copiado|copie/i.test(exp.status), exp);
+    const goodCode = await gq(() => document.getElementById('backup-text').value);
+    const bkBefore = await gStored();
+    const bkBeforeUi = await gq(() => localStorage.getItem('hc_ui_v1'));
+    const tamper = goodCode.slice(0, -1) + (goodCode.slice(-1) === '0' ? '1' : '0');
+    const mid = goodCode.split('.');
+    const flipped = mid[0] + '.' + mid[1].slice(0, 20) + (mid[1][20] === 'A' ? 'B' : 'A') + mid[1].slice(21) + '.' + mid[2];
+    for (const [label, bad] of [['lixo', 'isso nao e um save'], ['prefixo errado', 'XXSAVE1.' + mid[1] + '.' + mid[2]], ['checksum adulterado', tamper],
+        ['conteúdo adulterado', flipped], ['Base64 inválido', 'HCSAVE1.@@@###.deadbeef'], ['vazio', '   ']]) {
+        await gp.fill('#backup-text', bad);
+        await gp.click('#btn-backup-import');
+        await gp.waitForTimeout(120);
+        const r = await gq(() => ({ status: document.getElementById('backup-status').textContent, cls: document.getElementById('backup-status').className,
+            confirm: !document.getElementById('btn-backup-confirm').classList.contains('hidden') }));
+        check(vp, 'Backup: rejeita ' + label + ' com mensagem clara e save intacto', /error/.test(r.cls) && /não foi alterado/.test(r.status) &&
+            !r.confirm && await gStored() === bkBefore && await gq(() => localStorage.getItem('hc_ui_v1')) === bkBeforeUi, r);
+    }
+    // Save diferente (outro computador): 4321 CR, Hora Extra e tutorial feitos.
+    const otherCode = await gq(() => {
+        const M = window.GameMeta;
+        const other = M.defaults();
+        other.credits = 4321;
+        other.goals = { colegas: true, infinito: true };
+        other.unlockedChars = ['valter', 'vivi'];
+        return M.encodeBackup(other, { introSeen: true, tutorialDone: true, tips: [] });
+    });
+    await gp.fill('#backup-text', otherCode);
+    await gp.click('#btn-backup-import');
+    await gp.waitForTimeout(150);
+    const pending = await gq(() => ({ status: document.getElementById('backup-status').textContent,
+        confirm: !document.getElementById('btn-backup-confirm').classList.contains('hidden') }));
+    check(vp, 'Backup: importar válido só valida e pede confirmação (save ainda intacto)', pending.confirm && /4321 CR/.test(pending.status) &&
+        await gStored() === bkBefore, pending);
+    await gp.click('#btn-backup-confirm');
+    await gp.waitForTimeout(200);
+    const applied = await gq(() => ({ mem: window.__hcDebug.meta.credits, stored: JSON.parse(localStorage.getItem('hc_meta_v1')).credits,
+        goals: Object.keys(window.__hcDebug.meta.goals).sort().join(','), ui: window.__hcDebug.ui.tutorialDone,
+        status: document.getElementById('backup-status').textContent }));
+    check(vp, 'Backup: confirmar substitui meta + metas + UI', applied.mem === 4321 && applied.stored === 4321 && applied.goals === 'colegas,infinito' &&
+        applied.ui === true && /sucesso/.test(applied.status), applied);
+    await gp.click('#btn-backup-close');
+    await gp.reload();
+    await gp.waitForTimeout(500);
+    check(vp, 'Backup: save importado sobrevive ao recarregar', await gq(() => window.__hcDebug.meta.credits === 4321 &&
+        window.__hcDebug.meta.unlockedChars.includes('vivi')));
+    // Save corrompido no localStorage: carrega padrão sem erro (sanitize), Coleção abre.
+    await gq(() => localStorage.setItem('hc_meta_v1', '{"goals":{"hack":true,"escadinha":"sim"},"seen":{"cards":["nao_existe",5]}}'));
+    await gp.reload();
+    await gp.waitForTimeout(500);
+    check(vp, 'Save corrompido: metas/coleção desconhecidas são descartadas', await gq(() => JSON.stringify(window.__hcDebug.meta.goals) === '{}' &&
+        window.__hcDebug.meta.seen.cards.length === 0));
+    if (vp === 'mobile') {
+        await gp.setViewportSize({ width: 375, height: 667 });
+        await gp.waitForTimeout(300);
+        check(vp, 'Recepção 375x667: sem overflow com a nova linha', await gFits());
+        await gp.click('#btn-open-collection');
+        await gp.waitForTimeout(200);
+        check(vp, 'Coleção 375x667: sem overflow', await gFits());
+        await gp.click('#btn-collection-close');
+    }
+    check(vp, 'Etapa7: 0 erros no console', gerr.length === 0, gerr.slice(0, 4));
+    await gp.close();
+
+    // --- Caminhos relativos (Itch.io): jogo numa subpasta e dentro de iframe, sem nenhuma requisição falha ---
+    for (const [label, url, inFrame] of [['subpasta', subSrv.url + 'jogo/', false], ['iframe', subSrv.url + 'host.html', true]]) {
+        const rp = await browser.newPage({ viewport: size });
+        const bad = [];
+        const rerr = [];
+        rp.on('requestfailed', r => bad.push('FAIL ' + r.url()));
+        rp.on('response', r => { if (r.status() >= 400) bad.push(r.status() + ' ' + r.url()); });
+        rp.on('pageerror', e => rerr.push('PAGEERROR ' + e.message));
+        rp.on('console', m => { if (m.type() === 'error') rerr.push(m.text()); });
+        const outside = [];
+        rp.on('request', r => { const u = r.url(); if (u.startsWith(subSrv.url) && !u.startsWith(subSrv.url + 'jogo/') && !u.endsWith('host.html')) outside.push(u); });
+        await rp.goto(url);
+        await rp.waitForTimeout(1200);
+        const frame = inFrame ? rp.frames().find(f => f.url().includes('/jogo/')) : rp.mainFrame();
+        const ok = !!frame && await frame.evaluate(() => !!window.__hcDebug && document.fonts.status === 'loaded' &&
+            !!document.querySelector('link[rel=stylesheet]').sheet);
+        // Avança a cutscene (carrega as ilustrações por caminho relativo) e entra na Recepção.
+        if (frame) {
+            for (let k = 0; k < 6; k++) { await frame.evaluate(() => { const b = document.getElementById('btn-intro-next'); if (b && b.offsetParent) b.click(); }); await rp.waitForTimeout(250); }
+        }
+        const imgs = frame ? await frame.evaluate(() => window.GameIntro.getStatus()) : null;
+        check(vp, 'Itch.io: jogo em ' + label + ' carrega CSS/fontes/scripts/imagens sem 404 e sem sair da pasta', ok && bad.length === 0 &&
+            outside.length === 0 && rerr.length === 0 && Array.isArray(imgs) && imgs.slice(0, 3).every(x => x === 'loaded'), { bad, outside, rerr, imgs });
+        await rp.close();
+    }
 }
 await browser.close();
 srv.close();
+subSrv.close();
+fs.rmSync(subRoot, { recursive: true, force: true });
 console.log(failed === 0 ? 'TUDO OK' : 'FALHAS: ' + failed);
 process.exit(failed ? 1 : 0);

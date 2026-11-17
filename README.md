@@ -81,6 +81,35 @@ Tudo é salvo no navegador (`localStorage`, chave `hc_meta_v1`). Se o armazename
 - **Carta de Crawler:** cada colega começa com o próprio crachá no baralho. Jogado, o retrato fica ativo por 3 turnos (Duration prolonga) e dispara a passiva sempre que você joga uma carta do tipo dele.
 - **Hora Extra Infinita:** liberada ao vencer o Senhor das Horas pela primeira vez. Ondas contínuas no Abismo Estrelado (Elite a cada 3, chefe a cada 5), cada uma mais forte, com HP, ATK e Curse subindo a cada turno. O recorde de ondas fica salvo.
 
+## Coleção & Metas ("Carimbos do RH")
+
+Na Recepção, **COLEÇÃO & METAS** abre um painel com rolagem só interna:
+
+- **Metas:** 18 conquistas salvas no `localStorage`, cada uma pagando uma única vez de +40 a +150 CR. Entre elas: Primeiro Ponto, Mestre da Escadinha (Combo x5+), Ultramatança (100+ de Overkill num chefe), Minimalista (vencer sem usar a Fogueira), Alquimista (2+ evoluções/fusões na run), Colegas de Turno (vencer com Vivi, Seu Jorge e Cláudia), Caçador de Segredos (Trapaceiro + Final Secreto), Sob Pressão (vencer nas Pressões 3 e 5) e Infinito (onda 5+ na Hora Extra). Metas cumpridas durante a run aparecem num aviso discreto no topo, sem pausar o jogo.
+- **Coleção / Bestiário:** cartas (com evoluções e fusões), gemas, Arcanas, inimigos e chefes já vistos. O que ainda não apareceu fica como silhueta `???` com uma dica de onde encontrar.
+
+## Backup do Save
+
+**BACKUP DO SAVE** (Recepção) gera um código `HCSAVE1.<Base64>.<checksum>` com todo o progresso (meta, metas, coleção e preferências) e tenta copiá-lo para a área de transferência. Para restaurar, cole o código e clique em **IMPORTAR**: o código é validado (prefixo, Base64, checksum e conteúdo) e só substitui o save atual depois de **SUBSTITUIR SAVE ATUAL**. Códigos inválidos mostram o motivo e não alteram nada.
+
+## Publicar no Itch.io
+
+Todos os caminhos em `docs/` são relativos, então a pasta funciona em qualquer subpasta ou iframe. Para gerar o `.zip` do upload (tipo **HTML**, com `index.html` na raiz do arquivo):
+
+Linux/macOS (Bash):
+
+```bash
+cd docs && zip -r ../hells-castle-itch.zip . -x "404.html" && cd ..
+```
+
+Windows (PowerShell):
+
+```powershell
+Compress-Archive -Path docs\* -DestinationPath hells-castle-itch.zip -Force
+```
+
+No Itch.io, marque **This file will be played in the browser** e defina o tamanho do embed (ex.: 1280x800, com a opção de tela cheia).
+
 ## Testes
 
 ```bash

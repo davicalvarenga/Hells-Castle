@@ -37,3 +37,4 @@ dotnet/**/bin/
 dotnet/**/obj/
 dotnet/.vs/
 dotnet/**/*.user
+*.zip

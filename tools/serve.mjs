@@ -13,7 +13,9 @@ export function serve(rootDir, overrides = {}) {
     return new Promise(resolve => {
         const server = http.createServer((req, res) => {
             const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html';
-            const file = path.resolve(root, rel);
+            let file = path.resolve(root, rel);
+            // Pasta servida como no Itch.io/GitHub Pages: "jogo/" entrega "jogo/index.html".
+            if (file.startsWith(root) && fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
             if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
                 res.writeHead(404);
                 res.end('not found');

@@ -24,7 +24,9 @@
         return M.load(metaStorage(), {
             gemIds: Object.keys(D.GEMS),
             cardIds: Object.keys(D.CARDS),
-            charIds: D.CHARACTERS.map(c => c.id)
+            charIds: D.CHARACTERS.map(c => c.id),
+            arcanaIds: Object.keys(D.ARCANAS),
+            enemyIds: Object.keys(D.ENEMIES)
         });
     }
 
@@ -32,20 +34,24 @@
 
     // Preferências de onboarding (introSeen, tutorialDone, dicas já vistas). Chave separada da meta.
     const UI_KEY = 'hc_ui_v1';
-    function loadUi() {
+    function sanitizeUi(raw) {
         const out = { introSeen: false, tutorialDone: false, tips: [] };
-        try {
-            const st = metaStorage();
-            const raw = st ? JSON.parse(st.getItem(UI_KEY) || 'null') : null;
-            if (raw && typeof raw === 'object') {
-                out.introSeen = raw.introSeen === true;
-                out.tutorialDone = raw.tutorialDone === true;
-                out.tips = Array.isArray(raw.tips) ? raw.tips.filter(id => D.FIRST_TIME_TIPS[id]) : [];
-            }
-        } catch (err) {
-            // JSON corrompido ou armazenamento bloqueado: começa do zero.
+        if (raw && typeof raw === 'object') {
+            out.introSeen = raw.introSeen === true;
+            out.tutorialDone = raw.tutorialDone === true;
+            out.tips = Array.isArray(raw.tips) ? Array.from(new Set(raw.tips.filter(id => D.FIRST_TIME_TIPS[id]))) : [];
         }
         return out;
+    }
+
+    function loadUi() {
+        try {
+            const st = metaStorage();
+            return sanitizeUi(st ? JSON.parse(st.getItem(UI_KEY) || 'null') : null);
+        } catch (err) {
+            // JSON corrompido ou armazenamento bloqueado: começa do zero.
+            return sanitizeUi(null);
+        }
     }
 
     let ui = loadUi();
@@ -140,6 +146,21 @@
         crawlerPortrait: $('crawler-portrait'),
         endMeta: $('end-meta'),
         btnCodex: $('btn-codex'),
+        btnOpenCollection: $('btn-open-collection'),
+        btnOpenBackup: $('btn-open-backup'),
+        collectionModal: $('collection-modal'),
+        collectionTabs: $('collection-tabs'),
+        collectionContent: $('collection-content'),
+        collectionProgress: $('collection-progress'),
+        btnCollectionClose: $('btn-collection-close'),
+        backupModal: $('backup-modal'),
+        backupText: $('backup-text'),
+        backupStatus: $('backup-status'),
+        btnBackupExport: $('btn-backup-export'),
+        btnBackupImport: $('btn-backup-import'),
+        btnBackupConfirm: $('btn-backup-confirm'),
+        btnBackupClose: $('btn-backup-close'),
+        goalToast: $('goal-toast'),
         btnTitleCodex: $('btn-title-codex'),
         btnReplayIntro: $('btn-replay-intro'),
         btnOpenTutorial: $('btn-open-tutorial'),
@@ -222,7 +243,7 @@
     let introOpen = false;
 
     function isPaused() {
-        return bossKeyOpen || codexOpen || introOpen;
+        return bossKeyOpen || codexOpen || introOpen || collectionOpen || backupOpen;
     }
     let uidCounter = 1;
     let chestIndex = 0;
@@ -632,7 +653,69 @@
     function gainVr(amount) {
         const gained = Math.max(0, Math.round(amount * (1 + getStat('Greed') / 100)));
         state.vr += gained;
+        if (vrEarnedThisRun() >= 500) goal('caixa_forte');
         return gained;
+    }
+
+    // ---------- METAS ("Carimbos do RH") E COLEÇÃO ----------
+    // Meta de run: paga na hora (crédito persistente salvo) e avisa com um toast discreto no topo.
+    // No tutorial só vale a meta do próprio tutorial.
+    function goal(id) {
+        if (!state || !M.GOAL_BY_ID[id] || meta.goals[id]) return 0;
+        if (state.tutorial && id !== 'estagiario') return 0;
+        const reward = M.awardGoal(meta, id);
+        if (reward > 0) {
+            saveMeta();
+            showGoalToast(id, reward);
+        }
+        return reward;
+    }
+
+    // Metas deduzidas do save (vitórias, colegas, segredos, Pressão...): pagas ao fim da run e na Recepção.
+    function settleMetaGoals() {
+        const paid = M.evaluateMetaGoals(meta);
+        if (paid.length > 0) {
+            saveMeta();
+            paid.forEach(p => showGoalToast(p.id, p.reward));
+        }
+        return paid;
+    }
+
+    const goalQueue = [];
+    let goalTimer = null;
+
+    function showGoalToast(id, reward) {
+        goalQueue.push({ id: id, reward: reward });
+        if (!goalTimer) nextGoalToast();
+    }
+
+    function nextGoalToast() {
+        const item = goalQueue.shift();
+        if (!item) {
+            els.goalToast.classList.add('hidden');
+            goalTimer = null;
+            return;
+        }
+        const g = M.GOAL_BY_ID[item.id];
+        els.goalToast.dataset.goal = item.id;
+        els.goalToast.innerHTML = '<img src="' + S.getIconUrl(g.icon) + '" alt="" /><span><b>META CONCLUÍDA: ' + g.name +
+            '</b><small>' + g.desc + '</small></span><em>+' + item.reward + ' CR</em>';
+        els.goalToast.classList.remove('hidden');
+        A.play('levelup');
+        goalTimer = setTimeout(nextGoalToast, 4200);
+    }
+
+    // Descobertas da Coleção: marcadas na memória e gravadas nos pontos de salvamento da run.
+    let seenDirty = false;
+    function markSeen(kind, id) {
+        if (!state || state.tutorial) return;
+        if (M.markSeen(meta, kind, id)) seenDirty = true;
+    }
+
+    function flushSeen() {
+        if (!seenDirty) return;
+        seenDirty = false;
+        saveMeta();
     }
 
     // Gasto rastreado: no fim da run, ganho total = VR atual + gasto - VR inicial do colega.
@@ -739,6 +822,9 @@
             }
         });
         state.evolvedCards[ev.toCard] = true;
+        markSeen('cards', ev.toCard);
+        state.evolutionsDone = (state.evolutionsDone || 0) + 1;
+        if (state.evolutionsDone >= 2) goal('alquimista');
         const evolved = D.CARDS[ev.toCard];
         // As gemas acompanham a carta; o que deixou de fazer sentido na evoluída é descartado.
         const extraSlots = state.extraGemSlots[ev.fromCard] || 0;
@@ -770,6 +856,9 @@
         });
         state.deck.push(fus.toCard);
         state.fusedCards[fus.toCard] = true;
+        markSeen('cards', fus.toCard);
+        state.evolutionsDone = (state.evolutionsDone || 0) + 1;
+        if (state.evolutionsDone >= 2) goal('alquimista');
         if (carried.length > 0) state.cardGems[fus.toCard] = carried;
         triggerGoldBanner('FUSÃO! ' + fused.name.toUpperCase());
         setLog('Fusão concluída: ' + fused.name + '!');
@@ -971,6 +1060,7 @@
 
     // Fecha o modal atual, dá um respiro curto e abre o próximo da fila (se houver).
     function closeActiveModal(afterClose) {
+        flushSeen();
         const item = activeModal;
         if (!item) return;
         [els.levelupModal, els.restModal, els.eventModal, els.narrativeModal, els.gemModal, els.arcanaModal].forEach(m => m.classList.add('hidden'));
@@ -1098,6 +1188,8 @@
             return true;
         }
         state.cardGems[cardId] = (state.cardGems[cardId] || []).concat(gemId);
+        state.gemsSocketed = (state.gemsSocketed || 0) + 1;
+        if (state.gemsSocketed >= 10) goal('joalheiro');
         if (gemId === 'uncrackable') delete state.crackedCards[cardId];
         return true;
     }
@@ -1137,6 +1229,7 @@
 
     function openGemModal(item) {
         const gem = D.GEMS[item.gemId];
+        markSeen('gems', gem.id);
         A.play('chest');
         els.gemModal.dataset.kind = 'gem';
         els.gemTitle.innerHTML = '<span class="gem-slot filled big" style="--gem:' + gem.color + '">' + gem.glyph + '</span> ' + gem.name +
@@ -1241,6 +1334,7 @@
         els.arcanaChoices.innerHTML = '';
         shuffle(availableArcanas()).slice(0, 3).forEach(id => {
             const arcana = D.ARCANAS[id];
+            markSeen('arcanas', id);
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'reward-card arcana-choice';
@@ -1301,6 +1395,10 @@
         }
 
         choices.forEach((rw, idx) => {
+            // Ofertas do Level Up também contam como descobertas (cartas, evoluções, gemas).
+            const offered = rw.id && rw.id.replace(/^(add_|up_|evo_|gem_)/, '');
+            if (rw.kind === 'carta' || rw.kind === 'evolucao') markSeen('cards', offered);
+            if (rw.kind === 'gema') markSeen('gems', offered);
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'reward-card' + (rw.kind === 'evolucao' || rw.kind === 'fusao' ? ' evo-choice' : '');
@@ -1790,6 +1888,7 @@
     function grantPickup(cardId) {
         const id = D.CARDS[cardId] && D.CARDS[cardId].consumable
             ? cardId : D.PICKUP_CARDS[Math.floor(Math.random() * D.PICKUP_CARDS.length)];
+        markSeen('cards', id);
         state.deck.push(id);
         const pt = viewportPoint(0.5, 0.4);
         spawnFloatingText(pt.x, pt.y, 'PICKUP: ' + D.CARDS[id].name + '!', 'combo');
@@ -2173,6 +2272,7 @@
     // ---------- COMBATE (5 COLUNAS: FRENTE VS. RETAGUARDA) ----------
     function makeEnemy(kind, summoned, col, row, elite) {
         const tpl = D.getEnemyStats(kind);
+        markSeen('enemies', tpl.kind);
         const e = {
             uid: 'e_' + (uidCounter++),
             kind: tpl.kind,
@@ -2407,6 +2507,8 @@
         state.bossOverkillActive = false;
         state.columnBurn = [0, 0, 0, 0, 0];
         state.columnBurnFloor = [0, 0, 0, 0, 0];
+        state.bossOverkillDmg = 0;
+        state.combatHurt = !!ambush;
         state.cardUses = {};
         state.discardDiscount = {};
         state.nextCostDiscount = 0;
@@ -2507,6 +2609,7 @@
 
     // hand, handReturnCounts, handCostMods e handTemp são arrays paralelos: só mexa neles por aqui.
     function pushToHand(cardId, returnCount, temp) {
+        markSeen('cards', cardId);
         // handTemp pode estar mais curto se a mão foi montada por fora (testes): alinha antes de inserir.
         while (state.handTemp.length < state.hand.length) state.handTemp.push(false);
         state.hand.push(cardId);
@@ -2661,6 +2764,7 @@
     function applyFrost(enemy, baseStacks) {
         if (enemy.hp <= 0 || enemy.overkill) return;
         enemy.frost += D.frostStacksToApply(baseStacks, getStat('Duration'));
+        if (state.enemies.filter(e => e.hp > 0 && e.frost > 0).length >= 3) goal('frio_calculista');
         const pos = getEnemyTargetPos(enemy);
         spawnFloatingText(pos.x, pos.y + 16, frostBlocksAttack(enemy) ? 'CONGELADO!' : 'GELADO! ATK -50%', 'shield');
         A.play('stun');
@@ -2696,6 +2800,7 @@
                 : false;
             const dmg = critRoll ? Math.round(rawDmg * (card.critMult || 1.5)) : rawDmg;
             const extraVr = gainVr(Math.max(1, Math.ceil(dmg / 4)));
+            noteBossOverkill(dmg);
             state.overkills += 1;
             R.triggerEnemyHitAnim(enemy.uid, true);
             R.triggerShake(0.055, 0.16);
@@ -2766,6 +2871,7 @@
                     showTip('overkill');
                     if (enemy.dropRelic) state.pendingDrop = enemy.dropRelic;
                     bonusVr = Math.max(2, Math.ceil(excess / 3));
+                    noteBossOverkill(excess);
                     overkill = true;
                     state.overkills += 1;
                     A.play('overkill');
@@ -2785,6 +2891,7 @@
                 }
 
                 state.kills += 1;
+                if (state.kills >= 100) goal('abates');
                 if (enemy.kind === 'trickster') rewardTrickster(pos);
                 const gainedVr = gainVr(enemy.vr + bonusVr);
                 A.play('death');
@@ -2922,6 +3029,7 @@
         R.triggerShake(0.06, 0.22);
         spawnFloatingText(p.x, p.y, card.name + ' ESTILHAÇOU!', 'player-hit');
         noteShatter();
+        if (state.shatters >= 3) goal('mao_pesada');
         return true;
     }
 
@@ -3313,6 +3421,7 @@
         state.lastComboCost = D.getComboCostAfter(card, costMod);
         const usedMult = D.getComboMult(state.comboCount);
         state.combo = usedMult;
+        if (usedMult >= 5) goal('escadinha');
         const isWild = D.isWildCard(card);
 
         // Quebra-Combo: o efeito sai no multiplicador atual + bônus pelo Combo consumido; a cadeia volta a 1x.
@@ -3675,6 +3784,7 @@
                 spawnFloatingText(c.x, c.y + 70, 'Bloqueou ' + absorbed, 'shield');
             }
             state.hp = Math.max(0, state.hp - dmg);
+            state.combatHurt = true;
             A.play('hurt');
             R.triggerShake(dmg >= 12 ? 0.13 : 0.09, 0.3);
             R.triggerEdgeFlash('216,40,30', dmg >= 12 ? 1 : 0.85, 0.5);
@@ -3774,6 +3884,7 @@
             const absorbed = Math.min(state.shield, bombDmg);
             state.shield -= absorbed;
             state.hp = Math.max(0, state.hp - (bombDmg - absorbed));
+            if (bombDmg > absorbed) state.combatHurt = true;
             const p = viewportPoint(0.5, 0.6);
             spawnFloatingText(p.x, p.y, 'BOMBA DE MANA -' + (bombDmg - absorbed), 'player-hit big-hit');
             A.play('hurt');
@@ -3932,8 +4043,17 @@
 
     // Fim do combate: espera a animação de morte, volta à exploração e deixa a fila de modais
     // (level ups acumulados, pausa/evento do tile, epílogo) conduzir o que vem depois.
+    // Ultramatança: soma o Overkill causado ao chefe desta luta.
+    function noteBossOverkill(amount) {
+        state.bossOverkillDmg = (state.bossOverkillDmg || 0) + Math.max(0, amount || 0);
+        if (state.bossOverkillDmg >= 100) goal('ultramatanca');
+    }
+
     function finishEncounter() {
         A.setMusic(null);
+        // Intocável: chefe vencido sem perder Sanidade nesta luta.
+        if (state.currentEncDef && state.enemies.some(e => e.isBoss) && !state.combatHurt) goal('intocavel');
+        flushSeen();
         if (state.tutorial && state.currentEncDef) {
             if (state.currentEncDef.tutorialStep === 2) state.tutorial.combat1 = true;
             if (state.currentEncDef.tutorialStep === 3) state.tutorial.combat2 = true;
@@ -4111,11 +4231,16 @@
         // Todo VR ganho na run (Overkill de chefe incluso, mesmo o já gasto) vira crédito persistente.
         const earned = vrEarnedThisRun();
         const result = M.recordRun(meta, {
-            vrEarned: earned, victory: !!victory, infinite: !!state.infinite, wave: wavesSurvived, pressure: state.pressure || 0,
+            vrEarned: earned, victory: !!victory, infinite: !!state.infinite, wave: wavesSurvived, pressure: state.pressure || 0, char: state.heroId,
             secretEnding: !!victory && hasSecretEnding(), trickster: !!state.tricksterDefeated
         });
+        // Minimalista: vitória sem gastar VR na fogueira (spendVr só é usado lá).
+        if (victory && !state.infinite && !(state.vrSpent > 0)) goal('minimalista');
+        const paidGoals = settleMetaGoals();
+        flushSeen();
         const saved = saveMeta();
         const notes = ['+' + result.credits + ' CR no Fundo de Reserva (total ' + meta.credits + ')'];
+        if (paidGoals.length > 0) notes.push(paidGoals.length + ' meta(s) concluída(s)!');
         if (result.unlockedInfinite) notes.push('HORA EXTRA INFINITA desbloqueada!');
         if (result.unlockedChar) notes.push('Novo colega: ' + D.getCharacter(result.unlockedChar).name + '!');
         if (result.newBestWave) notes.push('Recorde: ' + wavesSurvived + ' ondas!');
@@ -4480,6 +4605,7 @@
         if (hire) {
             hire.addEventListener('click', () => {
                 if (!M.unlockCharacter(meta, hero.id)) return;
+                settleMetaGoals();
                 M.selectCharacter(meta, hero.id);
                 previewChar = null;
                 saveMeta();
@@ -4540,6 +4666,7 @@
         btn.addEventListener('click', () => {
             A.unlock();
             if (!opts.onPick()) return;
+            settleMetaGoals();
             saveMeta();
             renderReception();
             renderBadge();
@@ -4652,7 +4779,9 @@
         A.setMusic(null);
         stopTutorialCoach();
         clearTips();
+        if (state) flushSeen();
         meta = loadMeta();
+        settleMetaGoals();
         previewChar = null;
         if (els.receptionModal) els.receptionModal.classList.add('hidden');
         A.stopAmbience();
@@ -4671,6 +4800,7 @@
         els.receptionModal.classList.add('hidden');
         // A run nasce com o colega e a meta atuais (comprados na Recepção), na mesma seed do mapa já mostrado.
         state = createInitialState({ seed: state.runSeed });
+        state.deck.forEach(id => markSeen('cards', id));
         if (meta.infiniteUnlocked && meta.infiniteMode) {
             setupInfiniteRun();
             renderAll();
@@ -4859,6 +4989,201 @@
         saveUi();
     }
 
+    // ---------- COLEÇÃO & METAS (Recepção) ----------
+    const COLLECTION_TABS = [
+        { id: 'metas', label: 'Metas' },
+        { id: 'cartas', label: 'Cartas' },
+        { id: 'gemas', label: 'Gemas & Arcanas' },
+        { id: 'bestiario', label: 'Bestiário' }
+    ];
+    let collectionOpen = false;
+
+    // Dica curta de onde encontrar cada coisa ainda não descoberta.
+    function cardHint(card) {
+        const ev = D.EVOLUTIONS.find(e => e.toCard === card.id);
+        if (ev) return 'Evolua ' + D.CARDS[ev.fromCard].name + ' com ' + ev.title + '.';
+        const fus = D.FUSIONS.find(f => f.toCard === card.id);
+        if (fus) return 'Funda ' + fus.cards.map(id => D.CARDS[id].name).join(' + ') + ' no Nível MÁX.';
+        if (card.consumable) return 'Às vezes vem nos baús.';
+        if (card.crawler) return 'Crachá de ' + D.getCharacter(card.crawler).name + '.';
+        if (card.type === 'curse') return 'Chefes enfiam no seu baralho.';
+        if (card.tempOnly) return 'Gerada pela Canção da Cafeteira.';
+        return 'Level Up e recompensas.';
+    }
+
+    function enemyHint(e) {
+        if (e.secret) return 'Segredo: dizem que aparece quando cartas demais se quebram.';
+        if (e.isBoss) return 'Chefe da Fase ' + e.floor + '.';
+        return 'Aparece na Fase ' + e.floor + '.';
+    }
+
+    function collectionTile(seen, icon, name, sub, extra) {
+        return '<div class="col-tile' + (seen ? '' : ' locked') + (extra || '') + '">' +
+            '<img src="' + S.getIconUrl(icon) + '" alt="" />' +
+            '<b>' + (seen ? name : '???') + '</b><small>' + sub + '</small></div>';
+    }
+
+    function collectionCounts() {
+        const total = Object.keys(D.CARDS).length + Object.keys(D.GEMS).length + Object.keys(D.ARCANAS).length + Object.keys(D.ENEMIES).length;
+        const seen = M.SEEN_KINDS.reduce((n, k) => n + meta.seen[k].length, 0);
+        return { goals: Object.keys(meta.goals).length, goalsTotal: M.GOALS.length, seen: seen, total: total };
+    }
+
+    function renderCollectionTab(id) {
+        const box = els.collectionContent;
+        Array.from(els.collectionTabs.children).forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+        box.dataset.tab = id;
+        const seen = meta.seen;
+        let html = '';
+        if (id === 'metas') {
+            html = M.GOALS.map(g => {
+                const done = !!meta.goals[g.id];
+                return '<div class="col-tile goal' + (done ? ' done' : '') + '" data-goal="' + g.id + '">' +
+                    '<img src="' + S.getIconUrl(g.icon) + '" alt="" />' +
+                    '<b>' + g.name + '</b><small>' + g.desc + '</small>' +
+                    '<em>' + (done ? '✔ CARIMBADA' : '+' + g.reward + ' CR') + '</em></div>';
+            }).join('');
+        } else if (id === 'cartas') {
+            const ids = Object.keys(D.CARDS);
+            const base = ids.filter(cid => !D.CARDS[cid].evolved);
+            const evo = ids.filter(cid => D.CARDS[cid].evolved);
+            const tile = cid => {
+                const c = D.CARDS[cid];
+                const ok = seen.cards.includes(cid);
+                return collectionTile(ok, c.icon, c.name, ok ? (c.evolved ? (c.fused ? 'Fusão' : 'Evolução') : 'Custo ' + (c.xCost ? 'X' : c.cost)) : cardHint(c));
+            };
+            html = '<h4>Cartas</h4>' + base.map(tile).join('') + '<h4>Evoluções & Fusões</h4>' + evo.map(tile).join('');
+        } else if (id === 'gemas') {
+            html = '<h4>Gemas</h4>' + Object.keys(D.GEMS).map(gid => {
+                const g = D.GEMS[gid];
+                const ok = seen.gems.includes(gid);
+                return '<div class="col-tile' + (ok ? '' : ' locked') + '"><span class="gem-slot filled" style="--gem:' + (ok ? g.color : '#3b3348') + '">' +
+                    (ok ? g.glyph : '?') + '</span><b>' + (ok ? g.name : '???') + '</b><small>' +
+                    (ok ? D.GEM_RARITY_LABEL[g.rarity] : 'Gema ' + D.GEM_RARITY_LABEL[g.rarity] + ': baús, Level Up e Fogueira.') + '</small></div>';
+            }).join('') + '<h4>Arcanas</h4>' + Object.keys(D.ARCANAS).map(aid => {
+                const a = D.ARCANAS[aid];
+                const ok = seen.arcanas.includes(aid);
+                return collectionTile(ok, a.icon, a.name, ok ? a.desc : 'Início da run, Poço dos Desejos ou Baú de Prata.');
+            }).join('');
+        } else {
+            const kinds = Object.keys(D.ENEMIES);
+            const tile = k => {
+                const e = D.ENEMIES[k];
+                const ok = seen.enemies.includes(k);
+                return collectionTile(ok, e.sprite || k, e.name, ok ? e.origin : enemyHint(e), e.isBoss ? ' boss' : e.secret ? ' secret' : '');
+            };
+            html = '<h4>Chefes</h4>' + kinds.filter(k => D.ENEMIES[k].isBoss).map(tile).join('') +
+                '<h4>Inimigos</h4>' + kinds.filter(k => !D.ENEMIES[k].isBoss && !D.ENEMIES[k].secret).map(tile).join('') +
+                '<h4>Segredos</h4>' + kinds.filter(k => D.ENEMIES[k].secret).map(tile).join('');
+        }
+        box.innerHTML = '<div class="col-grid">' + html + '</div>';
+        box.scrollTop = 0;
+    }
+
+    function openCollection(tab) {
+        A.unlock();
+        A.play('card');
+        const c = collectionCounts();
+        els.collectionProgress.textContent = 'Metas ' + c.goals + '/' + c.goalsTotal + ' · Coleção ' + c.seen + '/' + c.total;
+        els.collectionTabs.innerHTML = '';
+        COLLECTION_TABS.forEach(t => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'codex-tab';
+            b.dataset.tab = t.id;
+            b.textContent = t.label;
+            b.addEventListener('click', () => { A.play('card'); renderCollectionTab(t.id); });
+            els.collectionTabs.appendChild(b);
+        });
+        collectionOpen = true;
+        els.collectionModal.classList.remove('hidden');
+        renderCollectionTab(tab || 'metas');
+    }
+
+    function closeCollection() {
+        collectionOpen = false;
+        els.collectionModal.classList.add('hidden');
+    }
+
+    // ---------- BACKUP DO SAVE ----------
+    let backupOpen = false;
+    let pendingImport = null;
+
+    function backupMessage(text, kind) {
+        els.backupStatus.textContent = text;
+        els.backupStatus.className = 'backup-status ' + (kind || '');
+    }
+
+    function openBackup() {
+        A.unlock();
+        A.play('card');
+        backupOpen = true;
+        pendingImport = null;
+        els.backupText.value = '';
+        els.btnBackupConfirm.classList.add('hidden');
+        backupMessage('Exporte para guardar seu progresso ou cole um código para importar.', '');
+        els.backupModal.classList.remove('hidden');
+    }
+
+    function closeBackup() {
+        backupOpen = false;
+        pendingImport = null;
+        els.backupModal.classList.add('hidden');
+    }
+
+    function exportBackup() {
+        flushSeen();
+        const code = M.encodeBackup(meta, ui);
+        els.backupText.value = code;
+        els.backupText.select();
+        pendingImport = null;
+        els.btnBackupConfirm.classList.add('hidden');
+        const done = ok => backupMessage(ok ? 'Código copiado! Guarde-o num lugar seguro.' : 'Código gerado: selecione e copie (Ctrl+C).', 'ok');
+        try {
+            navigator.clipboard.writeText(code).then(() => done(true), () => done(false));
+        } catch (err) {
+            done(false);
+        }
+        return code;
+    }
+
+    // 1º passo: só valida e mostra o que tem no backup. Nada muda até "Substituir save atual".
+    function validateImport() {
+        const res = M.decodeBackup(els.backupText.value, {
+            gemIds: Object.keys(D.GEMS), cardIds: Object.keys(D.CARDS), charIds: D.CHARACTERS.map(c => c.id),
+            arcanaIds: Object.keys(D.ARCANAS), enemyIds: Object.keys(D.ENEMIES)
+        });
+        els.btnBackupConfirm.classList.toggle('hidden', !res.ok);
+        if (!res.ok) {
+            pendingImport = null;
+            backupMessage(res.error + ' Seu save atual não foi alterado.', 'error');
+            A.play('immune');
+            return res;
+        }
+        pendingImport = res;
+        backupMessage('Backup válido: ' + res.meta.credits + ' CR, ' + Object.keys(res.meta.goals).length + ' meta(s), ' +
+            res.meta.stats.wins + ' vitória(s). Confirme para SUBSTITUIR o save atual.', 'ok');
+        return res;
+    }
+
+    function applyImport() {
+        if (!pendingImport) return false;
+        const st = metaStorage();
+        if (!M.save(st, pendingImport.meta)) {
+            backupMessage('Não foi possível gravar (armazenamento bloqueado). Nada foi alterado.', 'error');
+            return false;
+        }
+        ui = sanitizeUi(pendingImport.ui);
+        saveUi();
+        meta = loadMeta();
+        pendingImport = null;
+        els.btnBackupConfirm.classList.add('hidden');
+        backupMessage('Save importado com sucesso!', 'ok');
+        A.play('levelup');
+        renderBadge();
+        return true;
+    }
+
     // ---------- MANUAL DO EXPEDIENTE (Códice "?") ----------
     let codexTabs = null;
 
@@ -5010,6 +5335,7 @@
         if (completed) {
             ui.tutorialDone = true;
             saveUi();
+            goal('estagiario');
         }
         openTitleModal();
     }
@@ -5147,6 +5473,13 @@
     els.btnCodex.addEventListener('click', () => openCodex(0));
     els.btnTitleCodex.addEventListener('click', () => openCodex(0));
     els.btnCodexClose.addEventListener('click', closeCodex);
+    els.btnOpenCollection.addEventListener('click', () => openCollection('metas'));
+    els.btnCollectionClose.addEventListener('click', closeCollection);
+    els.btnOpenBackup.addEventListener('click', openBackup);
+    els.btnBackupClose.addEventListener('click', closeBackup);
+    els.btnBackupExport.addEventListener('click', exportBackup);
+    els.btnBackupImport.addEventListener('click', validateImport);
+    els.btnBackupConfirm.addEventListener('click', applyImport);
     els.btnReplayIntro.addEventListener('click', () => { A.unlock(); openIntro(false); });
     els.btnOpenTutorial.addEventListener('click', () => { A.unlock(); A.play('levelup'); startTutorial(); });
     els.btnTutorialExit.addEventListener('click', () => { A.play('card'); finishTutorial(false); });
@@ -5281,10 +5614,12 @@
             }
             return;
         }
-        if (codexOpen) {
+        if (codexOpen || collectionOpen || backupOpen) {
             if (ev.key === 'Escape') {
                 ev.preventDefault();
-                closeCodex();
+                if (codexOpen) closeCodex();
+                else if (collectionOpen) closeCollection();
+                else closeBackup();
             }
             return;
         }
@@ -5399,6 +5734,8 @@
         gainXp: gainXp,
         get meta() { return meta; },
         get ui() { return ui; },
+        goal: goal,
+        openCollection: openCollection,
         get intro() { return { open: introOpen, scene: intro.scene, typed: intro.typed }; },
         get codexOpen() { return codexOpen; },
         openIntro: openIntro,

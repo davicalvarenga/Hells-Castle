@@ -308,6 +308,10 @@
                 <button id="btn-open-tutorial" class="reception-btn" type="button">TUTORIAL</button>
                 <button id="btn-title-codex" class="reception-btn" type="button">MANUAL ?</button>
             </div>
+            <div class="reception-actions onboarding-actions save-actions">
+                <button id="btn-open-collection" class="reception-btn" type="button">COLEÇÃO &amp; METAS</button>
+                <button id="btn-open-backup" class="reception-btn" type="button">BACKUP DO SAVE</button>
+            </div>
             <div id="pressure-row" class="pressure-row hidden">
                 <span class="pressure-lbl">PRESSÃO</span>
                 <div id="pressure-buttons" class="pressure-buttons" role="group" aria-label="Nível de Pressão"></div>
@@ -370,6 +374,39 @@
             <div id="codex-content" class="codex-content" role="tabpanel" tabindex="0"></div>
         </div>
     </div>
+
+    <!-- Coleção & Metas ("Carimbos do RH"): rolagem só dentro do conteúdo da aba -->
+    <div id="collection-modal" class="modal-overlay codex-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="collection-title">
+        <div class="modal-box codex-box collection-box">
+            <div class="codex-head">
+                <h2 id="collection-title">COLEÇÃO &amp; METAS</h2>
+                <button id="btn-collection-close" class="bevel-btn codex-close" type="button" aria-label="Fechar coleção">FECHAR</button>
+            </div>
+            <div id="collection-progress" class="collection-progress"></div>
+            <div id="collection-tabs" class="codex-tabs collection-tabs" role="tablist"></div>
+            <div id="collection-content" class="codex-content collection-content" role="tabpanel" tabindex="0"></div>
+        </div>
+    </div>
+
+    <!-- Backup do Save: exportar/importar código validado (nada muda sem confirmação) -->
+    <div id="backup-modal" class="modal-overlay codex-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="backup-title">
+        <div class="modal-box codex-box backup-box">
+            <div class="codex-head">
+                <h2 id="backup-title">BACKUP DO SAVE</h2>
+                <button id="btn-backup-close" class="bevel-btn codex-close" type="button" aria-label="Fechar backup">FECHAR</button>
+            </div>
+            <textarea id="backup-text" class="backup-text" spellcheck="false" autocomplete="off" aria-label="Código do save" placeholder="HCSAVE1...."></textarea>
+            <div id="backup-status" class="backup-status" aria-live="polite"></div>
+            <div class="backup-actions">
+                <button id="btn-backup-export" class="reception-btn" type="button">EXPORTAR</button>
+                <button id="btn-backup-import" class="reception-btn" type="button">IMPORTAR</button>
+                <button id="btn-backup-confirm" class="reception-btn backup-confirm hidden" type="button">SUBSTITUIR SAVE ATUAL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast de meta concluída (topo, não bloqueia cliques) -->
+    <div id="goal-toast" class="goal-toast hidden" aria-live="polite"></div>
 
     <!-- Tutorial guiado: cartão do passo atual (não bloqueia cliques no jogo) -->
     <div id="tutorial-coach" class="tutorial-coach hidden" aria-live="polite">

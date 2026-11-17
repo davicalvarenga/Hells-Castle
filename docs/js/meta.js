@@ -50,6 +50,32 @@
     const PRESSURE_BONUS = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
     const PRESSURE_MAX = PRESSURE_BONUS.length - 1;
 
+    // ---------- QUADRO DE METAS ("CARIMBOS DO RH") ----------
+    // scope: 'run' = o jogo marca durante a run; 'meta' = deduzida do save (evaluateMetaGoals).
+    // Cada meta paga uma única vez em crédito persistente.
+    const GOALS = [
+        { id: 'primeiro_ponto', name: 'Primeiro Ponto', desc: 'Vença o expediente às 18:00.', reward: 60, icon: 'r_photo', scope: 'meta' },
+        { id: 'escadinha', name: 'Mestre da Escadinha', desc: 'Chegue ao Combo x5 no mesmo turno.', reward: 40, icon: 'c_wild', scope: 'run' },
+        { id: 'ultramatanca', name: 'Ultramatança', desc: 'Cause 100+ de Overkill num mesmo chefe.', reward: 80, icon: 'c_comet', scope: 'run' },
+        { id: 'minimalista', name: 'Minimalista', desc: 'Vença sem gastar nada na Fogueira.', reward: 120, icon: 'campfire', scope: 'run' },
+        { id: 'alquimista', name: 'Alquimista', desc: 'Faça 2+ evoluções/fusões na mesma run.', reward: 80, icon: 'c_fusion', scope: 'run' },
+        { id: 'colegas', name: 'Colegas de Turno', desc: 'Vença com Vivi, com Seu Jorge e com Cláudia.', reward: 150, icon: 'hero_vivi', scope: 'meta' },
+        { id: 'cacador_segredos', name: 'Caçador de Segredos', desc: 'Derrote O Trapaceiro e veja o Final Secreto.', reward: 150, icon: 'event_q', scope: 'meta' },
+        { id: 'sob_pressao', name: 'Sob Pressão', desc: 'Vença na Pressão 3 e na Pressão 5.', reward: 150, icon: 'vr_boost', scope: 'meta' },
+        { id: 'infinito', name: 'Infinito', desc: 'Chegue à onda 5 na Hora Extra Infinita.', reward: 100, icon: 'c_loop', scope: 'meta' },
+        { id: 'joalheiro', name: 'Joalheiro de Bolso', desc: 'Encaixe 10 gemas na mesma run.', reward: 50, icon: 'c_prism', scope: 'run' },
+        { id: 'abates', name: 'Expediente Sangrento', desc: 'Derrote 100 inimigos na mesma run.', reward: 50, icon: 'c_blades', scope: 'run' },
+        { id: 'caixa_forte', name: 'Caixa-Forte', desc: 'Ganhe 500 VR na mesma run.', reward: 60, icon: 'c_coins', scope: 'run' },
+        { id: 'intocavel', name: 'Intocável', desc: 'Vença um chefe sem perder Sanidade na luta.', reward: 80, icon: 'c_aegis', scope: 'run' },
+        { id: 'frio_calculista', name: 'Frio e Calculista', desc: 'Tenha 3 inimigos congelados ao mesmo tempo.', reward: 60, icon: 'c_hourglass', scope: 'run' },
+        { id: 'mao_pesada', name: 'Mão Pesada', desc: 'Estilhace 3 cartas na mesma run.', reward: 40, icon: 'ata', scope: 'run' },
+        { id: 'arquiteto', name: 'Arquiteto do Almoxarifado', desc: 'Compre 10 ranks de PowerUp no total.', reward: 60, icon: 'headphones', scope: 'meta' },
+        { id: 'recrutador', name: 'Recrutador', desc: 'Tenha os 4 colegas contratados.', reward: 80, icon: 'hero_claudia', scope: 'meta' },
+        { id: 'estagiario', name: 'Estágio Concluído', desc: 'Conclua o Tutorial Guiado.', reward: 40, icon: 'hero_valter', scope: 'run' }
+    ];
+    const GOAL_BY_ID = GOALS.reduce((acc, g) => { acc[g.id] = g; return acc; }, {});
+    const SEEN_KINDS = ['cards', 'gems', 'arcanas', 'enemies'];
+
     function defaults() {
         return {
             version: VERSION,
@@ -67,6 +93,10 @@
             pressureUnlocked: 0,
             pressure: 0,
             achievements: { secretEnding: false, trickster: false },
+            goals: {},
+            seen: { cards: [], gems: [], arcanas: [], enemies: [] },
+            winsByChar: {},
+            pressureWins: [],
             stats: { runs: 0, wins: 0, bestWave: 0, totalCredits: 0 }
         };
     }
@@ -113,6 +143,20 @@
         out.pressure = toInt(raw.pressure, 0, out.pressureUnlocked);
         const ach = raw.achievements && typeof raw.achievements === 'object' ? raw.achievements : {};
         out.achievements = { secretEnding: ach.secretEnding === true, trickster: ach.trickster === true };
+        const goals = raw.goals && typeof raw.goals === 'object' ? raw.goals : {};
+        GOALS.forEach(g => { if (goals[g.id] === true) out.goals[g.id] = true; });
+        const seen = raw.seen && typeof raw.seen === 'object' ? raw.seen : {};
+        const known = { cards: o.cardIds, gems: o.gemIds, arcanas: o.arcanaIds, enemies: o.enemyIds };
+        SEEN_KINDS.forEach(kind => {
+            out.seen[kind] = uniq(seen[kind]).filter(id => typeof id === 'string' && id.length < 64 && (!known[kind] || known[kind].includes(id)));
+        });
+        const wins = raw.winsByChar && typeof raw.winsByChar === 'object' ? raw.winsByChar : {};
+        CHARACTER_ORDER.forEach(id => {
+            const n = toInt(wins[id], 0, BIG);
+            if (n > 0) out.winsByChar[id] = n;
+        });
+        out.pressureWins = uniq(raw.pressureWins).map(v => toInt(v, -1, PRESSURE_MAX)).filter(v => v >= 0).sort((a, b) => a - b);
+        out.pressureWins = uniq(out.pressureWins);
         const st = raw.stats && typeof raw.stats === 'object' ? raw.stats : {};
         out.stats = {
             runs: toInt(st.runs, 0, BIG),
@@ -310,6 +354,8 @@
             }
         } else if (r.victory) {
             meta.stats.wins += 1;
+            if (CHARACTER_ORDER.includes(r.char)) meta.winsByChar[r.char] = (meta.winsByChar[r.char] || 0) + 1;
+            if (!meta.pressureWins.includes(pressure)) meta.pressureWins = meta.pressureWins.concat(pressure).sort((a, b) => a - b);
             const next = Math.min(PRESSURE_MAX, pressure + 1);
             if (next > meta.pressureUnlocked) {
                 meta.pressureUnlocked = next;
@@ -332,6 +378,105 @@
         return out;
     }
 
+    // ---------- METAS ----------
+    // Concede a meta uma única vez: +crédito no Fundo de Reserva. Retorna o valor pago (0 se já tinha).
+    function awardGoal(meta, id) {
+        const goal = GOAL_BY_ID[id];
+        if (!goal || meta.goals[id]) return 0;
+        meta.goals[id] = true;
+        meta.credits += goal.reward;
+        meta.stats.totalCredits += goal.reward;
+        return goal.reward;
+    }
+
+    // Metas deduzidas do próprio save (vitórias, colegas, segredos, Pressão, Hora Extra, Almoxarifado).
+    function metaGoalsMet(meta) {
+        const wins = meta.winsByChar || {};
+        return {
+            primeiro_ponto: meta.stats.wins > 0,
+            colegas: ['vivi', 'jorge', 'claudia'].every(id => wins[id] > 0),
+            cacador_segredos: meta.achievements.secretEnding && meta.achievements.trickster,
+            sob_pressao: meta.pressureWins.includes(3) && meta.pressureWins.includes(5),
+            infinito: meta.stats.bestWave >= 5,
+            arquiteto: totalBought(meta) >= 10,
+            recrutador: CHARACTER_ORDER.every(id => isUnlocked(meta, id))
+        };
+    }
+
+    // Concede todas as metas de save já cumpridas. Retorna a lista [{ id, reward }] do que foi pago agora.
+    function evaluateMetaGoals(meta) {
+        const met = metaGoalsMet(meta);
+        return Object.keys(met).filter(id => met[id]).map(id => ({ id: id, reward: awardGoal(meta, id) })).filter(x => x.reward > 0);
+    }
+
+    // ---------- COLEÇÃO ----------
+    function markSeen(meta, kind, id) {
+        if (!SEEN_KINDS.includes(kind) || typeof id !== 'string' || meta.seen[kind].includes(id)) return false;
+        meta.seen[kind].push(id);
+        return true;
+    }
+
+    // ---------- BACKUP (exportar / importar) ----------
+    // Formato: HCSAVE1.<base64 do JSON em UTF-8>.<FNV-1a 32 bits do JSON, 8 dígitos hex>.
+    const BACKUP_PREFIX = 'HCSAVE1';
+
+    function fnv1a(text) {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < text.length; i++) {
+            h ^= text.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return ('0000000' + h.toString(16)).slice(-8);
+    }
+
+    function toBase64(text) {
+        const bytes = new TextEncoder().encode(text);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    }
+
+    function fromBase64(b64) {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    }
+
+    function encodeBackup(meta, ui) {
+        const json = JSON.stringify({ v: 1, meta: meta, ui: ui || {} });
+        return BACKUP_PREFIX + '.' + toBase64(json) + '.' + fnv1a(json);
+    }
+
+    // Nunca lança: { ok: true, meta (já validada), ui (bruta) } ou { ok: false, error } com mensagem clara.
+    function decodeBackup(text, opts) {
+        const raw = String(text || '').replace(/\s+/g, '');
+        if (!raw) return { ok: false, error: 'Cole o código do backup na caixa antes de importar.' };
+        const parts = raw.split('.');
+        if (parts.length !== 3 || parts[0] !== BACKUP_PREFIX) {
+            return { ok: false, error: 'Código inválido: um backup do Hell\'s Castle começa com ' + BACKUP_PREFIX + '.' };
+        }
+        let json;
+        try {
+            json = fromBase64(parts[1]);
+        } catch (err) {
+            return { ok: false, error: 'Código corrompido: o conteúdo não é Base64 válido.' };
+        }
+        if (fnv1a(json) !== parts[2].toLowerCase()) {
+            return { ok: false, error: 'Checksum não confere: o código foi cortado ou alterado.' };
+        }
+        let data;
+        try {
+            data = JSON.parse(json);
+        } catch (err) {
+            return { ok: false, error: 'Código corrompido: os dados não são JSON válido.' };
+        }
+        if (!data || data.v !== 1 || !data.meta || typeof data.meta !== 'object') {
+            return { ok: false, error: 'Backup de outra versão ou sem dados de progresso.' };
+        }
+        return { ok: true, meta: sanitize(data.meta, opts), ui: data.ui && typeof data.ui === 'object' ? data.ui : {} };
+    }
+
     window.GameMeta = {
         STORAGE_KEY: STORAGE_KEY,
         POWERUPS: POWERUPS,
@@ -344,6 +489,16 @@
         CHARACTER_PRICES: CHARACTER_PRICES,
         CHARACTER_ORDER: CHARACTER_ORDER,
         PRESSURE_BONUS: PRESSURE_BONUS,
+        GOALS: GOALS,
+        GOAL_BY_ID: GOAL_BY_ID,
+        SEEN_KINDS: SEEN_KINDS,
+        BACKUP_PREFIX: BACKUP_PREFIX,
+        awardGoal: awardGoal,
+        metaGoalsMet: metaGoalsMet,
+        evaluateMetaGoals: evaluateMetaGoals,
+        markSeen: markSeen,
+        encodeBackup: encodeBackup,
+        decodeBackup: decodeBackup,
         PRESSURE_MAX: PRESSURE_MAX,
         setPressure: setPressure,
         defaults: defaults,
